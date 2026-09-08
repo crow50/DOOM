@@ -1,0 +1,25 @@
+# Keep secrets and history out of image layers entirely (T-27).
+# A file copied in one layer and deleted in the next is still in the image.
+.git
+.gitignore
+.env
+*.pem
+*.key
+*.crt
+
+uploads/
+backups/
+docs/
+caddy/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+.vscode/
+.idea/
+.DS_Store

@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Activity - DOOM{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Activity</h1>
+  {# CSV always downloads and never renders inline. Cells beginning with
+     =, +, - or @ are prefixed so a spreadsheet treats them as text rather
+     than executing them as formulas. #}
+  <a class="button button-quiet" href="{{ url_for('account.export_csv') }}">Export CSV</a>
+</div>
+
+<section class="panel">
+  <form class="search" method="get" action="{{ url_for('account.activity') }}">
+    <select class="input" name="action">
+      <option value="">All activity</option>
+      {% for value, label in actions %}
+        <option value="{{ value }}" {% if value == action %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <button class="button button-small" type="submit">Filter</button>
+  </form>
+
+  <p class="muted small">
+    {{ total }} event{{ 's' if total != 1 }} recorded for your account.
+    Failed sign-ins and blocked access attempts are included - a run of them is
+    what an attack looks like from the inside.
+  </p>
+
+  {% if entries %}
+    <table class="table">
+      <thead>
+        <tr><th>When (UTC)</th><th>Event</th><th>Detail</th><th>From</th></tr>
+      </thead>
+      <tbody>
+        {% for entry, description in entries %}
+          <tr>
+            <td class="mono">{{ entry.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ description }}</td>
+            <td class="muted">{{ entry.detail or '' }}</td>
+            <td class="mono muted small">{{ entry.ip or '' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if pages > 1 %}
+      <nav class="pager">
+        {% if page > 1 %}
+          <a href="{{ url_for('account.activity', page=page-1, action=action) }}">← Newer</a>
+        {% endif %}
+        <span class="muted small">Page {{ page }} of {{ pages }}</span>
+        {% if page < pages %}
+          <a href="{{ url_for('account.activity', page=page+1, action=action) }}">Older →</a>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <p class="empty">No matching activity.</p>
+  {% endif %}
+</section>
+{% endblock %}

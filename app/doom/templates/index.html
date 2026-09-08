@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}DOOM - Inventory{% endblock %}
+
+{% block content %}
+<section class="panel panel-centred">
+  <h1>Know what you have, and where it is.</h1>
+  <p class="muted">
+    Warehouses, shelves, bins and totes. Label a container once, scan it
+    forever.
+  </p>
+  <p>
+    <a class="button" href="{{ url_for('auth.register') }}">Create an account</a>
+    <a class="button button-quiet" href="{{ url_for('auth.login') }}">Sign in</a>
+  </p>
+</section>
+{% endblock %}

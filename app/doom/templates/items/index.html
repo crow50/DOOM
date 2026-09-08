@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}Items - DOOM{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Items</h1>
+  <a class="button" href="{{ url_for('items.create') }}">New item</a>
+</div>
+
+<section class="panel">
+  {# GET, no CSRF token: this changes no state. The term is bound as a
+     parameter server-side, never concatenated into SQL. #}
+  <form class="search" method="get" action="{{ url_for('items.index') }}">
+    {{ form.q(class="input", placeholder="Search items", maxlength=search_max) }}
+    <button class="button button-small" type="submit">Search</button>
+  </form>
+
+  {% if unassigned_count %}
+    <p class="flash flash-info">
+      {{ unassigned_count }} item{{ 's' if unassigned_count != 1 }} not yet filed
+      anywhere.
+      {% if showing_unassigned %}
+        <a href="{{ url_for('items.index') }}">Show all items</a>
+      {% else %}
+        <a href="{{ url_for('items.index', unassigned='1') }}">Show just those</a>
+      {% endif %}
+    </p>
+  {% endif %}
+
+  {% if items %}
+    <ul class="list">
+      {% for item in items %}
+        <li>
+          {% if item.primary_photo %}
+            <img class="result-thumb"
+                 src="{{ url_for('files.thumbnail', attachment_id=item.primary_photo.id) }}"
+                 alt="" loading="lazy" width="36" height="36">
+          {% endif %}
+          <a href="{{ url_for('items.detail', item_id=item.id) }}">{{ item.display_name }}</a>
+          <span class="muted small">x{{ item.quantity }}</span>
+          {% if item.location %}
+            <span class="muted small">in {{ item.location.name }}</span>
+          {% else %}
+            <span class="badge badge-unfiled">unfiled</span>
+          {% endif %}
+          {% if item.is_shared %}<span class="badge badge-shared">shared</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {{ empty_state("Nothing found.") }}
+  {% endif %}
+</section>
+{% endblock %}

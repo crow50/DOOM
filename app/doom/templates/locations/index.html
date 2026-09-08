@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kind_badge, empty_state %}
+{% block title %}Locations - DOOM{% endblock %}
+
+{% macro tree(nodes) %}
+  <ul class="tree">
+    {% for node in nodes %}
+      {% set preview = previews.get(node.id, {'count': 0, 'photos': []}) %}
+      <li>
+        <div class="tree-row">
+          <a class="tree-link" href="{{ url_for('locations.detail', location_id=node.id) }}">
+            {{ node.name }}
+          </a>
+          {{ kind_badge(node.kind) }}
+          {% if preview.count %}
+            <span class="muted small">{{ preview.count }} item{{ 's' if preview.count != 1 }}</span>
+          {% endif %}
+          {% if node.is_shared %}<span class="badge badge-shared">shared</span>{% endif %}
+
+          {# A closed container is a black hole. Showing what is inside without
+             opening it is the entire point. #}
+          {% if preview.photos %}
+            <span class="peek">
+              {% for attachment_id in preview.photos %}
+                <img src="{{ url_for('files.thumbnail', attachment_id=attachment_id) }}"
+                     alt="" loading="lazy" width="28" height="28">
+              {% endfor %}
+            </span>
+          {% endif %}
+        </div>
+        {% if node.children %}{{ tree(node.children) }}{% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Locations</h1>
+  <a class="button" href="{{ url_for('locations.create') }}">New location</a>
+</div>
+
+{% if roots %}
+  <section class="panel">{{ tree(roots) }}</section>
+{% else %}
+  <section class="panel">
+    {{ empty_state("No locations yet. Start with a site - a place with an address - then add zones, shelves and bins inside it.") }}
+    <p><a class="button" href="{{ url_for('locations.create') }}">Create your first location</a></p>
+  </section>
+{% endif %}
+
+{% if unassigned_count %}
+  <section class="panel">
+    <p class="muted small">
+      {{ unassigned_count }} item{{ 's' if unassigned_count != 1 }} not filed
+      anywhere yet. This page answers &ldquo;where are my things&rdquo;, and an
+      unplaced item has no answer &mdash; so they live on the
+      <a href="{{ url_for('items.index', unassigned='1') }}">Items</a> screen
+      until you file them.
+    </p>
+  </section>
+{% endif %}
+{% endblock %}

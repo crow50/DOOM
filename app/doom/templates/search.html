@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kind_badge, empty_state %}
+{% block title %}{{ ('Search: ' ~ term) if term else 'Search' }} — DOOM{% endblock %}
+
+{% block content %}
+<h1>Search</h1>
+
+<section class="panel">
+  <form class="search" method="get" action="{{ url_for('search.index') }}">
+    <input class="input" type="search" name="q" value="{{ term }}"
+           placeholder="Anything — a name, a note, an address, a barcode"
+           maxlength="{{ search_max }}" autofocus>
+    <button class="button button-small" type="submit">Search</button>
+  </form>
+
+  {% if term %}
+    <p class="muted small">
+      {{ items|length }} item{{ 's' if items|length != 1 }},
+      {{ locations|length }} location{{ 's' if locations|length != 1 }}.
+    </p>
+  {% endif %}
+</section>
+
+{% if term %}
+  {% if locations %}
+    <section class="panel">
+      <h2>Locations</h2>
+      <ul class="list">
+        {% for loc in locations %}
+          <li>
+            <a href="{{ url_for('locations.detail', location_id=loc.id) }}">{{ loc.name }}</a>
+            {{ kind_badge(loc.kind) }}
+            {% if loc.address %}<span class="muted small">{{ loc.address }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if items %}
+    <section class="panel">
+      <h2>Items</h2>
+      <ul class="list results">
+        {% for item in items %}
+          <li>
+            {% if item.primary_photo %}
+              <img class="result-thumb"
+                   src="{{ url_for('files.thumbnail', attachment_id=item.primary_photo.id) }}"
+                   alt="" loading="lazy" width="44" height="44">
+            {% endif %}
+            <a href="{{ url_for('items.detail', item_id=item.id) }}">{{ item.display_name }}</a>
+            <span class="muted small">x{{ item.quantity }}</span>
+            {% if item.location %}
+              <span class="muted small">in {{ item.location.name }}</span>
+            {% else %}
+              <span class="badge badge-unfiled">unfiled</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  {% if not items and not locations %}
+    <section class="panel">{{ empty_state("Nothing matched.") }}</section>
+  {% endif %}
+{% endif %}
+{% endblock %}

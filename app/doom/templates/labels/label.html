@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, nfc_panel %}
+{% block title %}Label - {{ node.name }} - DOOM{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/nfc.js') }}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Label &amp; sharing</h1>
+  <a class="button button-quiet"
+     href="{{ url_for('labels.sheet', **{node_type: node.id}) }}">Print sheet</a>
+</div>
+
+<section class="panel">
+  <h2>{{ node.name }}</h2>
+
+  <div class="label-preview">
+    <img class="qr" src="{{ qr }}" alt="QR code for {{ node.name }}" width="180" height="180">
+    <div>
+      <p class="short-code">{{ node.short_code }}</p>
+      <p class="muted small">
+        The short code is printed under every QR. If the base URL ever changes,
+        a bin can still be found by typing these characters - printed labels
+        outlive domains.
+      </p>
+      <p class="muted small break">{{ share_link }}</p>
+    </div>
+  </div>
+
+  <p class="muted small">
+    This label is permanent. It identifies the {{ node_type }} itself, not its
+    contents or its position, so refilling a tote or moving a shelf never
+    requires reprinting.
+  </p>
+</section>
+
+{{ nfc_panel(node_type, node, share_link) }}
+
+<section class="panel">
+  <h2>Sharing</h2>
+
+  {% if node.is_shared %}
+    <p class="flash flash-warning">
+      Anyone with this link can see this page without signing in.
+    </p>
+  {% else %}
+    <p class="muted small">
+      Private. The link resolves for nobody until you enable sharing below.
+    </p>
+  {% endif %}
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <div class="field checkbox">
+      {{ form.enabled }} {{ form.enabled.label }}
+    </div>
+    {{ field(form.pin, placeholder="optional") }}
+    <div class="field checkbox">
+      {{ form.clear_pin }} {{ form.clear_pin.label }}
+    </div>
+    <p class="muted small">
+      A PIN means a leaked link alone is not enough to open the page. Worth
+      setting on anything you would not want catalogued by a stranger.
+    </p>
+    {{ form.submit(class="button") }}
+  </form>
+</section>
+
+<section class="panel panel-danger">
+  <h2>Issue a new link</h2>
+  <p class="muted small">
+    Use this if a link has leaked. It revokes the current one immediately -
+    and every label already printed for this {{ node_type }} stops working, so
+    you will need to reprint.
+  </p>
+  <form method="post" action="{{ url_for('labels.rotate', node_type=node_type, node_id=node.id) }}">
+    {{ form.hidden_tag() }}
+    <button class="button button-danger" type="submit">Rotate link</button>
+  </form>
+</section>
+{% endblock %}

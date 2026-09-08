@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {# Belt and braces alongside the X-Robots-Tag header and robots.txt (T-21). #}
+  <meta name="robots" content="noindex, nofollow, noarchive">
+  <title>{% block title %}Shared{% endblock %} - DOOM</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/doom.css') }}">
+</head>
+<body class="share-body">
+  {# No navigation, no breadcrumb, no parent link, no search.
+     A shared page is a leaf, not a doorway: one leaked token must never
+     become a browsable catalogue of someone's possessions (T-20). #}
+  <main class="shell shell-narrow">
+    <section class="panel">
+      {% block share_content %}{% endblock %}
+    </section>
+    <p class="muted small centred">Shared read-only from a DOOM inventory.</p>
+  </main>
+</body>
+</html>

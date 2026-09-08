@@ -1,0 +1,52 @@
+{
+	# No admin API surface inside the container.
+	admin off
+
+	# Deploying against a real public domain? Add your ACME contact here:
+	#
+	#     email you@example.com
+	#
+	# It is left out by default because DOOM_DOMAIN=localhost is served by
+	# Caddy's internal CA, which needs no ACME account - and an empty `email`
+	# directive is a parse error rather than a no-op.
+}
+
+{$DOOM_DOMAIN:localhost} {
+	encode gzip
+
+	# First of two body-size gates (T-28).  Set slightly above the app's own
+	# 10 MB limit so oversized uploads are refused by Flask with a styled 413
+	# rather than by Caddy with a bare error - the app still enforces its own
+	# cap, this one just stops absurd bodies before they reach Python.
+	request_body {
+		max_size 12MB
+	}
+
+	header {
+		-Server
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	# The uploads volume is deliberately NOT mounted here.  A file_server
+	# directive for it would bypass every ownership check in the application
+	# (T-24).  Files are only ever served through an authenticated handler.
+
+	reverse_proxy web:8000 {
+		# OVERWRITE, never append (T-07).
+		#
+		# Caddy's default is to append to any inbound X-Forwarded-For.  That
+		# would let a client seed the chain with a forged address and, paired
+		# with ProxyFix trusting one hop, hand every attacker a fresh
+		# rate-limit bucket.  Pinning the header to the real peer address is
+		# what makes per-IP limiting mean anything.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+
+		# {hostport}, NOT {host}: the bare {host} placeholder drops the port.
+		# On any non-default port the app would then believe it is serving
+		# "localhost" while the browser is on "localhost:8443", and Flask-WTF's
+		# strict Referer check would reject every POST as cross-origin - CSRF
+		# protection failing closed on legitimate traffic.
+		header_up X-Forwarded-Host {http.request.hostport}
+	}
+}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Label sheet - DOOM</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/labels.css') }}">
+</head>
+<body>
+  {# Screen-only guidance; the print stylesheet hides it. #}
+  <div class="sheet-toolbar">
+    <p>
+      Avery 5160 / 30-per-page. Print at 100% scale with margins set to none.
+      {{ labels|length }} label{{ 's' if labels|length != 1 }} queued.
+    </p>
+    <a href="{{ back_url }}">Back to DOOM</a>
+  </div>
+
+  <div class="sheet">
+    {% for label in labels %}
+      <div class="label">
+        <img class="label-qr" src="{{ label.qr }}" alt="" width="72" height="72">
+        <div class="label-text">
+          <p class="label-name">{{ label.name }}</p>
+          <p class="label-sub">{{ label.subtitle }}</p>
+          <p class="label-code">{{ label.short_code }}</p>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</body>
+</html>

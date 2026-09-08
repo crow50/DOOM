@@ -1,0 +1,241 @@
+{# Shared form rendering.
+
+   Every value passes through Jinja2 autoescaping. Nothing in this codebase
+   uses the autoescape-bypass filter or Markup, and `make lint` fails the
+   build if anything ever does - user-controlled text must never reach the
+   browser as markup (T-19).
+
+   Note that the check is a plain grep with no exceptions, which is why this
+   comment describes the filter rather than naming it. A lint rule with a
+   carve-out list is a lint rule waiting to be worked around. #}
+
+{% macro field(f, autofocus=false, placeholder="") %}
+  <div class="field">
+    {{ f.label }}
+    {# maxlength is a usability hint only. The identical bound is enforced by
+       the WTForms validator, the ORM column and a Postgres CHECK, all reading
+       the same constant from validation.py. #}
+    {{ f(
+         class="input" ~ (" input-error" if f.errors else ""),
+         autofocus=autofocus,
+         placeholder=placeholder,
+         **{"aria-invalid": "true"} if f.errors else {}
+       ) }}
+    {% if f.errors %}
+      <ul class="field-errors">
+        {% for error in f.errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% if f.description %}
+      <p class="field-hint">{{ f.description }}</p>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+
+{% macro submit(f, variant="primary") %}
+  {{ f(class="button button-" ~ variant) }}
+{% endmacro %}
+
+
+{% macro breadcrumb(trail) %}
+  {# Owner-side only. The public share view deliberately never renders an
+     ancestor trail: the chain from a bin up to a warehouse is what turns a
+     leaked link into a physical address (T-20). #}
+  <nav class="breadcrumb" aria-label="Location path">
+    <a href="{{ url_for('locations.index') }}">All locations</a>
+    {% for node in trail %}
+      <span class="crumb-sep">/</span>
+      {% if loop.last %}
+        <span class="crumb-current">{{ node.name }}</span>
+      {% else %}
+        <a href="{{ url_for('locations.detail', location_id=node.id) }}">{{ node.name }}</a>
+      {% endif %}
+    {% endfor %}
+  </nav>
+{% endmacro %}
+
+
+{% macro kind_badge(kind) %}
+  <span class="badge badge-{{ kind }}">{{ kind }}</span>
+{% endmacro %}
+
+
+{% macro empty_state(message) %}
+  <p class="empty">{{ message }}</p>
+{% endmacro %}
+
+
+{% macro attachments_panel(node_type, node, attachments, confirm_form) %}
+  <section class="panel">
+    <h2>Photos &amp; documents</h2>
+
+    {% if attachments %}
+      <div class="gallery">
+        {% for a in attachments %}
+          <figure class="gallery-item">
+            {% if a.kind == 'photo' %}
+              <a href="{{ url_for('files.download', attachment_id=a.id) }}">
+                <img src="{{ url_for('files.thumbnail', attachment_id=a.id) }}"
+                     alt="{{ a.original_name }}" loading="lazy">
+              </a>
+            {% else %}
+              <a class="doc-tile" href="{{ url_for('files.download', attachment_id=a.id) }}">
+                <span class="doc-ext">{{ a.content_type.split('/')[-1] }}</span>
+              </a>
+            {% endif %}
+            <figcaption>
+              <span class="filename">{{ a.original_name }}</span>
+              <form class="inline-form" method="post"
+                    action="{{ url_for('files.delete', attachment_id=a.id) }}">
+                {{ confirm_form.hidden_tag() }}
+                <button class="linkish danger" type="submit">remove</button>
+              </form>
+            </figcaption>
+          </figure>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="empty">No photos or documents yet.</p>
+    {% endif %}
+
+    <form method="post" enctype="multipart/form-data"
+          action="{{ url_for('files.upload', node_type=node_type, node_id=node.id) }}">
+      {{ confirm_form.hidden_tag() }}
+      {# accept= is a convenience for the file picker only. The server decides
+         what a file actually is by reading its magic bytes, so renaming a
+         script to .jpg gets it no further than the picker (T-12). #}
+      <input class="input" type="file" name="file" multiple
+             accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,.md">
+      <p class="field-hint">
+        JPEG, PNG, WebP, PDF, text or Markdown. Up to {{ upload_max_mb }} MB each.
+        Photos are re-encoded on upload, which strips EXIF - including GPS
+        coordinates that would otherwise reveal where the picture was taken.
+      </p>
+      <button class="button button-small" type="submit">Upload</button>
+    </form>
+  </section>
+{% endmacro %}
+
+
+{% macro nfc_panel(node_type, node, share_link) %}
+  <section class="panel" id="nfc-panel"
+           data-share-url="{{ share_link }}"
+           data-register-url="{{ url_for('nfc.register', node_type=node_type, node_id=node.id) }}"
+           data-csrf="{{ csrf_token() }}"
+           data-node-name="{{ node.name }}">
+    <h2>NFC tag</h2>
+    <p class="muted small">
+      Write this {{ node_type }}'s link to a tag. The tag points at the
+      {{ node_type }} itself, so it never needs rewriting when contents change.
+    </p>
+    <div class="actions">
+      <button class="button button-small" type="button" id="nfc-write">Write tag</button>
+      <button class="button button-small button-quiet" type="button" id="nfc-scan">Scan a tag</button>
+      <button class="button button-small button-danger" type="button" id="nfc-lock">Write &amp; lock</button>
+    </div>
+    <p class="nfc-status muted small" id="nfc-status">Ready.</p>
+    <p class="muted small">
+      Locking is permanent and stops anyone repointing the tag. NFC tags are
+      unauthenticated and easy to clone, so the link they carry only ever
+      opens the public view - never an editing page.
+    </p>
+  </section>
+{% endmacro %}
+
+
+{% macro history_panel(events, empty_message="Nothing recorded yet.") %}
+  {# One chronological history: movements, custody changes, and the audit
+     trail merged. Anonymous events - a shared link being opened, a blocked
+     access attempt - are called out, because those are the ones an owner
+     actually needs to look at. #}
+  <section class="panel">
+    <h2>History</h2>
+
+    {% if events %}
+      <ul class="timeline">
+        {% for e in events %}
+          <li class="tl tl-{{ e.kind }}{% if e.anonymous %} tl-anon{% endif %}">
+            <span class="tl-time">{{ e.at.strftime('%Y-%m-%d %H:%M') }}</span>
+            <span class="tl-body">
+              <span class="tl-summary">{{ e.summary }}</span>
+              {% if e.delta %}
+                <span class="tl-delta">{{ '%+d'|format(e.delta) }}</span>
+              {% endif %}
+              {% if e.detail %}<span class="muted"> - {{ e.detail }}</span>{% endif %}
+            </span>
+            <span class="tl-actor muted small">
+              {% if e.anonymous %}
+                anonymous{% if e.ip %} · {{ e.ip }}{% endif %}
+              {% elif e.actor %}
+                by {{ e.actor }}
+              {% endif %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+      <p class="muted small">
+        Failed and blocked events appear here too - a run of them is what an
+        attack looks like from the inside.
+      </p>
+    {% else %}
+      <p class="empty">{{ empty_message }}</p>
+    {% endif %}
+  </section>
+{% endmacro %}
+
+
+{% macro custody_panel(item, open_checkouts, checkout_form, return_form) %}
+  <section class="panel">
+    <h2>Custody</h2>
+
+    <p class="muted small">
+      Checking out records who has something without moving it - the item still
+      belongs in its location, and returning it puts it back there.
+    </p>
+
+    <p class="availability">
+      <strong>{{ item.quantity_available }}</strong> of {{ item.quantity }} available
+      {% if item.quantity_out %}
+        <span class="muted">· {{ item.quantity_out }} checked out</span>
+      {% endif %}
+    </p>
+
+    {% if open_checkouts %}
+      <ul class="list">
+        {% for c in open_checkouts %}
+          <li>
+            <span><strong>{{ c.quantity }}</strong> with {{ c.holder_name }}</span>
+            <span class="muted small">since {{ c.checked_out_at.strftime('%Y-%m-%d') }}</span>
+            {% if c.due_back_at %}
+              <span class="badge {{ 'badge-overdue' if c.is_overdue else '' }}">
+                due {{ c.due_back_at.strftime('%Y-%m-%d') }}
+              </span>
+            {% endif %}
+            {% if c.note %}<span class="muted small">{{ c.note }}</span>{% endif %}
+            <form class="inline-form" method="post"
+                  action="{{ url_for('items.check_in', item_id=item.id, checkout_id=c.id) }}">
+              {{ return_form.hidden_tag() }}
+              <button class="button button-small" type="submit">Return</button>
+            </form>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    {% if item.quantity_available > 0 %}
+      <form method="post" action="{{ url_for('items.checkout', item_id=item.id) }}" novalidate>
+        {{ checkout_form.hidden_tag() }}
+        <div class="row">
+          {{ field(checkout_form.holder_name, placeholder="Sam Baker / Crew 2 / Job 4471") }}
+          {{ field(checkout_form.quantity) }}
+          {{ field(checkout_form.due_back_at) }}
+        </div>
+        {{ field(checkout_form.note, placeholder="For the deck job") }}
+        {{ checkout_form.submit(class="button button-small") }}
+      </form>
+    {% else %}
+      <p class="empty">All {{ item.quantity }} are currently checked out.</p>
+    {% endif %}
+  </section>
+{% endmacro %}

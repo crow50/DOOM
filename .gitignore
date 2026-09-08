@@ -1,0 +1,27 @@
+# Secrets - never commit these (T-27)
+.env
+secrets/
+certs/
+*.pem
+*.key
+*.crt
+
+# Uploaded user content (T-27)
+uploads/
+backups/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store

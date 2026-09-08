@@ -1,0 +1,185 @@
+name: doom
+
+services:
+  # ---------------------------------------------------------------------------
+  # caddy - TLS termination.  The ONLY service that publishes a port.
+  #
+  # Not optional: Web NFC requires a secure context, and a phone reaching this
+  # host over a LAN IP is not one.  TLS is a functional requirement here.
+  # ---------------------------------------------------------------------------
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      DOOM_DOMAIN: ${DOOM_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - edge
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
+  # web - the application.  Reachable only through caddy.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: ./app
+    restart: unless-stopped
+    # ASVS 6.4.1 — secrets arrive as read-only files, not environment
+    # variables. An env var is inherited by every child process, shows up in
+    # `docker inspect`, and can be read straight out of /proc/<pid>/environ.
+    # A mounted file has none of those properties.
+    #
+    # This is also the shape a real vault expects (Docker secrets, Kubernetes
+    # and Vault agent all present secrets as files), so moving to one later is
+    # a mount change rather than a code change.
+    secrets:
+      - doom_secret_key
+      - doom_app_db_password
+      - doom_redis_password
+    environment:
+      SECRET_KEY_FILE: /run/secrets/doom_secret_key
+      # The app gets the RESTRICTED role.  It never holds admin credentials,
+      # so a successful injection still cannot ALTER or DROP anything (T-35).
+      # Assembled by the entrypoint from the mounted secret files, so no
+      # password reaches the process environment.
+      APP_DB_USER: ${APP_DB_USER:-doom_app}
+      APP_DB_PASSWORD_FILE: /run/secrets/doom_app_db_password
+      POSTGRES_DB: ${POSTGRES_DB:-doom}
+      REDIS_PASSWORD_FILE: /run/secrets/doom_redis_password
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?PUBLIC_BASE_URL is required - labels bake it in permanently}
+      UPLOAD_DIR: /var/lib/doom/uploads
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-4}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Writable island in an otherwise read-only filesystem.
+      - uploads:/var/lib/doom/uploads:rw
+    networks:
+      - edge
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    # --- container hardening (T-34) ---
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # Argon2id reserves 64 MiB per hash in flight.  workers x threads x 64 MiB
+    # must fit here with headroom, or concurrent logins OOM the container (T-30).
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # db - postgres.  No published port; internal network only.
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16.4-alpine
+    restart: unless-stopped
+    secrets:
+      - doom_postgres_password
+      - doom_app_db_password
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-doom}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-doom_admin}
+      # The official image supports _FILE for exactly this reason.
+      POSTGRES_PASSWORD_FILE: /run/secrets/doom_postgres_password
+      APP_DB_USER: ${APP_DB_USER:-doom_app}
+      APP_DB_PASSWORD_FILE: /run/secrets/doom_app_db_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-doom_admin} -d ${POSTGRES_DB:-doom}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # cache - redis, backing the rate limiter.
+  #
+  # Password-protected even though it sits on an internal-only network:
+  # defence in depth costs one flag here.
+  # ---------------------------------------------------------------------------
+  cache:
+    image: redis:7.4.1-alpine
+    restart: unless-stopped
+    # requirepass lives in a mounted config file, not on the command line.
+    # A command-line password is visible to anything that can read `ps` inside
+    # the container, and to `docker inspect` outside it (ASVS 6.4.1).
+    command: ["redis-server", "/etc/redis/redis.conf"]
+    volumes:
+      - ./secrets/redis.conf:/etc/redis/redis.conf:ro
+    # Start as the unprivileged redis user directly.  The stock entrypoint
+    # boots as root and drops privileges with setpriv, which needs CAP_SETUID
+    # and CAP_SETGID - impossible under cap_drop: ALL.  Starting unprivileged
+    # skips that step entirely, so we keep zero capabilities AND a non-root
+    # process instead of trading one for the other.
+    user: "redis"
+    networks:
+      - internal
+    read_only: true
+    tmpfs:
+      # Persistence is off (--save "" --appendonly no); rate-limit counters are
+      # ephemeral by nature and rebuilding them after a restart is correct.
+      - /data:size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Reads the password from the same config file rather than repeating it
+      # on a command line the process table would show.
+      test: ["CMD-SHELL", "redis-cli -a \"$$(grep -m1 '^requirepass' /etc/redis/redis.conf | cut -d' ' -f2)\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    # No route off the host.  db and cache cannot be reached from the LAN even
+    # if a port were published by mistake.
+    internal: true
+
+secrets:
+  doom_secret_key:
+    file: ./secrets/secret_key
+  doom_postgres_password:
+    file: ./secrets/postgres_password
+  doom_app_db_password:
+    file: ./secrets/app_db_password
+  doom_redis_password:
+    file: ./secrets/redis_password
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}Create an account - DOOM{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>Create an account</h1>
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+
+    {{ field(form.username, autofocus=true) }}
+    {{ field(form.password) }}
+    {{ field(form.confirm) }}
+
+    <div class="policy">
+      <p class="policy-title">Password requirements</p>
+      <ul>
+        <li>At least {{ password_min }} characters.</li>
+        <li>Not a password found in known breach lists.</li>
+        <li>Must not contain your username.</li>
+      </ul>
+      <p class="muted small">
+        No forced symbols or digits. Length and unpredictability are what
+        resist guessing; composition rules mostly produce
+        <code>Password1!</code>. A few unrelated words is the strongest thing
+        you can actually remember.
+      </p>
+    </div>
+
+    {{ submit(form.submit) }}
+  </form>
+
+  <p class="muted small">
+    Already have an account? <a href="{{ url_for('auth.login') }}">Sign in</a>.
+  </p>
+</section>
+{% endblock %}

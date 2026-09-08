@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, empty_state, attachments_panel, history_panel, custody_panel %}
+{% block title %}{{ item.name }} - DOOM{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ item.display_name }}</h1>
+  <div class="actions">
+    <a class="button button-quiet" href="{{ url_for('labels.label', node_type='item', node_id=item.id) }}">Label &amp; share</a>
+    <a class="button button-quiet" href="{{ url_for('items.edit', item_id=item.id) }}">Edit</a>
+  </div>
+</div>
+
+<section class="panel">
+  <p class="quantity">
+    {{ item.quantity_available }}
+    <span class="muted small">available of {{ item.quantity }}</span>
+  </p>
+  {% if item.is_checked_out %}
+    <p class="flash flash-warning">
+      {{ item.quantity_out }} currently checked out.
+    </p>
+  {% endif %}
+  {% if item.description %}<p class="notes">{{ item.description }}</p>{% endif %}
+  {% if item.location %}
+    <p class="muted small">
+      Stored in <a href="{{ url_for('locations.detail', location_id=item.location.id) }}">{{ item.location.name }}</a>
+    </p>
+  {% else %}
+    <p class="muted small">Not assigned to a location.</p>
+  {% endif %}
+</section>
+
+<div class="columns">
+  <section class="panel">
+    <h2>Adjust count</h2>
+    {# Applied atomically in SQL as quantity = quantity + delta, so two people
+       scanning the same bin cannot lose an update (T-15). #}
+    <form method="post" action="{{ url_for('items.adjust', item_id=item.id) }}" novalidate>
+      {{ adjust_form.hidden_tag() }}
+      {{ field(adjust_form.delta, placeholder="-1 or +5") }}
+      {{ field(adjust_form.reason, placeholder="Used two on the deck job") }}
+      {{ adjust_form.submit(class="button button-small") }}
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Move</h2>
+    <form method="post" action="{{ url_for('items.move', item_id=item.id) }}" novalidate>
+      {{ move_form.hidden_tag() }}
+      {{ field(move_form.location_id) }}
+      {{ field(move_form.reason, placeholder="Moved to the workshop") }}
+      {{ move_form.submit(class="button button-small") }}
+    </form>
+  </section>
+</div>
+
+{{ attachments_panel("item", item, attachments, confirm_form) }}
+
+{{ custody_panel(item, open_checkouts, checkout_form, return_form) }}
+
+<section class="panel">
+  <h2>Documentation</h2>
+  {% if links %}
+    <ul class="list">
+      {% for link in links %}
+        <li>
+          <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ link.label }}</a>
+          <span class="muted small">{{ link.url }}</span>
+          <form class="inline-form" method="post"
+                action="{{ url_for('items.delete_link', item_id=item.id, link_id=link.id) }}">
+            {{ confirm_form.hidden_tag() }}
+            <button class="linkish danger" type="submit">remove</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {{ empty_state("No linked documentation yet.") }}
+  {% endif %}
+
+  <form method="post" action="{{ url_for('items.add_link', item_id=item.id) }}" novalidate>
+    {{ link_form.hidden_tag() }}
+    <div class="row">
+      {{ field(link_form.label, placeholder="Service manual") }}
+      {{ field(link_form.url, placeholder="https://example.com/manual.pdf") }}
+    </div>
+    {{ link_form.submit(class="button button-small") }}
+  </form>
+</section>
+
+{{ history_panel(events, "Nothing recorded for this item yet.") }}
+
+<section class="panel panel-danger">
+  <h2>Delete</h2>
+  <form method="post" action="{{ url_for('items.delete', item_id=item.id) }}">
+    {{ confirm_form.hidden_tag() }}
+    <button class="button button-danger" type="submit">Delete {{ item.display_name }}</button>
+  </form>
+</section>
+{% endblock %}

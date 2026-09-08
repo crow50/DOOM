@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}DOOM{% endblock %}</title>
+  {# All CSS and JS is external. The Content-Security-Policy forbids inline
+     styles and scripts, which is what lets script-src stay at 'self' with no
+     unsafe-inline escape hatch (T-19). #}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/doom.css') }}">
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="{{ url_for('main.index') }}">
+      <span class="brand-mark">D.O.O.M.</span>
+      <span class="brand-sub">Don't Organize Only Move</span>
+    </a>
+
+    {% if current_user.is_authenticated %}
+      <form class="masthead-search" method="get" action="{{ url_for('search.index') }}"
+            role="search">
+        <label class="visually-hidden" for="q">Search</label>
+        <input id="q" class="input" type="search" name="q"
+               value="{{ request.args.get('q', '') if request.endpoint == 'search.index' else '' }}"
+               placeholder="Search" maxlength="{{ search_max }}">
+        <button class="icon-button" type="submit" aria-label="Search">🔍</button>
+      </form>
+
+      <nav class="nav">
+        <a class="button button-small" href="{{ url_for('items.quick') }}">+ Capture</a>
+        <a href="{{ url_for('locations.index') }}">Locations</a>
+        <a href="{{ url_for('items.index') }}">Items</a>
+        <a href="{{ url_for('account.profile') }}">{{ current_user.label }}</a>
+        {# Sign-out is a POST with a CSRF token. A GET /logout can be fired by
+           any <img src> on any page the user visits (T-09). #}
+        <form class="inline-form" method="post" action="{{ url_for('auth.logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="linkish" type="submit">Sign out</button>
+        </form>
+      </nav>
+    {% endif %}
+  </header>
+
+  <main class="shell">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="flash flash-{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <p>Self-hosted inventory. Nothing here leaves your machine.</p>
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

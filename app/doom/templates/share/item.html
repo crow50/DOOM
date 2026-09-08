@@ -1,0 +1,18 @@
+{% extends "share/_base.html" %}
+{% block title %}{{ node.name }}{% endblock %}
+
+{% block share_content %}
+<h1>{{ node.name }}</h1>
+<p class="quantity">{{ node.quantity }} <span class="muted small">in stock</span></p>
+
+{% if node.description %}<p class="notes">{{ node.description }}</p>{% endif %}
+
+{% if node.links %}
+  <h2>Documentation</h2>
+  <ul class="list">
+    {% for link in node.links %}
+      <li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ link.label }}</a></li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

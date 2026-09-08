@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ status }} - DOOM{% endblock %}
+
+{% block content %}
+<section class="panel panel-centred">
+  <p class="error-status">{{ status }}</p>
+  <h1>{{ title }}</h1>
+  <p class="muted">{{ detail }}</p>
+
+  {% if correlation_id %}
+    {# The only detail a user ever receives about a server fault. The trace,
+       the query and the schema stay in the log against this same id. #}
+    <p class="reference">
+      Error reference <code>{{ correlation_id }}</code>
+    </p>
+    <p class="muted small">Quote this reference when reporting the problem.</p>
+  {% endif %}
+
+  <p><a class="button" href="{{ url_for('main.index') }}">Back to start</a></p>
+</section>
+{% endblock %}

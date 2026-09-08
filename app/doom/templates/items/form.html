@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}{{ "Edit" if item else "New" }} item - DOOM{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>{{ "Edit item" if item else "New item" }}</h1>
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    {{ field(form.name, autofocus=true) }}
+    {{ field(form.description) }}
+    {{ field(form.quantity) }}
+    {{ field(form.location_id) }}
+    {{ submit(form.submit) }}
+  </form>
+</section>
+{% endblock %}

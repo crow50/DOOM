@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "_macros.html" import breadcrumb, kind_badge, field, empty_state, attachments_panel, history_panel %}
+{% block title %}{{ location.name }} - DOOM{% endblock %}
+
+{% block content %}
+{{ breadcrumb(trail) }}
+
+<div class="page-head">
+  <h1>{{ location.name }} {{ kind_badge(location.kind) }}</h1>
+  <div class="actions">
+    <a class="button button-quiet" href="{{ url_for('labels.label', node_type='location', node_id=location.id) }}">Label &amp; share</a>
+    <a class="button button-quiet" href="{{ url_for('locations.edit', location_id=location.id) }}">Edit</a>
+  </div>
+</div>
+
+{% if location.address or location.notes %}
+  <section class="panel">
+    {% if location.address %}
+      <h2>Address</h2>
+      <p class="notes">{{ location.address }}</p>
+      <p class="muted small">
+        Never shown on a shared page - it is the one field that turns an
+        inventory into directions.
+      </p>
+    {% endif %}
+    {% if location.notes %}<p class="notes">{{ location.notes }}</p>{% endif %}
+  </section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Inside</h2>
+    <div class="actions">
+      <a class="button button-small" href="{{ url_for('locations.create') }}">Add sublocation</a>
+      <a class="button button-small" href="{{ url_for('items.create', location=location.id) }}">Add item</a>
+    </div>
+  </div>
+
+  {% if children %}
+    <ul class="list">
+      {% for child in children %}
+        <li>
+          <a href="{{ url_for('locations.detail', location_id=child.id) }}">{{ child.name }}</a>
+          {{ kind_badge(child.kind) }}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if items %}
+    <ul class="list">
+      {% for item in items %}
+        <li>
+          {% if item.primary_photo %}
+            <img class="result-thumb"
+                 src="{{ url_for('files.thumbnail', attachment_id=item.primary_photo.id) }}"
+                 alt="" loading="lazy" width="36" height="36">
+          {% endif %}
+          <a href="{{ url_for('items.detail', item_id=item.id) }}">{{ item.display_name }}</a>
+          <span class="muted small">x{{ item.quantity }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if not children and not items %}
+    {{ empty_state("Empty.") }}
+  {% endif %}
+</section>
+
+{{ attachments_panel("location", location, attachments, confirm_form) }}
+
+<section class="panel">
+  <h2>Documentation</h2>
+  {% if links %}
+    <ul class="list">
+      {% for link in links %}
+        <li>
+          {# rel="noopener noreferrer" stops the opened page reaching back
+             through window.opener, and stops the referrer carrying a share
+             token off-site. nofollow keeps stored links out of ranking
+             signals. The scheme was allowlisted at input. #}
+          <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ link.label }}</a>
+          <span class="muted small">{{ link.url }}</span>
+          <form class="inline-form" method="post"
+                action="{{ url_for('locations.delete_link', location_id=location.id, link_id=link.id) }}">
+            {{ confirm_form.hidden_tag() }}
+            <button class="linkish danger" type="submit">remove</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {{ empty_state("No linked documentation yet - manuals, how-tos, datasheets.") }}
+  {% endif %}
+
+  <form method="post" action="{{ url_for('locations.add_link', location_id=location.id) }}" novalidate>
+    {{ link_form.hidden_tag() }}
+    <div class="row">
+      {{ field(link_form.label, placeholder="Assembly manual") }}
+      {{ field(link_form.url, placeholder="https://example.com/manual.pdf") }}
+    </div>
+    {{ link_form.submit(class="button button-small") }}
+  </form>
+</section>
+
+{{ history_panel(events, "Nothing recorded for this location yet.") }}
+
+<section class="panel panel-danger">
+  <h2>Delete</h2>
+  <p class="muted small">
+    Deleting removes everything inside this location as well.
+  </p>
+  <form method="post" action="{{ url_for('locations.delete', location_id=location.id) }}">
+    {{ confirm_form.hidden_tag() }}
+    <button class="button button-danger" type="submit">Delete {{ location.name }}</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}{{ "Edit" if location else "New" }} location - DOOM{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>{{ "Edit location" if location else "New location" }}</h1>
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    {{ field(form.name, autofocus=true) }}
+    {{ field(form.kind) }}
+    {{ field(form.parent_id) }}
+    {{ field(form.address, placeholder="12 Elm Street, Springfield") }}
+    {{ field(form.notes) }}
+    {{ submit(form.submit) }}
+  </form>
+
+  <div class="policy">
+    <p class="policy-title">Which kind?</p>
+    <ul>
+      <li><strong>Site</strong> - a geographic place, usually with an address.</li>
+      <li><strong>Zone</strong> - a building or open yard within a site.</li>
+      <li><strong>Shelf</strong> - fixed storage: shelving, racking, a cabinet.</li>
+      <li><strong>Bin</strong> - something you can carry: a bin, tote, or crate.</li>
+    </ul>
+    <p class="muted small">
+      Any location can hold items directly, and the tiers do not have to nest
+      in order - a shelf can sit straight in a zone, which is how flammables
+      end up racked in an open yard. Only a site takes an address.
+    </p>
+  </div>
+</section>
+{% endblock %}

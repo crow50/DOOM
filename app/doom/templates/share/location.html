@@ -1,0 +1,38 @@
+{% extends "share/_base.html" %}
+{% block title %}{{ node.name }}{% endblock %}
+
+{% block share_content %}
+<h1>{{ node.name }}</h1>
+<p class="kind">{{ node.location_kind }}</p>
+
+{% if node.notes %}<p class="notes">{{ node.notes }}</p>{% endif %}
+
+<h2>Contents</h2>
+{% if node.contents %}
+  <ul class="list">
+    {% for entry in node.contents %}
+      <li>
+        {# A child is a link only if it was separately shared. The parent's
+           token never confers access to a child (T-36). #}
+        {% if entry.share_token %}
+          <a href="{{ url_for('share.view', token=entry.share_token) }}">{{ entry.name }}</a>
+        {% else %}
+          <span>{{ entry.name }}</span>
+        {% endif %}
+        <span class="muted small">x{{ entry.quantity }}</span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="muted">Empty.</p>
+{% endif %}
+
+{% if node.links %}
+  <h2>Documentation</h2>
+  <ul class="list">
+    {% for link in node.links %}
+      <li><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ link.label }}</a></li>
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field %}
+{% block title %}Capture — DOOM{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow capture">
+  <h1>Capture</h1>
+  <p class="muted small">
+    A photo is enough. Name it, file it and count it later — or don't.
+  </p>
+
+  <form method="post" enctype="multipart/form-data" novalidate>
+    {{ form.hidden_tag() }}
+
+    {# capture="environment" opens the rear camera directly on a phone. The
+       server still decides what the file is by reading its magic bytes, so
+       this attribute is convenience, never a control (T-12). #}
+    <label class="capture-drop" for="capture-file">
+      <span class="capture-icon" aria-hidden="true">📷</span>
+      <span class="capture-label">Take a photo</span>
+      <span class="muted small">or choose a file</span>
+      <input id="capture-file" class="capture-input" type="file" name="file"
+             multiple accept="image/jpeg,image/png,image/webp"
+             capture="environment">
+    </label>
+
+    <p class="capture-or muted small">or just name it</p>
+    {{ field(form.name, placeholder="Blue tote from the hallway") }}
+
+    <details class="capture-more">
+      <summary>Add detail now <span class="muted small">(optional)</span></summary>
+      <div class="capture-more-body">
+        {{ field(form.location_id) }}
+
+        <div class="field" id="scan-panel" data-lookup="{{ 'on' if lookup_enabled else 'off' }}">
+          {{ form.barcode.label }}
+          <div class="scan-row">
+            {{ form.barcode(class="input", placeholder="8–14 digits", inputmode="numeric") }}
+            <button class="button button-small button-quiet" type="button" id="scan-start">Scan</button>
+          </div>
+          {% if form.barcode.errors %}
+            <ul class="field-errors">
+              {% for error in form.barcode.errors %}<li>{{ error }}</li>{% endfor %}
+            </ul>
+          {% endif %}
+          <p class="scan-status muted small" id="scan-status"></p>
+        </div>
+      </div>
+    </details>
+
+    {{ form.submit(class="button button-capture") }}
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+{% endblock %}

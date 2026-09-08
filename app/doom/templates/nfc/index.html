@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_macros.html" import empty_state %}
+{% block title %}NFC tags - DOOM{% endblock %}
+
+{% block content %}
+<h1>NFC tags</h1>
+
+<section class="panel">
+  <p class="muted small">
+    Tags recorded against your locations and items. A serial number identifies
+    a physical tag; it is not a credential, and nothing is authorised on the
+    strength of one - NDEF tags are trivially cloned.
+  </p>
+
+  {% if tags %}
+    <ul class="list">
+      {% for tag in tags %}
+        <li>
+          <code>{{ tag.tag_uid }}</code>
+          <span class="muted small">{{ tag.written_at.strftime('%Y-%m-%d') }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    {{ empty_state("No tags registered yet. Open a location or item, choose Label & share, then Scan a tag.") }}
+  {% endif %}
+</section>
+{% endblock %}

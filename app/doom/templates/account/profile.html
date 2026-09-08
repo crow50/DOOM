@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}Account - DOOM{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Account</h1>
+  <a class="button button-quiet" href="{{ url_for('account.activity') }}">Full activity</a>
+</div>
+
+<section class="panel">
+  <div class="stat-row">
+    <div class="stat"><span class="stat-num">{{ counts.location_count }}</span><span class="stat-label">locations</span></div>
+    <div class="stat"><span class="stat-num">{{ counts.item_count }}</span><span class="stat-label">items</span></div>
+    <div class="stat"><span class="stat-num">{{ counts.file_count }}</span><span class="stat-label">files</span></div>
+    <div class="stat"><span class="stat-num">{{ counts.event_count }}</span><span class="stat-label">recorded events</span></div>
+  </div>
+  <p class="storage">
+    {{ (storage.used / 1048576) | round(1) }} MB of
+    {{ (storage.quota // 1048576) }} MB used
+    <span class="meter" role="img"
+          aria-label="{{ ((storage.used / storage.quota) * 100) | round }}% of storage used">
+      <span class="meter-fill"
+            style="width: {{ [((storage.used / storage.quota) * 100), 100] | min | round }}%"></span>
+    </span>
+  </p>
+  <p class="muted small">
+    Identical files are stored once, so uploading the same photo twice costs
+    nothing extra. A quota nobody can see is a surprise outage, which is why
+    it is shown here.
+  </p>
+
+  <p class="muted small">
+    Signed in as <strong>{{ current_user.username }}</strong>{% if current_user.last_login_at %},
+    last sign-in {{ current_user.last_login_at.strftime('%Y-%m-%d %H:%M') }} UTC{% endif %}.
+  </p>
+</section>
+
+<div class="columns">
+  <section class="panel">
+    <h2>Profile</h2>
+    <form method="post" novalidate>
+      {{ form.hidden_tag() }}
+      {{ field(form.display_name, placeholder="Sam Baker") }}
+      {{ field(form.email, placeholder="optional") }}
+      {{ field(form.timezone) }}
+      {{ submit(form.submit) }}
+    </form>
+    <p class="muted small">
+      All optional. Nothing here is required to use DOOM - data that is not
+      collected cannot leak.
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>Password</h2>
+    <form method="post" action="{{ url_for('auth.change_password') }}" novalidate>
+      {{ password_form.hidden_tag() }}
+      {{ field(password_form.current_password) }}
+      {{ field(password_form.new_password) }}
+      {{ field(password_form.confirm) }}
+      {{ submit(password_form.submit) }}
+    </form>
+    <p class="muted small">
+      Changing your password signs out every other device.
+    </p>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Signed-in devices</h2>
+  <p class="muted small">
+    Every browser currently signed in as you. Ending one takes effect on the
+    next request that session makes, not at its next sign-in.
+  </p>
+
+  <ul class="list">
+    {% for s in sessions %}
+      <li>
+        <span><strong>{{ s.short_agent }}</strong></span>
+        {% if current_session_id and s.id|string == current_session_id %}
+          <span class="badge badge-shared">this device</span>
+        {% endif %}
+        <span class="mono muted small">{{ s.ip or 'unknown' }}</span>
+        <span class="muted small">
+          since {{ s.created_at.strftime('%Y-%m-%d %H:%M') }},
+          last seen {{ s.last_seen_at.strftime('%Y-%m-%d %H:%M') }}
+        </span>
+      </li>
+    {% else %}
+      <li class="empty">No active sessions recorded.</li>
+    {% endfor %}
+  </ul>
+
+  {# Re-authentication is required to end a session. Session termination is
+     what someone holding a stolen cookie would want to do — lock the real
+     owner out while keeping their own foothold — so a stolen cookie alone
+     must not be enough (ASVS 3.3.4). #}
+  <form method="post" action="{{ url_for('account.revoke_session') }}" novalidate>
+    {{ revoke_form.hidden_tag() }}
+    <div class="row">
+      <div class="field">
+        {{ revoke_form.password.label }}
+        {{ revoke_form.password(class="input", autocomplete="current-password") }}
+      </div>
+      <div class="field">
+        <label for="session-target">Which</label>
+        <select class="input" id="session-target" name="session_id">
+          <option value="others">All other devices</option>
+          {% for s in sessions %}
+            <option value="{{ s.id }}">
+              {{ s.short_agent }} — {{ s.ip or 'unknown' }}
+              {%- if current_session_id and s.id|string == current_session_id %} (this device){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    {{ revoke_form.submit(class="button button-small button-danger") }}
+  </form>
+</section>
+
+<section class="panel">
+  <h2>History integrity</h2>
+  <p class="muted small">
+    Every recorded event carries the hash of the one before it, and the
+    application's database account can add to this history but not rewrite it.
+    Altering or removing any entry breaks every hash after it.
+  </p>
+  {% if chain_head %}
+    <p class="mono break chain-head">{{ chain_head }}</p>
+    <p class="muted small">
+      Write that down somewhere outside this system. Doing so is what makes the
+      chain evidence against someone who could otherwise recompute it — the
+      protection is tamper-<em>evident</em>, not tamper-proof.
+      Verify any time with <code>make audit-verify</code>.
+    </p>
+  {% else %}
+    <p class="empty">No events recorded yet.</p>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-head">
+    <h2>Recent activity</h2>
+    <a class="button button-small button-quiet" href="{{ url_for('account.activity') }}">See all</a>
+  </div>
+
+  {% if recent %}
+    <ul class="ledger">
+      {% for entry, description in recent %}
+        <li>
+          <span class="ledger-time">{{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          <span>{{ description }}</span>
+          {% if entry.detail %}<span class="muted small">{{ entry.detail }}</span>{% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty">Nothing recorded yet.</p>
+  {% endif %}
+</section>
+{% endblock %}
