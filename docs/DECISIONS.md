@@ -880,3 +880,111 @@ The index expression uses `||` rather than `concat_ws`, because `concat_ws` is
 not `IMMUTABLE` and cannot appear in an index. The application builds the
 identical expression, since an expression index is only used when the query
 matches it exactly.
+
+---
+
+## D-36 — Reaching ASVS Level 2
+
+Four controls, and one correction to this document's own claims.
+
+**The correction first.** An earlier revision called missing MFA "the largest
+gap against L2". That was wrong. ASVS 4.0 has no blanket Level 2 requirement
+for multi-factor authentication — V2.2.4 (phishing resistance) is **Level 3**,
+and V2.7/V2.8 apply only *if* OTP authenticators are used. Left uncorrected it
+would have been a false claim in a document whose entire value is that its
+claims can be checked.
+
+### Anti-caching on authenticated responses (8.1.1, 8.2.1)
+
+Nothing was set. Inventory pages could sit in a browser cache, and in any
+intermediary cache, after the user walked away from a shared machine. For a
+dataset that is a map to physical property, "someone pressed Back on a library
+computer" is a disclosure path rather than a hypothetical.
+
+Now `Cache-Control: no-store` plus `Vary: Cookie` on every authenticated
+response — deliberately including image thumbnails, which costs a re-fetch per
+page view. That is the right trade here; a deployment that needs the caching
+can relax it to `private, max-age=…` and justify the deviation. Anonymous
+pages are left alone, because forcing `no-store` on a login form is cargo cult
+rather than control.
+
+### Anti-automation beyond the login form (11.1.4)
+
+Rate limits existed on login, registration, share views and barcode lookup —
+and nowhere else. Capture, upload, item creation, quantity adjustment,
+checkout and search were unbounded. Protecting the front door and none of the
+windows.
+
+Limits are now generous enough never to obstruct honest use (120 writes a
+minute) and tight enough to bound automation, with uploads held harder than
+ordinary writes because uploads consume disk.
+
+### View and terminate sessions (3.3.4)
+
+`session_version` already gave a blunt "sign out everywhere", but you cannot
+revoke what you cannot enumerate, and *"is anything else signed in as me right
+now?"* is a question a person should be able to answer. A `user_sessions` row
+per device is now the authority, checked on every request — so revoking one
+takes effect immediately rather than at its next sign-in, which would not be
+revocation at all.
+
+**Revocation requires the password**, and the reason is worth stating: ending
+sessions is exactly what someone holding a *stolen* cookie would want to do —
+lock the real owner out while keeping their own foothold. A stolen cookie
+alone must not be enough.
+
+Only a truncated user-agent and the source address are kept: enough to
+recognise your own devices, not a browsing history.
+
+### Secrets as files, not environment variables (6.4.1)
+
+Environment variables are the weakest common way to hold a secret. They are
+inherited by every child process, appear in `docker inspect`, and can be read
+straight out of `/proc/<pid>/environ`. The application now reads
+`SECRET_KEY_FILE` and friends from mounted files, and an entrypoint assembles
+the two DSNs so no password reaches the process environment at all. Verified:
+`docker inspect` shows only `*_FILE` paths, and the count of raw secrets in
+PID 1's environ is zero.
+
+Postgres uses the official image's `_FILE` support. Redis has none, so its
+password moved from `--requirepass` on the command line — visible in the
+process table — into a mounted config file.
+
+**A claim I had to walk back mid-implementation.** I wrote that the files
+would be mode 0400. They cannot be: Compose bind-mounts file-based secrets
+with their host permissions, and the containers run as unprivileged users that
+do not own them, so 0400 makes the stack fail to start. They are 0444, and
+what actually protects them is the `secrets/` directory at 0700 plus one
+process per container. The gain over environment variables is unchanged and is
+the entire point — but the comment claiming 0400 would have been decoration.
+
+`<NAME>_FILE` beating `<NAME>` is also the convention Docker secrets,
+Kubernetes and Vault agent all use, so moving to a real vault later is a mount
+change rather than a code change. A file configured but unreadable raises
+rather than falling back to the environment: a secret that silently comes from
+somewhere other than where you configured it is worse than no secret, because
+the operator believes the file is in use.
+
+### Source control (1.10.1)
+
+The project was not a git repository at all, which is an explicit L2
+requirement and, more practically, meant none of this history existed. It is
+one now, with `.env`, `secrets/`, `certs/`, `uploads/` and `backups/`
+excluded — verified against the staged file list, not assumed.
+
+### The two gaps left, argued rather than hidden
+
+**Internal traffic is unencrypted** (1.9.1, 9.2.2). `db` and `cache` are on a
+network declared `internal: true` with no route off the host and no published
+ports, and both require passwords. TLS between them would defend against an
+attacker already executing inside that network — who can read the
+application's own credentials regardless.
+
+**Logs are not shipped off-host** (1.7.2). They go to stdout as structured
+JSON, which is what a collector consumes. The security-relevant half — the
+audit trail — is in Postgres, hash-chained and append-only, which is a
+stronger property than remote shipping alone.
+
+Both are recorded in `COMPLIANCE.md` §4 as compensating-control arguments, not
+as met requirements. A verifier is free to disagree; pretending they were
+implemented would be worse than either.

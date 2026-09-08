@@ -7,11 +7,19 @@ rather than in adjectives.
 Two honest claims, and one non-claim:
 
 - **ASVS Level 1: met in full.**
-- **ASVS Level 2: substantially met**, with the gaps listed in §4 rather than
-  glossed over.
+- **ASVS Level 2: met**, with two requirements answered by compensating
+  controls rather than literally, both argued in §4.
 - **ASVS Level 3 is not claimed.** L3 expects things this deployment does not
-  have — segregation of duties, HSM-backed key management, and independent
-  verification.
+  have — segregation of duties, phishing-resistant multi-factor
+  authentication, HSM-backed key management, and independent verification.
+
+> **Correction.** An earlier revision of this document called missing MFA "the
+> largest gap against L2". That was wrong, and it is worth saying so rather
+> than quietly editing: ASVS 4.0 has **no blanket Level 2 requirement for
+> multi-factor authentication.** V2.2.4 (phishing resistance via MFA) is
+> **Level 3**, and V2.7/V2.8 are conditional — they apply *if* OTP or
+> out-of-band authenticators are used. DOOM is single-factor by deliberate
+> choice, which is an L3 gap, not an L2 one. See §4.
 
 Where a requirement does not apply, it says so and why. A mapping that claims
 everything applies is not a mapping.
@@ -48,6 +56,7 @@ the reasoning is D-12.
 | 3.3.1 | Logout invalidates | `session.clear()` + `session_version` | 613 |
 | 3.3.2 | Re-authentication period | 12-hour lifetime | 613 |
 | 3.4.1–3.4.3 | Cookie attributes | `config.py` | 614, 1275 |
+| 3.3.4 | **View and terminate active sessions** | `user_sessions` table listed on the account page; revocation requires the password and takes effect on the session's next request | 613 |
 | 3.5.2 | No static API tokens | Share tokens are 256-bit and revocable | 798 |
 
 ### V4 — Access control
@@ -78,6 +87,20 @@ the reasoning is D-12.
 | 5.3.9 | Path traversal | Stored names are generated UUIDs (D-10) | 22 |
 | 5.3.10 | XXE | No XML parsing; SVG rejected | 611 |
 
+### V1 / V6 — Architecture and secrets
+
+| ASVS | Requirement | Implementation | CWE |
+|---|---|---|---|
+| 1.1.2 | Threat modelling | `THREAT-MODEL.md`, written before the code | 1053 |
+| 1.1.4 | Trust boundaries documented | `THREAT-MODEL.md` §4 | 1059 |
+| 1.2.1 | Unique low-privilege runtime account | uid 10001, no shell | 250 |
+| 1.4.4 | Single vetted access control mechanism | `get_owned_or_404()` | 284 |
+| 1.7.1 | Common logging format | Structured JSON to stdout | 778 |
+| 1.10.1 | **Source code control** | Git repository with a documented history | 1105 |
+| 1.11.2 | No race conditions in high-value logic | See V11.1.6 | 367 |
+| 6.3.1 | CSPRNG for secrets | `secrets.token_urlsafe`, `secrets.choice` | 338 |
+| 6.4.1 | **Secrets management** | Read from mounted files, never the environment: absent from `docker inspect`, from child processes and from `/proc/<pid>/environ` | 522 |
+
 ### V7 — Errors and logging
 
 | ASVS | Requirement | Implementation | CWE |
@@ -88,6 +111,25 @@ the reasoning is D-12.
 | 7.3.1 | **Log injection prevented** | Structured JSON; encoder escapes newlines | 117 |
 | 7.3.3 | **Logs protected from alteration** | Hash chain + `UPDATE`/`DELETE` revoked (D-33) | 117 |
 | 7.4.1 | Generic error messages | Correlation ID only (D-17) | 209 |
+
+### V8 — Data protection
+
+| ASVS | Requirement | Implementation | CWE |
+|---|---|---|---|
+| 8.1.1 | Sensitive data not cached in server components | `Cache-Control: no-store` + `Vary: Cookie` on every authenticated response | 524 |
+| 8.2.1 | Anti-caching headers in the browser | Same, plus `Pragma: no-cache` for HTTP/1.0 caches | 525 |
+| 8.2.2 | No sensitive data in browser storage | No `localStorage` or `sessionStorage` use at all | 922 |
+| 8.3.4 | Inventory of sensitive data | Asset table in `THREAT-MODEL.md` §2 | 200 |
+
+### V11 — Business logic
+
+| ASVS | Requirement | Implementation | CWE |
+|---|---|---|---|
+| 11.1.2 | Steps in order, no skipping | Checkout, return and move each validate current state | 841 |
+| 11.1.3 | Realistic human-time limits | Rate limits on login, register, share, lookup | 799 |
+| 11.1.4 | **Anti-automation on high-value flows** | Write and upload limits on capture, create, adjust, checkout, upload and search — not authentication alone | 799 |
+| 11.1.5 | Business logic limits | Quantity bounds, storage quota, tree depth | 841 |
+| 11.1.6 | No TOCTOU / race conditions | Atomic quantity arithmetic; `SELECT … FOR UPDATE` for checkout | 367 |
 
 ### V12 — Files and resources
 
@@ -156,16 +198,24 @@ are worth stating plainly:
 
 The value of a mapping is in what it admits.
 
-| Gap | ASVS | Status |
-|---|---|---|
-| **No multi-factor authentication** | V2.7–2.9 | Single-factor by design. The largest gap against L2 for a system holding a map to physical property |
-| **No dependency vulnerability scanning** | 14.2.1 | Pinned but unscanned; `PIPELINE-NOTES.md` has the roadmap |
-| **No malware scanning of uploads** | 12.4.1 | Files are never executed and always served as attachments; ClamAV is the production answer |
-| **No segregation of duties** | V4 (L3) | Meaningless while single-account; essential the moment it is not. What a warehouse operation would ask about first |
-| **DNS rebinding window in barcode lookup** | 5.2.6 | Resolve-then-connect leaves a gap; a pinned-IP transport adapter closes it (D-32) |
-| **Audit chain is evident, not proof** | 7.3.3 | Someone with database access *and* the source can recompute it. An externally recorded head hash is the cheap mitigation (D-33) |
-| **Username disclosure on registration** | V2.2 | Unavoidable — the form must say a name is taken. Rate limited (D-05) |
-| **No secrets management beyond `.env`** | V14.1 | Adequate self-hosted; Docker secrets or sops is the upgrade path |
+| Gap | ASVS | Level | Status |
+|---|---|---|---|
+| **No multi-factor authentication** | 2.2.4 | **L3** | Single-factor by design. Not an L2 requirement — see the correction at the top. It remains the strongest available improvement for a system holding a map to physical property |
+| **Internal traffic is unencrypted** | 1.9.1, 9.2.2 | L2 | **Compensating control.** `db` and `cache` sit on a Docker network declared `internal: true`, with no route off the host and no published ports, and both require passwords. TLS between them would protect against an attacker already executing inside that network — at which point the application's own credentials are readable anyway. Argued rather than implemented, deliberately |
+| **Logs are not shipped off-host** | 1.7.2 | L2 | **Compensating control.** Logs go to stdout in structured JSON, which is what a collector consumes; the *audit* trail — the security-relevant half — is in Postgres, hash-chained and append-only, which is a stronger property than remote shipping alone provides |
+| **No dependency vulnerability scanning** | 14.2.1 | L2 | Dependencies pinned but unscanned. Deliberately out of scope for this build; `PIPELINE-NOTES.md` has the roadmap and it is the first thing to add |
+| **No SBOM** | 14.2.5 | L2 | Same; one `syft` command |
+| **No malware scanning of uploads** | 12.4.1 | L2 | Files are never executed, always served as attachments with `nosniff`, and images are fully re-encoded — which destroys embedded payloads more reliably than signature scanning finds them. ClamAV is the production addition |
+| **No segregation of duties** | V4 | L3 | Meaningless while single-account; essential the moment it is not. What a warehouse operation would ask about first |
+| **DNS rebinding window in barcode lookup** | 5.2.6 | L2 | Resolve-then-connect leaves a gap. Bounded by the lookup being off by default, pinned to a code-level provider list, and refusing redirects (D-32) |
+| **Audit chain is evident, not proof** | 7.3.3 | L2 | Someone with database access *and* the source can recompute it. An externally recorded head hash is the mitigation, and the account page shows one (D-33) |
+| **Username disclosure on registration** | V2.2 | L2 | Unavoidable — the form must say a name is taken. Rate limited (D-05) |
+
+**On the two compensating-control arguments.** Both are places where the
+literal requirement is not met and the risk it addresses is. That distinction
+is the honest way to claim a level: neither is marked "met" above, and a
+verifier is free to disagree with the argument. Pretending they were
+implemented would be worse than either.
 
 ---
 
@@ -174,10 +224,20 @@ The value of a mapping is in what it admits.
 Most of this matrix is executable rather than asserted:
 
 ```bash
-make test           # 213 tests pinning the controls above
+make test           # 228 tests pinning the controls above
 make lint           # fails if any template could bypass autoescaping
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges
+```
+
+Secrets never reach the process environment (6.4.1):
+
+```bash
+docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -i password
+# only *_FILE paths appear, never a value
+
+docker compose exec web sh -c 'tr "\0" "\n" < /proc/1/environ | grep -cE "^(SECRET_KEY|APP_DB_PASSWORD|REDIS_PASSWORD)="'
+# 0
 ```
 
 As the application's own database role, all of these must fail:
