@@ -89,7 +89,7 @@
               <form class="inline-form" method="post"
                     action="{{ url_for('files.delete', attachment_id=a.id) }}">
                 {{ confirm_form.hidden_tag() }}
-                <button class="linkish danger" type="submit">remove</button>
+                <button class="linkish danger" type="submit" aria-label="Remove {{ a.original_name }}">remove</button>
               </form>
             </figcaption>
           </figure>
@@ -216,7 +216,7 @@
             <form class="inline-form" method="post"
                   action="{{ url_for('items.check_in', item_id=item.id, checkout_id=c.id) }}">
               {{ return_form.hidden_tag() }}
-              <button class="button button-small" type="submit">Return</button>
+              <button class="button button-small" type="submit" aria-label="Return from {{ c.holder_name }}">Return</button>
             </form>
           </li>
         {% endfor %}

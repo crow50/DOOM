@@ -399,3 +399,9 @@ input[type="date"] { color-scheme: dark; }
   border-radius: 4px; object-fit: cover;
   border: 1px solid var(--line); background: var(--surface-2);
 }
+
+/* ---------- accessibility ---------- */
+a:focus-visible, button:focus-visible, .capture-drop:focus-within {
+  outline: 2px solid var(--accent-dim);
+  outline-offset: 2px;
+}

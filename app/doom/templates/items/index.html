@@ -12,7 +12,7 @@
   {# GET, no CSRF token: this changes no state. The term is bound as a
      parameter server-side, never concatenated into SQL. #}
   <form class="search" method="get" action="{{ url_for('items.index') }}">
-    {{ form.q(class="input", placeholder="Search items", maxlength=search_max) }}
+    {{ form.q(class="input", placeholder="Search items", maxlength=search_max, **{"aria-label": "Search items"}) }}
     <button class="button button-small" type="submit">Search</button>
   </form>
 

@@ -19,7 +19,7 @@
   <div class="sheet">
     {% for label in labels %}
       <div class="label">
-        <img class="label-qr" src="{{ label.qr }}" alt="" width="72" height="72">
+        <img class="label-qr" src="{{ label.qr }}" alt="QR code for {{ label.name }}" width="72" height="72">
         <div class="label-text">
           <p class="label-name">{{ label.name }}</p>
           <p class="label-sub">{{ label.subtitle }}</p>
