@@ -17,14 +17,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16.4-alpine
-        ports: ["5432:5432"]
-        env: { POSTGRES_PASSWORD: ci, POSTGRES_USER: doom_admin, POSTGRES_DB: doom_test }
-        options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 5s --health-retries 10
+    env:
+      PUBLIC_BASE_URL: http://localhost
     steps:
       - uses: actions/checkout@v6
+      - run: make init
       - run: make test
