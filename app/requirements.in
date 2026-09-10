@@ -1,0 +1,32 @@
+# --- web core ---
+Flask
+Werkzeug
+gunicorn
+
+# --- data ---
+SQLAlchemy
+Flask-SQLAlchemy
+Flask-Migrate
+alembic
+psycopg[binary]
+
+# --- auth, forms, limits ---
+Flask-Login
+Flask-WTF
+WTForms
+email-validator
+Flask-Limiter
+redis
+argon2-cffi
+
+# --- content handling ---
+Pillow
+python-magic
+nh3
+qrcode
+
+requests
+python-dotenv
+
+# --- test only ---
+pytest
