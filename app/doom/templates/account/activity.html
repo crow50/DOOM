@@ -12,7 +12,7 @@
 
 <section class="panel">
   <form class="search" method="get" action="{{ url_for('account.activity') }}">
-    <select class="input" name="action">
+    <select class="input" name="action" aria-label="Filter activity by">
       <option value="">All activity</option>
       {% for value, label in actions %}
         <option value="{{ value }}" {% if value == action %}selected{% endif %}>{{ label }}</option>

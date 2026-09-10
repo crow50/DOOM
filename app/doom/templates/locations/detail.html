@@ -85,7 +85,7 @@
           <form class="inline-form" method="post"
                 action="{{ url_for('locations.delete_link', location_id=location.id, link_id=link.id) }}">
             {{ confirm_form.hidden_tag() }}
-            <button class="linkish danger" type="submit">remove</button>
+            <button class="linkish danger" type="submit" aria-label="Remove {{ link.label }}">remove</button>
           </form>
         </li>
       {% endfor %}

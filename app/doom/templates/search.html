@@ -7,7 +7,7 @@
 
 <section class="panel">
   <form class="search" method="get" action="{{ url_for('search.index') }}">
-    <input class="input" type="search" name="q" value="{{ term }}"
+    <input class="input" type="search" name="q" value="{{ term }}" aria-label="Search term"
            placeholder="Anything — a name, a note, an address, a barcode"
            maxlength="{{ search_max }}" autofocus>
     <button class="button button-small" type="submit">Search</button>
