@@ -1,0 +1,30 @@
+name: Lint, Compile, and Test
+on: 
+  push:
+  pull_request:
+
+jobs:
+  lint-and-compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: { python-version: "3.12" }
+      - run: pip install pip-tools
+      - run: pip-compile --generate-hashes app/requirements.in -o /tmp/requirements-hashed.txt
+      - run: diff /tmp/requirements-hashed.txt app/requirements.txt
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.4-alpine
+        ports: ["5432:5432"]
+        env: { POSTGRES_PASSWORD: ci, POSTGRES_USER: doom_admin, POSTGRES_DB: doom_test }
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+      - run: make test

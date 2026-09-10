@@ -1,0 +1,8 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "pip-compile": {
+    "managerFilePatterns": ["/^app/requirements\\.txt$/"]
+  },
+  "lockFileMaintenance": { "enabled": true }
+}

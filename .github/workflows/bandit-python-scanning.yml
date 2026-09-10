@@ -1,0 +1,17 @@
+name: Bandit Python Security Scanning 
+
+on:
+  push:
+    paths:
+      - '**/app'
+    branches:
+      - main
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+    steps:
+      - name: Perform Bandit Analysis
+        uses: PyCQA/bandit-action@v1
