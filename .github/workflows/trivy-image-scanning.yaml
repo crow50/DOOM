@@ -41,7 +41,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Docker image
-        run: docker build -t doom-organizer:${{ github.sha }} .
+        run: docker build -f app/Dockerfile -t doom-organizer:${{ github.sha }} ./app
 
         # Scanning the Docker image with Trivy
         # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found

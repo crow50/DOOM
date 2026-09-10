@@ -4,8 +4,6 @@ on:
   push:
     paths:
       - '**/app'
-      - '**/caddy'
-      - '**/db'
       - '**/Dockerfile'
       - '**/.dockerignore'
     branches:
@@ -49,8 +47,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./Dockerfile
+          context: ./app
+          file: ./app/Dockerfile
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
