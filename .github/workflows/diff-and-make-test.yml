@@ -12,7 +12,7 @@ jobs:
         with: { python-version: "3.12" }
       - run: pip install pip-tools
       - run: pip-compile --generate-hashes app/requirements.in -o /tmp/requirements-hashed.txt
-      - run: diff /tmp/requirements-hashed.txt app/requirements.txt
+      - run: diff -I '^#' /tmp/requirements-hashed.txt app/requirements.txt
       - run: make lint
 
   test:
@@ -21,5 +21,7 @@ jobs:
       PUBLIC_BASE_URL: http://localhost
     steps:
       - uses: actions/checkout@v6
+      - run: make build
       - run: make init
+      - run: make up
       - run: make test
