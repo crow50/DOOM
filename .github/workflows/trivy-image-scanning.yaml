@@ -46,7 +46,7 @@ jobs:
         # Scanning the Docker image with Trivy
         # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found
       - name: Run Trivy scan
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: doom-organizer:${{ github.sha }}
           format: table
@@ -56,7 +56,7 @@ jobs:
 
         # Generating SARIF report with Trivy
       - name: Run Trivy and generate SARIF report
-        uses: aquasecurity/trivy-action@0.34.0
+        uses: aquasecurity/trivy-action@v0.36.0
         if: always()
         with:
           image-ref: doom-organizer:${{ github.sha }}
