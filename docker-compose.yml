@@ -8,7 +8,7 @@ services:
   # host over a LAN IP is not one.  TLS is a functional requirement here.
   # ---------------------------------------------------------------------------
   caddy:
-    image: caddy:2.8.4-alpine
+    image: caddy:2.11.4-alpine
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
@@ -95,7 +95,7 @@ services:
   # db - postgres.  No published port; internal network only.
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:16.4-alpine
+    image: postgres:18.6-alpine
     restart: unless-stopped
     secrets:
       - doom_postgres_password
@@ -127,7 +127,7 @@ services:
   # defence in depth costs one flag here.
   # ---------------------------------------------------------------------------
   cache:
-    image: redis:7.4.1-alpine
+    image: redis:8.10.1-alpine
     restart: unless-stopped
     # requirepass lives in a mounted config file, not on the command line.
     # A command-line password is visible to anything that can read `ps` inside

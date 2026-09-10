@@ -2,7 +2,7 @@
 # Build stage - compilers and headers live here and never reach the runtime
 # image, so the shipped container has a much smaller attack surface.
 # ---------------------------------------------------------------------------
-FROM python:3.12.7-slim AS builder
+FROM python:3.14.7-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
@@ -22,7 +22,7 @@ RUN python -m venv /opt/venv \
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM python:3.12.7-slim AS runtime
+FROM python:3.14.7-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
