@@ -15,7 +15,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN python -m venv /opt/venv \
+RUN python -m venv --upgrade-deps /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 
