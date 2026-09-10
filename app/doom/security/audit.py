@@ -14,9 +14,15 @@ if the misses were written down.
 An audit trail that the application can rewrite proves very little.  Two
 mechanisms harden it, and they work at different layers:
 
-* ``UPDATE`` and ``DELETE`` are revoked from the application's database role
-  (``db/init/01-roles.sh``), so even a complete SQL injection through the app
-  can only append.
+* ``UPDATE`` and ``DELETE`` are revoked on ``audit_log`` for the application's
+  database role, so even a complete SQL injection through the app cannot rewrite
+  history — only append to it.  The revoke lives in migration
+  ``a1c4e7b90d21``, **not** in ``db/init/01-roles.sh``: that script grants the
+  role the broad SELECT/INSERT/UPDATE/DELETE default, and this table is the one
+  exception carved out of it afterwards.  Two consequences worth knowing: a
+  deployment that initialises the database but never migrates leaves the role
+  holding both verbs, and that migration's ``downgrade()`` re-grants them.
+  Scope is exactly this table; every other table keeps full DML.
 * Each row stores the hash of the previous one, so removing or editing any row
   invalidates every hash after it.  ``flask audit-verify`` finds the break.
 

@@ -159,6 +159,26 @@ test: ## Run the test suite
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/9" \
 		web python -m pytest -p no:cacheprovider -q
 
+# The container image excludes docs/, so the collection hook in tests/conftest.py
+# cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
+# what pytest collects in the container and compares against the one number the
+# documentation publishes.  Four files once published four different counts, none
+# of them right; this is what makes the surviving one checkable in CI.
+.PHONY: verify-test-count
+verify-test-count: ## Check COMPLIANCE.md's test count against what pytest collects
+	@claimed=$$(grep -oE '[0-9]+ tests pinning' docs/COMPLIANCE.md | head -1 | cut -d' ' -f1); \
+	actual=$$($(COMPOSE) run --rm -T \
+		-e DATABASE_URL="postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/doom_test" \
+		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/9" \
+		web python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
+		| grep -oE '^[0-9]+ tests? collected' | cut -d' ' -f1); \
+	if [ -z "$$actual" ]; then echo "FAIL: could not collect tests"; exit 1; fi; \
+	if [ "$$claimed" != "$$actual" ]; then \
+		echo "FAIL: docs/COMPLIANCE.md claims $$claimed tests, pytest collects $$actual"; \
+		exit 1; \
+	fi; \
+	echo "  clean: docs/COMPLIANCE.md and pytest agree on $$actual tests"
+
 .PHONY: audit-verify
 audit-verify: ## Verify the audit hash chain and print the head hash
 	$(COMPOSE) run --rm web flask audit-verify
@@ -170,10 +190,17 @@ lint: ## Template safety grep - fails if user data could bypass autoescaping
 		echo; \
 		echo "FAIL: '|safe' or 'Markup()' found."; \
 		echo "User-supplied content must never bypass Jinja2 autoescaping (T-19)."; \
-		echo "Sanitise with nh3 instead and render the result as text."; \
+		echo "Render user content as text. If a genuine untrusted-HTML surface"; \
+		echo "is ever needed, add a sanitiser as a dependency and a ledger row"; \
+		echo "for ASVS 5.2.1 first - do not reach for |safe."; \
 		exit 1; \
 	fi
 	@echo "  clean: no autoescape bypasses"
+	@python3 tools/check_docs.py
+
+.PHONY: passwords-corpus
+passwords-corpus: ## Regenerate the breach corpus in security/data/
+	@python3 tools/build_password_corpus.py
 
 ## ------------------------------------------------------------------- certs
 .PHONY: trust-cert

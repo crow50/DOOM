@@ -83,8 +83,9 @@ network with no route off the host.
 TLS is a functional requirement rather than polish: Web NFC only runs in a
 secure context, and a phone reaching this host by LAN IP is not one.
 
-**Stack:** Python 3.12, Flask, SQLAlchemy, PostgreSQL 16, Redis, Caddy, Docker
-Compose.
+**Stack:** Python 3.14, Flask, SQLAlchemy, PostgreSQL 18, Redis 8, Caddy 2,
+Docker Compose. Exact pins live in `app/Dockerfile` and `docker-compose.yml`;
+`app/requirements.txt` is a hash-pinned `pip-compile` lockfile.
 
 ---
 
@@ -100,7 +101,7 @@ documented as carefully as the code.
 | [DECISIONS.md](docs/DECISIONS.md) | Why each limit, algorithm and tradeoff is what it is |
 | [PIPELINE-NOTES.md](docs/PIPELINE-NOTES.md) | DevSecOps tooling roadmap |
 | [DEMO.md](docs/DEMO.md) | Run-of-show for presenting it |
-| [COMPLIANCE.md](docs/COMPLIANCE.md) | Every control mapped to OWASP ASVS 4.0 and tagged with its CWE |
+| [COMPLIANCE.md](docs/COMPLIANCE.md) | Exhaustive control ledger: every ASVS 4.0.3 L1/L2 requirement with a status, evidence and its CWE |
 | [INSPIRATION.md](docs/INSPIRATION.md) | What Sortly, Grocy, Homebox, Snipe-IT and real warehouse systems do differently, and what to borrow |
 
 The threat model was written **before** the code, and every control traces
@@ -114,20 +115,33 @@ of it, and which building it is in. A breach doesn't merely embarrass the
 operator; it hands a burglar a shopping list with addresses. Every tradeoff
 resolves in favour of protecting that.
 
-Three consequences worth knowing before reading the code:
+Five consequences worth knowing before reading the code:
 
-**Every limit lives in one file.** `app/doom/validation.py` is the single
-source of truth. Forms, ORM columns, database CHECK constraints and HTML
-attributes all read from it, so a bound cannot be tightened in one place and
-left loose in another.
+**Every field bound lives in one file.** `app/doom/validation.py` is the single
+source of truth for the limits on user data — text lengths, quantities, password
+length, tree depth. Forms, ORM columns, database CHECK constraints and HTML
+attributes all read from it, so a bound cannot be tightened in one place and left
+loose in another.
+
+Two kinds of limit necessarily sit outside it, and it is worth knowing which:
+the request body cap exists twice by design (Caddy rejects at 12 MB so the app
+never buffers what it would refuse at 10 MB), and pagination and batch caps are
+hardcoded per view. Those are performance ceilings rather than security bounds —
+but "every limit in one file" was too strong a claim, and `docs/DECISIONS.md`
+D-01 now says which limits D-01 actually covers.
 
 **Ownership is a `WHERE` clause, not an `if` statement.** Fetch-then-check
 loads the row before deciding; filtering inside the query means it is never
 loaded. A miss returns 404, never 403 - a 403 confirms the object exists.
 
 **History can be added to but not rewritten.** The audit trail is hash-chained,
-and `UPDATE` and `DELETE` are revoked from the application's database role - so
-even a complete SQL injection can only append. `make audit-verify` proves it.
+and `UPDATE` and `DELETE` are revoked on `audit_log` for the application's
+database role — so even a complete SQL injection cannot rewrite history, only
+append to it. `make audit-verify` proves it.
+
+The scope of that is exactly one table. The application role holds full DML on
+everything else, so an injection could still alter or delete items and locations;
+what it cannot do is cover its tracks.
 
 **A scanned barcode is hostile input.** Anyone can print a barcode, and it
 arrives wearing the authority of a physical object. Everything hangs off one
@@ -140,11 +154,16 @@ guard fails silently; a field that was never passed cannot leak.
 ### Verifying the claims
 
 ```bash
-make test           # 213 tests pinning the security controls
+make test           # the suite that pins every control claimed above
 make audit-verify   # walk the audit hash chain, print the head hash
-make lint           # fails if any template could bypass autoescaping
+make lint           # autoescape bypasses, and the docs against the ledger
 make db-shell-app   # connect as the app's restricted role and try DROP TABLE
 ```
+
+The test count is published in exactly one place — [COMPLIANCE.md](docs/COMPLIANCE.md)
+§6 — and `make lint` fails if a second file starts quoting its own. Four files
+used to quote four different numbers, which is how you end up with a figure
+nobody trusts.
 
 ---
 

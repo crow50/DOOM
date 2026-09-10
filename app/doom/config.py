@@ -120,7 +120,14 @@ class Config:
     PUBLIC_BASE_URL = _require("PUBLIC_BASE_URL", min_length=8).rstrip("/")
 
     # --- sessions -----------------------------------------------------------
-    SESSION_COOKIE_NAME = "doom_session"
+    # The "__Host-" prefix is a browser-enforced binding (ASVS 3.4.4): a cookie
+    # carrying it is accepted only when it is Secure, has Path=/, and names no
+    # Domain.  That makes it impossible for a sibling host, or anything that
+    # manages to answer on a subdomain, to set or overwrite this cookie - a
+    # guarantee the attributes below ask for but cannot enforce on their own.
+    # It is refused outright over plaintext HTTP, which is already true of this
+    # cookie because SESSION_COOKIE_SECURE is set.
+    SESSION_COOKIE_NAME = "__Host-doom_session"
     SESSION_COOKIE_HTTPONLY = True          # JavaScript cannot read it (T-03)
     SESSION_COOKIE_SECURE = True            # never sent over plaintext (T-03)
     SESSION_COOKIE_SAMESITE = "Lax"         # cross-site POSTs drop the cookie
@@ -180,4 +187,7 @@ class TestConfig(Config):
     TESTING = True
     WTF_CSRF_ENABLED = False        # forms are exercised directly
     SESSION_COOKIE_SECURE = False   # the test client speaks plain HTTP
+    # A "__Host-" cookie is only valid alongside Secure, so the prefix comes off
+    # with it rather than asserting a combination no browser would accept.
+    SESSION_COOKIE_NAME = "doom_session"
     RATELIMIT_ENABLED = False

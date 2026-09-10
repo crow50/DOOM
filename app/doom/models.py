@@ -791,9 +791,12 @@ class AuditLog(UUIDMixin, db.Model):
 
     **Two mechanisms make this history hard to rewrite quietly (T-45).**
 
-    *Append-only at the database.* ``UPDATE`` and ``DELETE`` are revoked from
-    the application's role, so even a complete SQL injection through the app
-    can only add rows. See ``db/init/01-roles.sh``.
+    *Append-only at the database.* ``UPDATE`` and ``DELETE`` are revoked on this
+    table for the application's role, so even a complete SQL injection through
+    the app can only add rows to it. The revoke is in migration
+    ``a1c4e7b90d21``, not in ``db/init/01-roles.sh`` — that script grants the
+    broad four-verb default, and this table is the exception carved out of it.
+    Other tables keep full DML.
 
     *Hash-chained.* Each row carries the hash of the one before it, so editing
     or removing any row invalidates every hash after it. ``flask audit-verify``

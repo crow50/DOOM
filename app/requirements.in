@@ -22,7 +22,6 @@ argon2-cffi
 # --- content handling ---
 Pillow
 python-magic
-nh3
 qrcode
 
 requests

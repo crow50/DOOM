@@ -270,8 +270,9 @@ sits in. A field that was never passed cannot be rendered by mistake.
 
 ## 3. What the tests pin
 
-`make test` - 130 tests, all passing. They exist to stop a control regressing
-silently.
+`make test` runs the whole suite; the count is published once, in
+[COMPLIANCE.md](COMPLIANCE.md) §6, and `make lint` fails if this file starts
+quoting its own. The tests exist to stop a control regressing silently.
 
 | Area | What is asserted |
 |---|---|
@@ -290,10 +291,23 @@ silently.
 | Address privacy | Never in a public serializer; never rendered on a shared page; rejected on non-site kinds |
 | CSV export | Formula prefixes neutralised; export scoped to the signed-in user |
 | Headers | CSP carries no `unsafe-inline`; `Referrer-Policy` permits same-origin referrers so CSRF keeps working |
+| Breach corpus | Every entry clears `PASSWORD_MIN`, so the screen can actually fire; a 12+ character breached password is rejected |
+| Strength meter | Served, referenced by both password forms, and not the authority — the server still rejects what it approves |
+| Cookie prefix | The session cookie carries `__Host-`, and the attributes that prefix requires are all set |
+| Route coverage | Every endpoint in `url_map` is classified; a new one fails the suite until its scoping is recorded |
+| Denied access | A refused object access survives the 404 that follows it, on the locking path as well as the ordinary one |
+| Share tokens | A capability token never reaches the application log |
 
-Three of these were written because the control is one that *fails quietly*:
+Several of these were written because the control is one that *fails quietly*:
 session revocation (bump the column, forget the comparison, and it still looks
 like it works), lockout expiry, and serializer omissions.
+
+The last four rows exist because an audit found controls that were written but
+not working. The breach corpus held 124 entries of which 123 were below the
+length floor, so the screen could only ever match one string. The denied-access
+audit record was added to the session and then rolled back by the 404 that
+followed it, so the trail recorded no denials at all. Neither had a test, which
+is why neither was noticed.
 
 ---
 
@@ -310,6 +324,25 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
    know. Bounded, not eliminated.
 4. **A compromised account exposes that user's whole inventory.** There is no
    inner boundary below the account.
-5. **No malware scanning of uploads.** Files are never executed and always
-   served as attachments; ClamAV is the production answer and is out of scope.
-6. **No dependency CVE scanning in scope** - see [PIPELINE-NOTES.md](PIPELINE-NOTES.md).
+5. **No antivirus scanning of uploads** (ASVS 12.4.2, Level 1). Images are
+   decoded and re-encoded, which destroys an embedded payload — but PDF, text
+   and Markdown uploads are stored byte for byte. Files are never executed and
+   always served as attachments with `nosniff`. ClamAV is the answer and it is
+   not implemented.
+6. **No TLS between containers** (1.9.1, 1.9.2, 9.2.2). Three internal hops are
+   plaintext. The compensating position — an `internal: true` network with no
+   route off the host, and passwords on both services — is argued in
+   [COMPLIANCE.md](COMPLIANCE.md) §3, not counted as a pass.
+7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
+   collector consumes, but nothing collects it here.
+8. **A share token reaches gunicorn's access log.** The application log scrubs
+   the token from the path; gunicorn's own access log has no redaction hook and
+   still records it. Anyone with log-read access can replay a share link until it
+   is rotated.
+9. **No SBOM** (14.2.5). Tracked separately.
+
+Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
+Renovate all run, and the lockfile is hash-pinned. See
+[PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where, and
+[COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these nine are the ones
+worth reading in isolation, not the complete set.

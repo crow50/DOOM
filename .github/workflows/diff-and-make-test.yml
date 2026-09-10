@@ -28,3 +28,6 @@ jobs:
         if: failure()
         run: make logs
       - run: make test
+      # The published test count is only checkable where the container and the
+      # docs/ tree are both present, which is here and not in the lint job.
+      - run: make verify-test-count

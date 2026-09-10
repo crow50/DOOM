@@ -99,9 +99,11 @@ about first.
 
 **Immutable audit trail.** Shrinkage investigations depend on history nobody
 could have edited. That is why DOOM's audit table is now hash-chained *and* has
-`UPDATE`/`DELETE` revoked from the application's database role — so even a total
-SQL injection through the app can only append. It is tamper-**evident** rather
-than tamper-proof, and the docs say so plainly.
+`UPDATE`/`DELETE` revoked on `audit_log` for the application's database role — so
+even a total SQL injection through the app cannot rewrite history, only append to
+it. Every other table keeps full DML, so the same injection could still alter
+items and locations; what it cannot do is cover its tracks. It is
+tamper-**evident** rather than tamper-proof, and the docs say so plainly.
 
 **Segregation of duties.** The single biggest gap remaining. DOOM is
 single-account by design, so it is not a defect today, but the moment a second

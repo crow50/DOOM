@@ -6,10 +6,11 @@ the answer was to accept a risk rather than remove it.
 
 ---
 
-## D-01 - Every limit lives in one file
+## D-01 - Every field bound lives in one file
 
-`app/doom/validation.py` holds every bound in the system. Forms, ORM columns,
-database CHECK constraints and HTML attributes all read from it.
+`app/doom/validation.py` holds every bound on user data — text lengths,
+quantities, password length, tree depth, upload size and type. Forms, ORM
+columns, database CHECK constraints and HTML attributes all read from it.
 
 The alternative - a `maxlength` in a template, a `Length()` in a form, a
 `String(120)` in a model - puts the same number in four places with no
@@ -19,6 +20,27 @@ old width, and the disagreement surfaces as a 500 or, worse, as data the
 application did not expect to be able to store.
 
 One constant, referenced everywhere, cannot disagree with itself.
+
+**What this decision does not cover.** An audit pointed out that "every limit
+lives in one file" was being read as a claim about the whole stack, and it is
+not one. Two categories sit outside `validation.py` deliberately:
+
+- **The request body cap exists twice.** Caddy rejects above 12 MB
+  (`caddy/Caddyfile`) so the application never buffers what it would refuse at
+  10 MB (`MAX_UPLOAD_BYTES`). Two numbers with a deliberate gap between them, in
+  two languages, with no shared constant available — the edge proxy cannot read
+  a Python module. The gap is the point; a single value would mean Caddy either
+  refusing what the app allows or passing through what it rejects.
+- **Pagination and batch caps are per-view.** `.limit(200)` on the item list,
+  `files[:10]` on upload, `.limit(500)` on the public share page. These are
+  response-size ceilings, not security bounds: exceeding one costs a slow page,
+  not a violated invariant, and the right number differs per view. Hoisting them
+  into `validation.py` would give the file the appearance of authority over
+  limits it does not meaningfully govern.
+
+The distinction worth holding on to: `validation.py` is the single source of
+truth for **what the application will accept as data**. It is not, and does not
+claim to be, a registry of every numeric constant in the deployment.
 
 The layering is deliberate, not redundant. The HTML attribute is a
 **usability hint** and is never treated as a control - a client that ignores
@@ -57,7 +79,10 @@ later upgrades each account silently as its owner next signs in.
 ## D-03 - 12-character minimum, no composition rules
 
 NIST SP 800-63B withdrew composition rules ("one uppercase, one digit, one
-symbol") because they measurably fail. Faced with them, people produce
+symbol") because they measurably fail. The citation is **SP 800-63B-4**, final
+31 July 2025, which supersedes the Rev. 3 that ASVS 4.0.3 was itself written
+against; both revisions agree on this point, and Rev. 4 keeps the blocklist
+requirement that D-03 also implements. Faced with them, people produce
 `Password1!` - which satisfies every rule and is in every cracking dictionary -
 while genuinely strong passphrases get rejected for lacking a symbol. The rules
 narrow the search space instead of widening it.
@@ -888,11 +913,21 @@ matches it exactly.
 Four controls, and one correction to this document's own claims.
 
 **The correction first.** An earlier revision called missing MFA "the largest
-gap against L2". That was wrong. ASVS 4.0 has no blanket Level 2 requirement
+gap against L2". That was wrong. ASVS 4.0.3 has no blanket Level 2 requirement
 for multi-factor authentication — V2.2.4 (phishing resistance) is **Level 3**,
 and V2.7/V2.8 apply only *if* OTP authenticators are used. Left uncorrected it
 would have been a false claim in a document whose entire value is that its
 claims can be checked.
+
+**And a correction to the correction — see D-37.** That paragraph overshot.
+**V2.3.2 is Level 2** and asks that "enrollment and use of user-provided
+authentication devices are supported, such as a U2F or FIDO token". It does not
+require a second factor to be mandatory, but it does require the capability, and
+there is no enrollment path here at all. So single-factor is an L2 gap *and* an
+L3 one, and it is recorded as **Not met** at 2.3.2 in the ledger. Two corrections
+in a row on the same paragraph is a good argument for enumerating requirements
+from the standard rather than reasoning about them from memory, which is what
+D-37 changes.
 
 ### Anti-caching on authenticated responses (8.1.1, 8.2.1)
 
@@ -985,6 +1020,110 @@ JSON, which is what a collector consumes. The security-relevant half — the
 audit trail — is in Postgres, hash-chained and append-only, which is a
 stronger property than remote shipping alone.
 
-Both are recorded in `COMPLIANCE.md` §4 as compensating-control arguments, not
+Both are recorded in `COMPLIANCE.md` §3 as compensating-control arguments, not
 as met requirements. A verifier is free to disagree; pretending they were
 implemented would be worse than either.
+
+---
+
+## D-37 — COMPLIANCE.md becomes an exhaustive ledger
+
+An external audit found the ASVS claims in this project overstated. Not
+fabricated — every control it named exists — but the *claims* outran the
+implementation, and the shape of the document was why.
+
+### What was wrong
+
+`COMPLIANCE.md` §1 was a curated table of about 76 controls that were working,
+out of the 253 L1/L2 requirements ASVS 4.0.3 contains. Four failure modes follow
+from that shape, and all four had occurred:
+
+1. **A curated list cannot support a level claim.** Nothing in it enumerated what
+   "L1 in full" required, so nothing could show the claim was met — and V2.1.8
+   (password strength meter, Level 1) was absent entirely: not claimed, not marked
+   inapplicable, not listed as a gap.
+2. **The same requirement could appear twice with opposite verdicts.** 14.2.1 was
+   "Pinned; scanning on the roadmap" in §1 and a gap in §4.
+3. **Rows could credit controls that did not exist.** 5.2.1 cited an `nh3`
+   allowlist "for Markdown". `nh3` was a pinned dependency no module imported, and
+   there is no Markdown rendering.
+4. **Paraphrasing weakened requirements.** 14.2.1 became "no known-vulnerable
+   components" (it says "up to date, preferably using a dependency checker", and
+   its CWE is 1026, not the 1104 the row carried). 12.4.2 — which says *antivirus
+   scanners*, and is Level 1 — became "content scanned **or** neutralised", with a
+   re-encode offered against it. The malware gap in §4 was then filed under
+   12.4.1, which is a different requirement about storage location.
+
+Two more findings were about drift rather than shape: four files published four
+different test counts, and `PIPELINE-NOTES.md` described as future work a pipeline
+that had already shipped.
+
+### What changed
+
+The ledger is **generated from the requirement list**, not assembled from the
+implementation. All 253 L1/L2 requirements get a row whether or not anything was
+built for them, so absence is now visible by construction. The gap table is
+*derived* from those rows rather than maintained beside them, which makes finding
+(2) structurally impossible rather than merely unlikely.
+
+**Compensating is counted separately from Met.** This is the load-bearing change.
+An argument that the risk is handled is not the same as meeting the requirement,
+and the scoreboard now refuses to add the two together. It is also the reason the
+honest numbers are publishable: L1 is 99 of 127 with seven exceptions, L2 is 65 of
+126 with thirty.
+
+**`tools/check_docs.py` runs in `make lint`.** Three checks: one file publishes the
+test count, the exception table matches the ledger's non-Met rows, and every ASVS
+id cited in any document is a real 4.0.3 requirement with a row. The audit's
+findings were all reachable by grep; the absence of a grep is why they survived
+ten commits.
+
+### Why some findings were closed in code instead
+
+Where a claim was cheap to make true, making it true beat downgrading it — and two
+of those turned out to be controls that were written but did not work:
+
+- **2.1.7 — the breach corpus could not fire.** `COMMON_PASSWORDS` held 124
+  entries, of which **123 were shorter than `PASSWORD_MIN`**. `check_policy`
+  rejects on length before consulting the corpus, so the screen could only ever
+  match one string: `administrator`. This is worth dwelling on, because ASVS 2.1.7
+  anticipates it exactly — it asks for the top 1,000 or 10,000 passwords "**which
+  match the system's password policy**", and a conventional top-10,000 list does
+  not match a 12-character policy at all. The corpus is now 10,000 entries drawn
+  from a 1,000,000-entry release and filtered to 12 characters *first*.
+- **7.2.2 — denied access was not being recorded.** `record_audit` defaults to
+  riding along with the caller's transaction, and every denial path ends in
+  `abort(404)`. Nothing else in that request commits, so the row was added to the
+  session and rolled back at teardown. The trail recorded no denials while
+  `authz.py` carried a comment about enumeration being invisible without them.
+  `commit=True`, as the failed-login path already did.
+- **7.1.1 / 13.1.3 — share tokens were being logged.** `security/logging.py`
+  dropped the query string with a comment saying it "can carry a share token",
+  while the token actually travels as a path segment. `request.path` was logged
+  verbatim, so every visit to a shared page wrote a live capability credential
+  into the log. Now scrubbed to `/t/[redacted]`.
+- **2.1.8 and 2.1.12** — a dependency-free strength meter and reveal toggle, both
+  Level 1, both previously absent. Served from `static/`, so `script-src 'self'`
+  needed no weakening.
+- **3.4.4** — the session cookie now carries the `__Host-` prefix, which is a
+  browser-enforced version of the guarantees the cookie attributes were already
+  asking for.
+- **4.2.1** — "No IDOR" was a universal negative resting on a helper. It is now
+  two checks that can fail: every endpoint in `url_map` must be classified with
+  its scoping mechanism recorded, and bob is asked for alice's objects through
+  every route that takes an id. The classification found that 16 of 43 routes
+  reached objects without the helper. None was exploitable, but one of them —
+  checkout, which re-implemented the query inline to get `SELECT ... FOR UPDATE` —
+  was the route skipping the denial audit above. It now uses
+  `get_owned_for_update()`, so the vetted mechanism covers the locking case too.
+
+`assert_owned()` was deleted rather than fixed. It was dead code that documentation
+could have credited, which is worse than no control at all.
+
+### What was deliberately left as a gap
+
+TLS between containers (1.9.1, 1.9.2, 9.2.2), off-host log shipping (1.7.2),
+antivirus scanning (12.4.2) and the SBOM (14.2.5) are recorded as unmet. Each is
+real work with runtime consequences, and the argument for the current position is
+in `COMPLIANCE.md` §3 where a verifier can disagree with it. The point of this
+decision is that an argument is now labelled as an argument.

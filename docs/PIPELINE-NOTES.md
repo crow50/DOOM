@@ -1,167 +1,99 @@
-# DevSecOps roadmap
+# DevSecOps pipeline
 
-Out of scope for this build - to be wired up separately on GitHub. Listed in
-order of value for a project like this, with what each would actually catch.
+This file used to open "Out of scope for this build — to be wired up separately on
+GitHub" and then describe, as a roadmap, tooling that had already been wired up.
+Seven workflows, Renovate and hash-pinned installs landed in commits that did not
+touch the documentation. An audit read the roadmap and reasonably concluded the
+scanning did not exist.
 
-The codebase is laid out so adding these is configuration only; none of them
-require restructuring.
-
----
-
-## Tier 1 - the three worth doing first
-
-### `gitleaks` as a pre-commit hook
-
-Catches secrets before they enter history. A committed `.env` is the single
-most common breach in a student or homelab project, and `git rm` does not
-undo it - the value stays in the object store and has to be treated as
-compromised.
-
-```yaml
-# .pre-commit-config.yaml
-repos:
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.21.2
-    hooks: [{ id: gitleaks }]
-```
-
-DOOM already helps here: `.gitignore` and `.dockerignore` exclude `.env`,
-`*.pem` and `uploads/`, `make init` generates secrets rather than shipping
-defaults, and `.env.example` holds placeholders that make the app refuse to
-start. `gitleaks` is the backstop for the case none of that covers.
-
-### `bandit` - Python SAST
-
-Flags weak hashing, `shell=True`, `eval`, hardcoded credentials, disabled
-certificate verification. Fast, no configuration needed.
-
-```bash
-bandit -r app/doom -ll
-```
-
-Expect one finding to need review rather than fixing: `security/passwords.py`
-contains a module-level constant that looks like a hardcoded password. It is
-the dummy Argon2 hash used to equalise login timing for unknown users - a
-deliberate control, not a credential. Annotate it with `# nosec` and a comment
-rather than silencing the rule globally.
-
-### `pip-audit` - dependency CVEs
-
-Every pinned version in `requirements.txt` is a snapshot that ages. This is
-the cheapest control that catches a class of problem the code review cannot.
-
-```bash
-pip-audit -r app/requirements.txt
-```
+So this is now a record of what runs, and a much shorter list of what does not.
 
 ---
 
-## Tier 2
+## Shipped
 
-### `semgrep`
+| Tool | What it catches | Where | Runs on |
+|---|---|---|---|
+| **gitleaks** | Secrets entering history | [`gitleaks-secret-scanning.yml`](../.github/workflows/gitleaks-secret-scanning.yml) + [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) | push, PR, and pre-commit |
+| **bandit** | Weak hashing, `shell=True`, `eval`, hardcoded credentials | [`bandit-python-scanning.yml`](../.github/workflows/bandit-python-scanning.yml) | push to `main`, PR |
+| **pip-audit** | Known CVEs in pinned dependencies | [`pip-audit.yml`](../.github/workflows/pip-audit.yml) | push to `main`, PR |
+| **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | push to `main`, PR |
+| **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | Dockerfile changes, PR |
+| **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR |
+| **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
+| **Lockfile drift** | A hand-edited `requirements.txt` | [`diff-and-make-test.yml`](../.github/workflows/diff-and-make-test.yml) | every push and PR |
+| **Hash-pinned installs** | A substituted artifact, not merely a wrong version | `app/requirements.txt` — every pin carries `--hash=sha256:` | every build |
+| **`make lint`** | `\|safe` / `Markup(` in templates, and documentation drift | [`Makefile`](../Makefile), [`tools/check_docs.py`](../tools/check_docs.py) | every push and PR |
+| **`make test`** | Every control in the ASVS ledger | `diff-and-make-test.yml` | every push and PR |
 
-Pattern SAST over your own code rather than dependencies.
+The strongest control in that list is the least obvious one: the lockfile check
+recompiles `app/requirements.in` and diffs the result against the committed
+`app/requirements.txt`, so a dependency cannot be added, removed or bumped without
+the lockfile being regenerated properly.
 
-```bash
-semgrep --config p/flask --config p/owasp-top-ten app/
-```
+### A trigger bug worth remembering
 
-Worth running specifically for the rules covering string-formatted SQL,
-`send_file` with request-derived paths, and missing CSRF - the three places
-this application deliberately does the safe thing, so a regression should be
-loud.
+`pip-audit` and `bandit` were originally filtered on `paths: ['**/app']`. That glob
+matches a path *component* named exactly `app`, not the `app/` subtree — so
+neither scan reliably fired, on `main` or anywhere else, and both were still being
+cited as evidence that dependencies were scanned. Both now use `app/**` (and
+`app/requirements*` for pip-audit) and both run on pull requests.
 
-### `hadolint` - Dockerfile linting
-
-Catches root users, unpinned base tags, and layer-cache mistakes that leave
-secrets in an image.
-
-### `trivy` - image and filesystem CVE scanning
-
-```bash
-trivy image doom-web --severity HIGH,CRITICAL
-```
-
-The base image is most of the attack surface and none of it is code you wrote.
-`python:3.12.7-slim` is pinned, which makes results reproducible - and means
-you must deliberately bump it to pick up fixes.
+The lesson is not about globs. A control cited as evidence has to run where the
+claim is checked, and nothing in the pipeline was verifying that.
 
 ---
 
-## Tier 3
+## Not shipped
 
-### SBOM
+Two items, both real, both recorded as gaps in
+[COMPLIANCE.md](COMPLIANCE.md) rather than described here as future work.
+
+### SBOM — ASVS 14.2.5, **Not met**
 
 ```bash
 syft doom-web -o cyclonedx-json > sbom.json
 ```
 
 One command, and it answers "are we affected by X" in seconds rather than an
-afternoon.
+afternoon. Tracked separately and expected before this work reaches `main`.
 
-### Renovate
+### Antivirus scanning of uploads — ASVS 12.4.2, **Not met**
 
-Automated dependency PRs. Converts pinning from a snapshot into a maintained
-position, which is the difference between a project that was secure once and
-one that stays secure.
-
-### Hash-pinned installs
-
-```bash
-pip-compile --generate-hashes app/requirements.in -o app/requirements.txt
-```
-
-Upgrades version pinning into tamper-evidence: the exact artifact is verified,
-not just its version number.
+ClamAV as a sidecar, called from `security/uploads.py` before the store step.
+Worth being precise about why the current position is not enough: images are fully
+decoded and re-encoded, which destroys an embedded payload more reliably than a
+signature scanner finds it — but PDF, text and Markdown uploads are stored byte
+for byte, and 12.4.2 is a **Level 1** requirement that says "antivirus scanners".
 
 ---
 
-## A CI shape that works
+## Deliberately not added
 
-```yaml
-name: ci
-on: [push, pull_request]
-jobs:
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install bandit pip-audit
-      - run: bandit -r app/doom -ll
-      - run: pip-audit -r app/requirements.txt
-      - run: make lint          # the |safe template grep
-  test:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16.4-alpine
-        env: { POSTGRES_PASSWORD: ci, POSTGRES_USER: doom_admin, POSTGRES_DB: doom_test }
-        options: >-
-          --health-cmd pg_isready --health-interval 5s
-          --health-timeout 5s --health-retries 10
-    steps:
-      - uses: actions/checkout@v4
-      - run: make test
-```
-
-Fail the build on HIGH and CRITICAL. Anything lower becomes noise that gets
-ignored, which is worse than not scanning.
+- **Coverage gates.** A percentage target rewards testing what is easy to reach.
+  The suite exists to pin named controls, and the ledger names which test pins
+  which requirement.
+- **Severity thresholds below HIGH.** Fail on HIGH and CRITICAL. Anything lower
+  becomes noise that gets ignored, which is worse than not scanning.
+- **A dependency-review action.** Renovate plus pip-audit plus the lockfile diff
+  already cover the same ground; a fourth opinion on the same change is friction
+  without information.
 
 ---
 
-## Already in the build
+## Notes for anyone extending this
 
-These are properties of the application rather than external tooling, so they
-did not wait for a pipeline:
+**bandit will flag `security/passwords.py`.** It contains a module-level constant
+that looks like a hardcoded password. It is the dummy Argon2 hash used to equalise
+login timing for unknown users (`passwords.py:47`) — a deliberate control, not a
+credential. Annotate it with `# nosec` and a comment rather than silencing the
+rule globally.
 
-- **Threat model written before the code** - [THREAT-MODEL.md](THREAT-MODEL.md)
-- **`make lint`** - greps templates for `|safe` and `Markup(`, failing the
-  build if user data could bypass autoescaping
-- **`make test`** - 74 tests pinning the security controls
-- **Secrets generated, never shipped** - `make init` with `openssl rand`
-- **Placeholders that fail closed** - the app refuses to start on `CHANGE_ME`
-- **Pinned dependencies and base images**
-- **`make backup` / `make restore`** - covering the database *and* the uploads
-  volume, tested rather than assumed
+**Base images are version-pinned but not digest-pinned.** `python:3.14.7-slim`,
+`postgres:18.6-alpine`, `redis:8.10.1-alpine` and `caddy:2.11.4-alpine` are
+reproducible to a tag, not to a digest, so a re-pushed tag would go unnoticed.
+Renovate keeps the versions current; digest pinning is the next increment.
+
+**`make lint` runs `tools/check_docs.py`.** If you add an ASVS requirement to a
+document, add its ledger row too — the check fails otherwise. That is deliberate:
+this file being wrong for ten commits is what prompted it.
