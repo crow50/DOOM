@@ -9,6 +9,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /build
 
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
  && rm -rf /var/lib/apt/lists/*
@@ -29,6 +30,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # libmagic1 backs python-magic, which identifies uploads by their content
 # rather than their filename (T-12).
+# hadolint ignore=DL3008
 RUN apt-get update \
  && apt-get install -y --no-install-recommends libmagic1 \
  && rm -rf /var/lib/apt/lists/* \
