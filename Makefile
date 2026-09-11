@@ -252,9 +252,11 @@ restore: ## Restore from a backup pair: make restore DB=... UPLOADS=...
 ## ------------------------------------------------------------------- clean
 .PHONY: clean
 clean: ## Stop and DELETE all data volumes
-	@echo "This destroys the database and every uploaded file."
+	@echo "This destroys the database, every uploaded file, .env, and secrets."
 	@read -p "Type 'yes' to continue: " ok; [ "$$ok" = "yes" ] || exit 1
-	$(COMPOSE) down -v
+	$(COMPOSE) down -v 
+	@rm -f .env
+	@rm -rf secrets
 
 .PHONY: help
 help: ## Show this help
