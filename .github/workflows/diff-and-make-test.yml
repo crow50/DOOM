@@ -36,6 +36,24 @@ jobs:
       - uses: actions/checkout@v6
       - run: make build
       - run: make init
+
+      # Anonymous Docker Hub pulls from GitHub-hosted runners are rate-limited
+      # and occasionally reset mid-handshake. That is exactly how this job last
+      # failed - "connection reset by peer" fetching the postgres manifest,
+      # before a single test ran - and it is not something a code change can
+      # prevent. Retrying only the pull leaves `make up` to fail on its own
+      # merits: a genuinely broken image still fails three times here and then
+      # fails the build.
+      - name: Pre-pull third-party images
+        run: |
+          for attempt in 1 2 3; do
+            if docker compose pull --quiet db cache caddy; then exit 0; fi
+            echo "pull attempt $attempt failed; retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "could not pull third-party images after 3 attempts"
+          exit 1
+
       - run: make up
       - name: Show db logs on failure
         if: failure()
