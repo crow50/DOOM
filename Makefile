@@ -43,8 +43,16 @@ rebuild: ## Rebuild images from scratch, ignoring cache
 	$(COMPOSE) build --no-cache
 
 .PHONY: logs
-logs: ## Tail logs from every service
+logs: ## Follow logs from every service (interactive)
 	$(COMPOSE) logs -f --tail=100
+
+# `logs` follows, which is right at a terminal and wrong in CI: as a failure
+# handler it never returns, so the job hangs until the runner times out instead
+# of printing the reason it failed. This is the same thing without the -f.
+.PHONY: logs-dump
+logs-dump: ## Print recent logs and container state, then exit
+	-$(COMPOSE) ps -a
+	-$(COMPOSE) logs --no-color --tail=200
 
 .PHONY: ps
 ps: ## Show container status
