@@ -1156,3 +1156,56 @@ three of the four were not regressions:
 
 The first three share a shape: a check that is not testing what its name says.
 That is the same defect as the documentation this ADR is about, one layer down.
+
+### A third round: the control that was never created
+
+`make seed` failed with `password authentication failed for user "doom_app"`. It
+was not a password mismatch. The role did not exist, and neither did the `citext`
+extension — and both had been missing on every clean install since the first
+commit.
+
+`db/init/01-roles.sh` interpolated `${APP_DB_PASSWORD}`, but the `db` service is
+handed only `APP_DB_PASSWORD_FILE`. The official postgres image calls its
+`file_env()` helper for four names — `POSTGRES_PASSWORD`, `POSTGRES_USER`,
+`POSTGRES_DB`, `POSTGRES_INITDB_ARGS` — and there is no generic `*_FILE` handling,
+so nothing ever opened that path. Under `set -u` the reference was fatal *while
+the heredoc was being expanded*, which means `psql` was never invoked at all: the
+`CREATE EXTENSION` on the line above went with it.
+
+Three things then conspired to hide it, and each is worth naming because each is a
+pattern rather than an accident:
+
+- **A failure that repaired itself into a lie.** The container exited, and
+  `restart: unless-stopped` brought it back onto a data directory that now had a
+  `PG_VERSION` in it. The entrypoint skips `/docker-entrypoint-initdb.d` entirely
+  in that case, so the second start was clean. The evidence of the failure was in
+  the first start's logs and nowhere else.
+- **A healthcheck that answered the wrong question.** `pg_isready` with no host
+  checks the unix socket, and the *temporary* server postgres runs during
+  initialisation answers there too (it starts with `listen_addresses=''`). So the
+  database reported healthy while its bootstrap was still running, or had already
+  failed. It now checks TCP, which is the only thing `web` can use.
+- **An error message that is deliberately unhelpful.** Postgres reports a missing
+  role and a wrong password identically, so as not to confirm which accounts
+  exist. Correct of postgres, and it sent the first hour of this investigation
+  after a password mismatch that did not exist.
+
+The reason it survived is the important part. `make test` connects to a separate
+`doom_test` database as the **admin** role and creates `citext` itself, and CI
+never ran `make upgrade` or `make seed`. So the entire suite passed, on every
+commit, whether or not the application role existed. The two-role split is the
+control T-08, T-35 and D-08 all rest on, and `COMPLIANCE.md` cited it as evidence
+for 4.1.3 and 1.2.1 — while nothing anywhere authenticated as `doom_app`.
+
+`make verify-db-roles` now does, in CI, on every push: the role exists, it can read
+and write rows, it cannot execute DDL, and it cannot touch `audit_log`. `make
+upgrade` runs in CI too, which on its own would have caught the missing extension,
+since the initial migration declares a `CITEXT` column.
+
+Which makes three rounds with the same shape. The documentation described controls
+nobody had checked; the lockfile check measured PyPI rather than the lockfile; the
+failure handler followed logs forever so the failure it existed to explain was
+never printed; and here a bootstrap script's exit status was discarded by a restart
+policy and a healthcheck that agreed with it. In every case the control was
+written, documented, and cited, and in every case the thing that would have proved
+it worked did not exist. Writing the check is the control; the rest is intent.

@@ -158,7 +158,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 | 1.1.5 | 2 | Verify definition and security analysis of the application's high-level architecture and all connected remote services | Met | `THREAT-MODEL.md` §3-§4; `README.md` Architecture | 1059 |
 | 1.1.6 | 2 | Verify implementation of centralized, simple (economy of design), vetted, secure, and reusable security controls to avoid duplicate, missing, ineffective, or insecure controls | Met | `app/doom/security/` - 9 modules; one access-control mechanism at `security/authz.py:58` | 637 |
 | 1.1.7 | 2 | Verify availability of a secure coding checklist, security requirements, guideline, or policy to all developers and testers | Partial | `docs/SECURITY.md` + `DECISIONS.md` serve the purpose; no separate secure-coding checklist | 637 |
-| 1.2.1 | 2 | Verify the use of unique or special low-privilege operating system accounts for all application components, services, and servers | Met | `app/Dockerfile:37-58` uid 10001, `nologin`; `db/init/01-roles.sh` two-role split | 250 |
+| 1.2.1 | 2 | Verify the use of unique or special low-privilege operating system accounts for all application components, services, and servers | Met | `app/Dockerfile:37-58` uid 10001, `nologin`; `db/init/01-roles.sh` two-role split, asserted by `make verify-db-roles` | 250 |
 | 1.2.2 | 2 | Verify that communications between application components, including APIs, middleware and data layers, are authenticated. Components should have the least necessary ... | Partial | `db` and `cache` require passwords (`app/entrypoint.sh:21,27`) but the channel itself is unauthenticated - see 1.9.2 | 306 |
 | 1.2.3 | 2 | Verify that the application uses a single vetted authentication mechanism that is known to be secure, can be extended to include strong authentication, and has sufficient ... | Met | Single Flask-Login + Argon2id path; `app/doom/extensions.py:22-30` | 306 |
 | 1.2.4 | 2 | Verify that all authentication pathways and identity management APIs implement consistent authentication security control strength, such that there are no weaker alternatives ... | Met | One login path, no alternate identity API; `app/doom/blueprints/auth.py:156` | 306 |
@@ -277,7 +277,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 |---|:--:|---|---|---|:--:|
 | 4.1.1 | 1 | Verify that the application enforces access control rules on a trusted service layer, especially if client-side access control is present and could be bypassed | Met | `security/authz.py:58` - enforcement is a `WHERE` clause on the server | 602 |
 | 4.1.2 | 1 | Verify that all user and data attributes and policy information used by access controls cannot be manipulated by end users unless specifically authorized | Met | Field-by-field form binding; never `**request.form` (D-07) | 639 |
-| 4.1.3 | 1 | Verify that the principle of least privilege exists - users should only be able to access functions, data files, URLs, controllers, services, and other resources, for which ... | Met | App DB role holds DML only (`db/init/01-roles.sh`, D-08); objects scoped by owner | 285 |
+| 4.1.3 | 1 | Verify that the principle of least privilege exists - users should only be able to access functions, data files, URLs, controllers, services, and other resources, for which ... | Met | App DB role holds DML only (`db/init/01-roles.sh`, D-08), asserted by `make verify-db-roles`; objects scoped by owner | 285 |
 | 4.1.5 | 1 | Verify that access controls fail securely including when an exception occurs | Met | A miss is 404, not 403 (D-06); a non-UUID id takes the same path (`security/authz.py:43-55`) | 285 |
 | 4.2.1 | 1 | Verify that sensitive data and APIs are protected against Insecure Direct Object Reference (IDOR) attacks targeting creation, reading, updating and deletion of records, such ... | Met | Ownership filtered inside the query; `tests/test_authz_coverage.py` fails if any object-scoped endpoint escapes the invariant | 639 |
 | 4.2.2 | 1 | Verify that the application or framework enforces a strong anti-CSRF mechanism to protect authenticated functionality, and effective anti-automation or anti-CSRF protects ... | Met | `CSRFProtect` global (`extensions.py:20`); no state change on GET | 352 |
@@ -641,7 +641,15 @@ make test           # 281 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges
+make verify-db-roles # assert the two-role split exists and is restricted
 ```
+
+`make verify-db-roles` is worth singling out. Until it existed, every claim resting
+on the two-role split was an assertion about a shell script nobody checked the
+output of - and that script had been failing since the first commit, leaving the
+restricted role uncreated. The suite could not notice, because it connects to a
+separate database as the admin role. A control with no executable evidence is the
+thing this document was rebuilt to stop.
 
 `make lint` is the guard on this document specifically. It fails if a requirement
 in the ledger is not Met and not listed in §1, if any document cites a requirement

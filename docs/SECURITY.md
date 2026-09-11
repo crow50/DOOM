@@ -297,6 +297,7 @@ quoting its own. The tests exist to stop a control regressing silently.
 | Route coverage | Every endpoint in `url_map` is classified; a new one fails the suite until its scoping is recorded |
 | Denied access | A refused object access survives the 404 that follows it, on the locking path as well as the ordinary one |
 | Share tokens | A capability token reaches neither the application log nor gunicorn's access log, in the path or the `Referer` |
+| Database roles | `make verify-db-roles` - the app role exists, can do DML, and can do neither DDL nor anything to `audit_log` |
 
 Several of these were written because the control is one that *fails quietly*:
 session revocation (bump the column, forget the comparison, and it still looks

@@ -142,6 +142,52 @@ db-shell-app: ## psql as the RESTRICTED app role - use this to prove least privi
 	$(COMPOSE) exec -e PGPASSWORD=$(APP_DB_PASSWORD) db \
 		psql -U $(APP_DB_USER) -d $(POSTGRES_DB) -h 127.0.0.1
 
+# The two-role split is the control T-08, T-35 and D-08 all rest on, and until
+# this target existed nothing checked it: `make test` connects to a separate
+# doom_test database as the ADMIN role, so the whole suite passes whether or not
+# doom_app exists.  It did not exist - db/init/01-roles.sh aborted on an unbound
+# variable before creating it, and the container restarted onto an already
+# initialised data directory, skipping the script and looking healthy.  Postgres
+# reports a missing role as "password authentication failed" (it will not confirm
+# whether a role exists), so the only symptom was `make seed` failing as though
+# the password were wrong.
+#
+# Each assertion below is the executable evidence for a row in COMPLIANCE.md.
+.PHONY: verify-db-roles
+verify-db-roles: ## Prove the app role exists and is properly restricted
+	@set -e; \
+	app_psql() { $(COMPOSE) exec -T -e PGPASSWORD=$(APP_DB_PASSWORD) db \
+		psql -v ON_ERROR_STOP=1 -qtAX -U $(APP_DB_USER) -d $(POSTGRES_DB) -h 127.0.0.1 "$$@"; }; \
+	echo "checking the application database role..."; \
+	\
+	app_psql -c 'SELECT 1' >/dev/null \
+		|| { echo "FAIL: $(APP_DB_USER) cannot log in - was db/init/01-roles.sh skipped?"; exit 1; }; \
+	echo "  ok: $(APP_DB_USER) can connect over TCP"; \
+	\
+	test "$$(app_psql -c \
+		"SELECT count(*) FROM pg_extension WHERE extname = 'citext'")" = "1" \
+		|| { echo "FAIL: citext missing - 01-roles.sh creates it, so init did not complete"; exit 1; }; \
+	echo "  ok: citext is installed"; \
+	\
+	app_psql -c 'SELECT count(*) FROM items' >/dev/null \
+		|| { echo "FAIL: $(APP_DB_USER) cannot SELECT (migrations run?)"; exit 1; }; \
+	echo "  ok: DML reads are permitted"; \
+	\
+	if app_psql -c 'CREATE TABLE doom_privilege_probe (id int)' >/dev/null 2>&1; then \
+		app_psql -c 'DROP TABLE IF EXISTS doom_privilege_probe' >/dev/null 2>&1 || true; \
+		echo "FAIL: $(APP_DB_USER) can CREATE TABLE - it holds DDL it must not have"; exit 1; \
+	fi; \
+	echo "  ok: DDL is refused"; \
+	\
+	if app_psql -c "UPDATE audit_log SET detail = 'x'" >/dev/null 2>&1; then \
+		echo "FAIL: $(APP_DB_USER) can UPDATE audit_log - history is rewritable"; exit 1; \
+	fi; \
+	if app_psql -c 'DELETE FROM audit_log' >/dev/null 2>&1; then \
+		echo "FAIL: $(APP_DB_USER) can DELETE from audit_log - history is erasable"; exit 1; \
+	fi; \
+	echo "  ok: audit_log is append-only for $(APP_DB_USER)"; \
+	echo "  clean: the two-role split is in place"
+
 .PHONY: shell
 shell: ## Shell inside the web container
 	$(COMPOSE) exec web /bin/bash
