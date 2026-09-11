@@ -39,6 +39,32 @@ RUN apt-get update \
 
 COPY --from=builder /opt/venv /opt/venv
 
+# pip is a build-time tool; nothing in the runtime image ever installs anything.
+# Removing it removes its *vendored* dependency tree with it, which is where every
+# Python CVE reported against this image has come from - pip vendors setuptools
+# and msgpack (see pip/_vendor/vendor.txt), neither of which this application
+# imports and neither of which appears in requirements.txt.  Stripping them
+# deletes the vulnerable code rather than filing an exception for it (ASVS
+# 14.2.2: unneeded features are removed).
+#
+# pip is present twice: once from the base image's --with-ensurepip, and once in
+# /opt/venv from `python -m venv --upgrade-deps` above.
+#
+# The import check on the last line is the point of doing this in one layer: if
+# stripping setuptools breaks anything still reaching for pkg_resources, the
+# build fails here rather than the container failing at boot.
+RUN set -eux; \
+    for site in /usr/local/lib/python3.*/site-packages \
+                /opt/venv/lib/python3.*/site-packages; do \
+      rm -rf "$site"/pip          "$site"/pip-*.dist-info \
+             "$site"/setuptools   "$site"/setuptools-*.dist-info \
+             "$site"/pkg_resources \
+             "$site"/wheel        "$site"/wheel-*.dist-info; \
+    done; \
+    rm -rf /usr/local/lib/python3.*/ensurepip; \
+    rm -f /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.*; \
+    python -c "import flask, sqlalchemy, gunicorn, PIL, magic, argon2, redis, qrcode, pytest"
+
 WORKDIR /srv/doom
 COPY --chown=root:root . /srv/doom
 
@@ -72,5 +98,6 @@ CMD ["sh", "-c", "exec gunicorn \
       --worker-tmp-dir /tmp \
       --access-logfile - \
       --error-logfile - \
+      --logger-class doom.security.gunicorn_logging.JsonAccessLogger \
       --forwarded-allow-ips '*' \
       wsgi:app"]

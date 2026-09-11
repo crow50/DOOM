@@ -14,7 +14,7 @@ from conftest import login
 from doom.extensions import db
 from doom.models import AuditLog
 from doom.security import passwords
-from doom.security.logging import scrub_path
+from doom.security.logging import scrub_path, scrub_url
 
 
 class TestBreachCorpusIsReachable:
@@ -154,6 +154,79 @@ class TestShareTokenIsNotLogged:
     def test_ordinary_paths_are_untouched(self):
         for path in ("/", "/items/", "/account/activity.csv"):
             assert scrub_path(path) == path
+
+    def test_the_referrer_is_scrubbed_too(self):
+        """Referrer-Policy is same-origin, so a click inside a shared page sends
+        the whole capability URL to the server as Referer."""
+        assert scrub_url("https://doom.example/t/AbCd0123") == (
+            "https://doom.example/t/[redacted]"
+        )
+        assert scrub_url("https://doom.example/items/abc?q=1") == (
+            "https://doom.example/items/abc"
+        )
+        assert scrub_url(None) is None
+
+    def test_gunicorn_access_record_carries_no_token(self):
+        """The other log. gunicorn records the raw request line and Referer, so
+        scrubbing only the application log left the credential in the access log
+        of every visit to a shared page."""
+        import datetime
+        import io
+        import json
+        import logging as stdlib_logging
+
+        from doom.security.gunicorn_logging import JsonAccessLogger
+
+        class Cfg:
+            accesslog = "-"
+            logconfig = None
+            logconfig_dict = {}
+            logconfig_json = None
+            syslog = False
+            disable_redirect_access_to_syslog = True
+            errorlog = "-"
+            loglevel = "info"
+            capture_output = False
+            access_log_format = "%(h)s"
+
+            def __getattr__(self, name):
+                return None
+
+        class Resp:
+            status = "200 OK"
+            sent = 4096
+
+        token = "S3cr3tShareToken0123456789abcdef"
+        buffer = io.StringIO()
+        logger = JsonAccessLogger(Cfg())
+        logger.access_log.handlers = [stdlib_logging.StreamHandler(buffer)]
+        logger.access_log.setLevel(stdlib_logging.INFO)
+
+        logger.access(
+            Resp(),
+            None,
+            {
+                "REQUEST_METHOD": "GET",
+                "PATH_INFO": f"/t/{token}",
+                "QUERY_STRING": f"pin=1234&x={token}",
+                "RAW_URI": f"/t/{token}?pin=1234",
+                "SERVER_PROTOCOL": "HTTP/1.1",
+                "REMOTE_ADDR": "10.0.0.9",
+                "HTTP_X_FORWARDED_FOR": "203.0.113.7",
+                "HTTP_REFERER": f"https://doom.example/t/{token}",
+                "HTTP_USER_AGENT": "Mozilla/5.0",
+            },
+            datetime.timedelta(microseconds=12345),
+        )
+
+        line = buffer.getvalue().strip()
+        assert token not in line, "the access log still carries the share token"
+
+        record = json.loads(line)
+        assert record["path"] == "/t/[redacted]"
+        assert record["referer"] == "https://doom.example/t/[redacted]"
+        assert record["status"] == 200
+        assert record["ip"] == "203.0.113.7"
 
     def test_a_real_share_request_logs_no_token(self, app, client, alice, caplog):
         from doom.security.logging import JsonFormatter

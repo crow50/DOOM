@@ -296,7 +296,7 @@ quoting its own. The tests exist to stop a control regressing silently.
 | Cookie prefix | The session cookie carries `__Host-`, and the attributes that prefix requires are all set |
 | Route coverage | Every endpoint in `url_map` is classified; a new one fails the suite until its scoping is recorded |
 | Denied access | A refused object access survives the 404 that follows it, on the locking path as well as the ordinary one |
-| Share tokens | A capability token never reaches the application log |
+| Share tokens | A capability token reaches neither the application log nor gunicorn's access log, in the path or the `Referer` |
 
 Several of these were written because the control is one that *fails quietly*:
 session revocation (bump the column, forget the comparison, and it still looks
@@ -335,14 +335,10 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
    [COMPLIANCE.md](COMPLIANCE.md) §3, not counted as a pass.
 7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
    collector consumes, but nothing collects it here.
-8. **A share token reaches gunicorn's access log.** The application log scrubs
-   the token from the path; gunicorn's own access log has no redaction hook and
-   still records it. Anyone with log-read access can replay a share link until it
-   is rotated.
-9. **No SBOM** (14.2.5). Tracked separately.
+8. **No SBOM** (14.2.5). Tracked separately.
 
 Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
 Renovate all run, and the lockfile is hash-pinned. See
 [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where, and
-[COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these nine are the ones
+[COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these eight are the ones
 worth reading in isolation, not the complete set.

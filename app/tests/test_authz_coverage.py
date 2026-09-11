@@ -179,7 +179,12 @@ class TestCrossAccountAccess:
             ("POST", f"/files/upload/item/{item_id}"),
             ("GET", f"/labels/item/{item_id}"),
             ("POST", f"/labels/item/{item_id}/rotate"),
-            ("GET", f"/labels/sheet?location_id={location_id}"),
+            # labels.sheet takes repeatable ?location= / ?item=, which is what
+            # templates/labels/label.html builds. Getting the parameter name
+            # wrong makes the selection empty, and an empty sheet redirects
+            # rather than 404s - so the wrong name silently tests nothing.
+            ("GET", f"/labels/sheet?location={location_id}"),
+            ("GET", f"/labels/sheet?item={item_id}"),
             ("POST", f"/nfc/register/item/{item_id}"),
         ]
 

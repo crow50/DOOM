@@ -20,6 +20,7 @@ import logging
 import sys
 import uuid
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from flask import Flask, g, has_request_context, request
 
@@ -60,6 +61,27 @@ def scrub_path(path: str) -> str:
             remainder = f"/{tail[1]}" if len(tail) > 1 else ""
             return f"{prefix}{REDACTED}{remainder}"
     return path
+
+
+def scrub_url(value: str | None) -> str | None:
+    """Scrub a whole URL, not just a path.
+
+    ``Referer`` arrives as an absolute URL, and ``Referrer-Policy`` is
+    ``same-origin`` - so following any link from a shared page sends
+    ``https://host/t/<token>`` to the server, where gunicorn would otherwise log
+    it verbatim.  The path component gets the same treatment as
+    :func:`scrub_path`, and the query string is dropped entirely, matching what
+    the application log already does with it.
+    """
+    if not value:
+        return value
+
+    split = urlsplit(value)
+    scrubbed = scrub_path(split.path)
+    if scrubbed == split.path and not split.query:
+        return value
+
+    return urlunsplit((split.scheme, split.netloc, scrubbed, "", ""))
 
 
 def redact(value: Any, _depth: int = 0) -> Any:

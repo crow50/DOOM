@@ -31,6 +31,22 @@ recompiles `app/requirements.in` and diffs the result against the committed
 `app/requirements.txt`, so a dependency cannot be added, removed or bumped without
 the lockfile being regenerated properly.
 
+### Why the lockfile check seeds its output file
+
+`pip-compile` honours the pins already present in its output file unless
+`--upgrade` is passed. The check originally compiled into an empty `/tmp` file,
+which gave it nothing to honour, so it resolved every dependency to the latest
+release on PyPI and compared that against the committed lockfile. That is not a
+drift check — it fails whenever *upstream* moves, with nothing changed here, and
+it did: `wrapt` 2.4.1 shipped between two runs and turned the build red.
+
+Copying `app/requirements.txt` over `/tmp/requirements-hashed.txt` first makes it
+ask the intended question — does the committed lockfile still satisfy
+`requirements.in`? Keeping dependencies current is Renovate's job, and pip-audit
+and Trivy are what fail the build on a pin that has become dangerous. pip-tools
+itself is pinned for the same reason: an unpinned tool makes the check fail on
+its own upgrade.
+
 ### A trigger bug worth remembering
 
 `pip-audit` and `bandit` were originally filtered on `paths: ['**/app']`. That glob
@@ -88,6 +104,15 @@ that looks like a hardcoded password. It is the dummy Argon2 hash used to equali
 login timing for unknown users (`passwords.py:47`) — a deliberate control, not a
 credential. Annotate it with `# nosec` and a comment rather than silencing the
 rule globally.
+
+**The runtime image ships no pip.** It is removed in the runtime stage, along with
+setuptools, `pkg_resources` and `ensurepip`. Nothing in the container installs
+anything, and pip's *vendored* dependency tree was the source of every Python CVE
+Trivy reported against this image — it vendors setuptools and msgpack, neither of
+which this application imports. If you need to add a package, it goes in
+`requirements.in` and the image is rebuilt. The `RUN` that strips them ends with an
+import check, so the build fails immediately if something still wanted
+`pkg_resources`.
 
 **Base images are version-pinned but not digest-pinned.** `python:3.14.7-slim`,
 `postgres:18.6-alpine`, `redis:8.10.1-alpine` and `caddy:2.11.4-alpine` are

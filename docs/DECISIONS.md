@@ -1069,7 +1069,7 @@ built for them, so absence is now visible by construction. The gap table is
 **Compensating is counted separately from Met.** This is the load-bearing change.
 An argument that the risk is handled is not the same as meeting the requirement,
 and the scoreboard now refuses to add the two together. It is also the reason the
-honest numbers are publishable: L1 is 99 of 127 with seven exceptions, L2 is 65 of
+honest numbers are publishable: L1 is 100 of 127 with six exceptions, L2 is 65 of
 126 with thirty.
 
 **`tools/check_docs.py` runs in `make lint`.** Three checks: one file publishes the
@@ -1127,3 +1127,32 @@ antivirus scanning (12.4.2) and the SBOM (14.2.5) are recorded as unmet. Each is
 real work with runtime consequences, and the argument for the current position is
 in `COMPLIANCE.md` §3 where a verifier can disagree with it. The point of this
 decision is that an argument is now labelled as an argument.
+
+### A second round, from CI
+
+Four checks went red on the first push, and the split is worth recording because
+three of the four were not regressions:
+
+- **The IDOR sweep failed on my own test, not on the application.** `labels.sheet`
+  takes repeatable `?location=` / `?item=` parameters; the test sent
+  `?location_id=`, so the selection was empty and the view redirected instead of
+  refusing. With the right parameter bob gets his 404. A test that asserts a
+  security property has to address the thing it thinks it is addressing — the
+  wrong query-string key made it assert nothing at all, and it would have kept
+  passing once the redirect was accounted for.
+- **Trivy's two HIGH findings were pip's vendored tree** — `pip/_vendor/vendor.txt`
+  lists `setuptools==70.3.0`, exactly the flagged version. Neither package is a
+  dependency of this application. The runtime image never installs anything, so
+  pip is now stripped from it entirely: the vulnerable code is gone rather than
+  excepted, which is also what 14.2.2 asks for.
+- **The lockfile check was a clock, not a check.** It recompiled into an empty
+  `/tmp` file, so pip-compile had no pins to honour and always resolved to latest;
+  `wrapt` 2.4.1 shipped between two CI runs and turned the build red with nothing
+  changed in the repository. Seeding the output file from the committed lockfile
+  makes it ask the question it was written to ask — does the lockfile still
+  satisfy `requirements.in` — and leaves upgrades to Renovate.
+- **Gunicorn's access log** was the one real finding, disclosed in the first round
+  and closed in this one. See 7.1.1 and 13.1.3.
+
+The first three share a shape: a check that is not testing what its name says.
+That is the same defect as the documentation this ADR is about, one layer down.

@@ -206,7 +206,7 @@ What remains after every control above is in place.
 4. **Photographs can leak context that EXIF stripping cannot reach** - a visible address on an envelope, a view through a window. No technical control addresses this; the demo documentation notes it as user guidance.
 5. **The app is only as current as its dependencies.** `pip-audit`, Trivy and Renovate all run, and the lockfile is hash-pinned and drift-checked — but base images are pinned to a tag rather than a digest, so a re-pushed tag would go unnoticed. `PIPELINE-NOTES.md` records what runs where.
 6. **Traffic between containers is unencrypted.** Three internal hops are plaintext, so an attacker with a foothold on the Docker bridge sees the database session and the Redis password. The `internal: true` network is the compensating position, argued in `COMPLIANCE.md` §3 and not counted as a pass.
-7. **A share token reaches gunicorn's access log.** The application log scrubs the token from the request path; gunicorn's access log has no redaction hook and still records it, so log-read access is share-link-replay access until the token is rotated.
+7. **A share token is still a secret in a URL.** Both logs now scrub it — the application's and gunicorn's, in the path and the `Referer` — but a capability URL can still be shoulder-surfed, pasted into a chat, or left in browser history. Rotation is the answer, not redaction.
 
 ---
 

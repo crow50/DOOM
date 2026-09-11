@@ -311,12 +311,12 @@ Renovate are already running — PIPELINE-NOTES.md says which trigger on what.
 **"What's still weak?"** - Registration reveals whether a username is taken; a
 compromised account exposes that user's whole inventory; no antivirus scanning of
 uploads; no TLS between containers. Nine accepted risks are written up in
-SECURITY.md §4, and the complete picture — 37 requirements that are not a clean
+SECURITY.md §4, and the complete picture — 36 requirements that are not a clean
 pass, out of 253 — is the exception table in COMPLIANCE.md §1.
 
 **"You claim ASVS Level 2. Do you meet it?"** - No, and the ledger says so. 65 of
-126 L2 requirements met, 31 not applicable, 30 exceptions. L1 is 99 of 127 with
-seven exceptions. An earlier revision of COMPLIANCE.md claimed L1 "met in full"
+126 L2 requirements met, 31 not applicable, 30 exceptions. L1 is 100 of 127 with
+six exceptions. An earlier revision of COMPLIANCE.md claimed L1 "met in full"
 and L2 "met with two compensating controls"; both were overstated, an audit said
 so, and the document was rebuilt to enumerate every requirement rather than
 curate the ones that passed. The scoreboard in COMPLIANCE.md is the honest

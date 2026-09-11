@@ -53,17 +53,17 @@ meeting it.
 
 | Level | Requirements | Met | Partial | Compensating | Not met | N/A |
 |---|---:|---:|---:|---:|---:|---:|
-| **L1** | 127 | 99 | 3 | 1 | 3 | 21 |
+| **L1** | 127 | 100 | 2 | 1 | 3 | 21 |
 | **L2** | 126 | 65 | 15 | 5 | 10 | 31 |
-| **L1 + L2** | 253 | 164 | 18 | 6 | 13 | 52 |
+| **L1 + L2** | 253 | 165 | 17 | 6 | 13 | 52 |
 
 Stated as plainly as the numbers allow:
 
-- **Level 1 is not met in full.** 99 of 127 met, 21 not applicable, and **seven
+- **Level 1 is not met in full.** 100 of 127 met, 21 not applicable, and **six
   exceptions**: 2.2.3 and 2.5.5 (no notification channel exists at all), 12.4.2
   (no antivirus scanning of uploads), 5.2.6 (a DNS-rebinding window in the
-  optional lookup), 7.1.1 and 13.1.3 (a share token is a secret that travels in a
-  URL) and 8.3.3 (no privacy notice in the interface). Each is argued in §1.
+  optional lookup), 13.1.3 (a share token is a secret that travels in a URL) and
+  8.3.3 (no privacy notice in the interface). Each is argued in §1.
 - **Level 2 is not met in full.** 65 of 126 met, 31 not applicable, and 30
   exceptions — most consequentially 1.9.1, 1.9.2 and 9.2.2 (no TLS between
   containers), 1.7.2 (logs are not shipped off-host), 14.2.5 (no SBOM) and 2.3.2
@@ -117,7 +117,6 @@ those rows ever disagree.
 | 6.1.1 | 2 | Compensating | Verify that regulated private data is stored encrypted while at rest, such as Personally ... | Not encrypted at rest by the application. Disk encryption is the operator's job and a declared non-goal (`SECURITY.md` Scope); the sensitive asset is the inventory map, and every path to it is authenticated |
 | 6.4.1 | 2 | Compensating | Verify that a secrets management solution such as a key vault is used to securely create, ... | Secrets are Docker-mounted files, absent from `docker inspect`, child processes and `/proc/<pid>/environ`. That is secrets management, but it is not a key vault |
 | 6.4.2 | 2 | **Not met** | Verify that key material is not exposed to the application but instead uses an isolated ... | Key material is readable by the application process; no HSM or isolated security module exists |
-| 7.1.1 | 1 | Partial | Verify that the application does not log credentials or payment details. Session tokens should ... | Credentials are never logged and `security/logging.py:28-52` redacts sensitive keys - but a share token travels in the request path and reaches the access log; see the residual-risk note |
 | 7.3.3 | 2 | Partial | Verify that security logs are protected from unauthorized access and modification | Hash chain plus `UPDATE`/`DELETE` revoked on `audit_log` (D-33). Tamper-evident, not tamper-proof, and the revoke lives in a migration that `downgrade()` reverses |
 | 7.3.4 | 2 | Partial | Verify that time sources are synchronized to the correct time and time zone | Timestamps are UTC from the database clock; host time synchronisation is assumed, not verified or documented |
 | 8.1.4 | 2 | Partial | Verify the application can detect and alert on abnormal numbers of requests, such as by IP, ... | Rate limits detect and block abnormal volumes and denials are audited - but nothing alerts anyone |
@@ -174,7 +173,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 | 1.6.2 | 2 | Verify that consumers of cryptographic services protect key material and other secrets by using key vaults or API based alternatives | Compensating | Docker secrets as mounted files, never the environment (`config.py`); no key vault. Argued, not implemented | 320 |
 | 1.6.3 | 2 | Verify that all keys and passwords are replaceable and are part of a well-defined process to re-encrypt sensitive data | Met | `make init` regenerates; `session_version` invalidates every issued session | 320 |
 | 1.6.4 | 2 | Verify that the architecture treats client-side secrets--such as symmetric keys, passwords, or API tokens--as insecure and never uses them to protect or access sensitive data | Met | No client-side secrets; share tokens are server-issued capabilities, revocable | 320 |
-| 1.7.1 | 2 | Verify that a common logging format and approach is used across the system | Met | `security/logging.py:55-84` - structured JSON, one format across the app | 1009 |
+| 1.7.1 | 2 | Verify that a common logging format and approach is used across the system | Met | Structured JSON from both the application (`security/logging.py:55-84`) and gunicorn (`security/gunicorn_logging.py`) | 1009 |
 | 1.7.2 | 2 | Verify that logs are securely transmitted to a preferably remote system for analysis, detection, alerting, and escalation | Compensating | stdout JSON is what a collector consumes, and the audit trail is hash-chained in Postgres - but nothing ships off-host. Not implemented | - |
 | 1.8.1 | 2 | Verify that all sensitive data is identified and classified into protection levels | Met | `THREAT-MODEL.md` §2 asset table A1-A9 | - |
 | 1.8.2 | 2 | Verify that all protection levels have an associated set of protection requirements, such as encryption requirements, integrity requirements, retention, privacy and other ... | Partial | Assets classified, but no per-level retention or encryption requirement is written down | - |
@@ -345,11 +344,11 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 
 ### V7 - Error handling and logging
 
-*12 requirements at L1/L2 - 9 met, 3 partial.*
+*12 requirements at L1/L2 - 10 met, 2 partial.*
 
 | ASVS | L | Requirement | Status | Evidence | CWE |
 |---|:--:|---|---|---|:--:|
-| 7.1.1 | 1 | Verify that the application does not log credentials or payment details. Session tokens should only be stored in logs in an irreversible, hashed form | Partial | Credentials are never logged and `security/logging.py:28-52` redacts sensitive keys - but a share token travels in the request path and reaches the access log; see the residual-risk note | 532 |
+| 7.1.1 | 1 | Verify that the application does not log credentials or payment details. Session tokens should only be stored in logs in an irreversible, hashed form | Met | Credentials are never logged (`security/logging.py:28-52`), and the share token is scrubbed from both logs - the application's (`scrub_path`) and gunicorn's (`security/gunicorn_logging.py`) | 532 |
 | 7.1.2 | 1 | Verify that the application does not log other sensitive data as defined under local privacy laws or relevant security policy | Met | `SENSITIVE_KEY_FRAGMENTS` redaction (`security/logging.py:28-31`) applied to every structured field | 532 |
 | 7.1.3 | 2 | Verify that the application logs security relevant events including successful and failed authentication events, access control failures, deserialization failures and input ... | Met | `audit_log` records authentication, access-control denials, uploads, sharing and custody changes | 778 |
 | 7.1.4 | 2 | Verify that each log event includes necessary information that would allow for a detailed investigation of the timeline when an event happens | Met | Each event carries actor, action, object, timestamp, IP and correlation id (`security/audit.py:97-116`) | 778 |
@@ -542,10 +541,18 @@ segment, and `request.path` was recorded verbatim. Every visit to a shared page
 put a live credential into the log stream. That is fixed: `scrub_path()` reduces
 `/t/<token>` to `/t/[redacted]`, pinned by `tests/test_asvs_l1_gaps.py`.
 
-The residual is gunicorn's own access log, which still records the raw path and
-has no redaction hook. Anyone with log-read access can replay a share link until
-it is revoked. Recorded honestly rather than argued away, and the mitigation is
-that share tokens rotate.
+Gunicorn's access log had the same hole and no redaction hook of its own, so it
+is now produced by `security/gunicorn_logging.py` — a logger class that scrubs
+the path and the `Referer` (which matters: `Referrer-Policy` is `same-origin`, so
+following any link from a shared page hands the server the whole capability URL)
+and drops the query string. It emits JSON while it is there, which is what finally
+makes 1.7.1's "common logging format across the system" true of the system rather
+than of the application alone.
+
+What remains is the requirement itself: the token is still *in* a URL, which is
+what a capability URL means. It can be shoulder-surfed, pasted into a chat, or
+kept in browser history. Rotation is the answer, and 13.1.3 stays Compensating
+for that reason — the logging half is fixed, the design half is a choice.
 
 ### The audit chain is evident, not proof (7.3.3)
 
@@ -630,7 +637,7 @@ interface, which is what 8.3.3 asks for and why that row reads Partial.
 Most of this ledger is executable rather than asserted.
 
 ```bash
-make test           # 279 tests pinning the controls above
+make test           # 281 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges
