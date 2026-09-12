@@ -107,12 +107,24 @@ rule globally.
 
 **The runtime image ships no pip.** It is removed in the runtime stage, along with
 setuptools, `pkg_resources` and `ensurepip`. Nothing in the container installs
-anything, and pip's *vendored* dependency tree was the source of every Python CVE
-Trivy reported against this image — it vendors setuptools and msgpack, neither of
-which this application imports. If you need to add a package, it goes in
+anything, and pip's *vendored* dependency tree was the source of every **Python**
+CVE Trivy reported against this image — it vendors setuptools and msgpack, neither
+of which this application imports. If you need to add a package, it goes in
 `requirements.in` and the image is rebuilt. The `RUN` that strips them ends with an
 import check, so the build fails immediately if something still wanted
-`pkg_resources`.
+`pkg_resources`. The **OS** packages are a separate surface — see the next note.
+
+**The runtime image runs `apt-get upgrade`.** hadolint DL3005 says not to, and
+the ignore is deliberate — see D-39. A pinned base tag freezes the OS packages at
+whatever shipped the day that tag was last rebuilt, and Debian keeps publishing
+security updates in between: a scan found twelve fixed CVEs (three CRITICAL) in
+`perl-base`, `libsqlite3-0`, `libpcre2-8-0` and `gzip` on a commit that touched
+only migrations and documentation. Pinning the fixed versions instead does not
+work, because Debian's archive holds only the current version of each package and
+an exact pin stops resolving the day it is superseded. So expect Trivy to go red
+occasionally with nothing in the diff to explain it; the usual cause is a CVE
+Debian has published but not yet fixed, and the usual fix is to wait or to remove
+the package.
 
 **Base images are version-pinned but not digest-pinned.** `python:3.14.7-slim`,
 `postgres:18.6-alpine`, `redis:8.10.1-alpine` and `caddy:2.11.4-alpine` are

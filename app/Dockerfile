@@ -30,8 +30,29 @@ ENV PYTHONUNBUFFERED=1 \
 
 # libmagic1 backs python-magic, which identifies uploads by their content
 # rather than their filename (T-12).
-# hadolint ignore=DL3008
+#
+# `apt-get upgrade` is the load-bearing line, and hadolint's DL3005 argues
+# against it on reproducibility grounds: it builds a different image on Tuesday
+# than it did on Monday.  That is true, and it is the wrong trade here.  A
+# pinned base tag freezes the OS packages at whatever shipped the day
+# `python:3.14.7-slim` was last rebuilt, while Debian publishes security updates
+# continuously in between - a scan of this image found twelve fixed CVEs in
+# gzip, pcre2, sqlite3 and perl, three of them CRITICAL, none introduced by
+# anything in this repository and every one already patched in
+# trixie-security.  An image that cannot pick those up is reproducibly
+# vulnerable.
+#
+# The reproducible alternative - pinning `gzip=1.13-1+deb13u1` and its
+# neighbours - is worse than it looks: Debian's archive carries only the
+# current version of each package, so an exact pin stops resolving the moment
+# it is superseded and the build breaks on the day the next fix lands.
+# Upgrading pins the *policy* instead - this image ships the current security
+# state of the Debian release its base image names - and Renovate keeps the
+# base tag itself moving.  D-39.
+#
+# hadolint ignore=DL3005,DL3008
 RUN apt-get update \
+ && apt-get upgrade -y \
  && apt-get install -y --no-install-recommends libmagic1 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --gid 10001 doom \

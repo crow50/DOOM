@@ -1273,3 +1273,67 @@ Schema change during development means: edit `models.py`, run `make baseline`,
 recreate your database. There is no per-change migration to write, and no
 migration to review. In exchange, there is no upgrade path between development
 databases — which is the correct trade only for as long as nobody needs one.
+
+---
+
+## D-39 — The runtime image applies OS security updates at build time
+
+`app/Dockerfile` runs `apt-get upgrade -y` in the runtime stage. hadolint's
+DL3005 says not to, and the rule is ignored deliberately rather than by
+oversight.
+
+### What prompted it
+
+Trivy went red on a commit that changed migrations, a CLI command, the Makefile
+and documentation — no dependency moved, no Dockerfile line changed. Twelve
+findings, nine HIGH and three CRITICAL, every one of them a Debian package in
+the base image and every one already fixed upstream:
+
+| Package | In the image | Fixed in | Findings |
+|---|---|---|---|
+| `perl-base` | 5.40.1-6 | 5.40.1-6+deb13u1 | 3 CRITICAL, 4 HIGH |
+| `libsqlite3-0` | 3.46.1-7+deb13u1 | 3.46.1-7+deb13u2 | 2 HIGH |
+| `libpcre2-8-0` | 10.46-1~deb13u1 | 10.46-1~deb13u2 | 2 HIGH |
+| `gzip` | 1.13-1 | 1.13-1+deb13u1 | 1 HIGH |
+
+Nothing here did anything wrong. `python:3.14.7-slim` is pinned, and a pinned
+tag freezes the OS packages at whatever shipped the day that tag was last
+rebuilt. Debian publishes security updates continuously in between. Without an
+upgrade step, the image is *reproducibly vulnerable* — the build is
+deterministic and the determinism is the problem.
+
+### Why not pin the fixed versions instead
+
+The reproducible-looking alternative is
+`apt-get install gzip=1.13-1+deb13u1 libpcre2-8-0=10.46-1~deb13u2 …`. It fails
+for a structural reason: **Debian's archive carries only the current version of
+each package.** The moment `+deb13u2` supersedes `+deb13u1`, the pin stops
+resolving and the build breaks — so the pin does not hold a version, it schedules
+an outage for the day of the next security fix. Holding it would require a
+snapshot mirror, which is a lot of infrastructure to buy the ability to ship
+known-vulnerable packages on purpose.
+
+### What is actually being pinned
+
+Not a set of versions — a policy: **this image ships the current security state
+of the Debian release its base image names.** The base tag is still pinned, so
+the release, the Python version and the package set are all fixed; what floats is
+the patch level within that release, in the one direction Debian guarantees is
+ABI-compatible. Renovate moves the base tag itself.
+
+The reproducibility that is lost was already partial. `PIPELINE-NOTES.md` records
+that base images are pinned to tags and not digests, so a re-pushed tag would
+already change the image underneath a rebuild.
+
+### The scope of the exception
+
+Runtime stage only. The builder stage is not upgraded and does not need to be —
+it is not shipped and not scanned, and compiling against the older headers and
+running against the newer libraries is the safe direction of that skew, not the
+dangerous one.
+
+This does not make the image CVE-free. It closes the window between Debian
+publishing a fix and the base image being rebuilt, which is where all twelve of
+these lived. A CVE Debian has not yet fixed is still a CVE in this image, and
+`ignore-unfixed: true` in the Trivy workflow means the scan will not fail the
+build for it — that is the deliberate position (D-36), not an oversight.
