@@ -194,6 +194,14 @@ db-shell-app: ## psql as the RESTRICTED app role - use this to prove least privi
 # whether a role exists), so the only symptom was `make seed` failing as though
 # the password were wrong.
 #
+# The grant sweep below was added for the same reason one step further in: the
+# original version proved doom_app could SELECT and stopped there, so INSERT -
+# the one verb `make seed` actually needs - was never checked by anything.  A
+# table that missed the ALTER DEFAULT PRIVILEGES grant would have passed every
+# check in CI and failed on the first row written.  It asks the catalogue
+# instead of writing a probe row, because the app role cannot clean up after
+# itself on audit_log by design.
+#
 # Each assertion below is the executable evidence for a row in COMPLIANCE.md.
 .PHONY: verify-db-roles
 verify-db-roles: ## Prove the app role exists and is properly restricted
@@ -214,6 +222,10 @@ verify-db-roles: ## Prove the app role exists and is properly restricted
 	app_psql -c 'SELECT count(*) FROM items' >/dev/null \
 		|| { echo "FAIL: $(APP_DB_USER) cannot SELECT (migrations run?)"; exit 1; }; \
 	echo "  ok: DML reads are permitted"; \
+	\
+	missing="$$(app_psql -c "SELECT coalesce(string_agg(c.relname || ' ' || v.verb, ', ' ORDER BY c.relname, v.verb), '') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) AS v(verb) WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname NOT IN ('alembic_version') AND NOT (c.relname = 'audit_log' AND v.verb IN ('UPDATE', 'DELETE')) AND NOT has_table_privilege(c.oid, v.verb)")"; \
+	[ -z "$$missing" ] || { echo "FAIL: $(APP_DB_USER) is missing DML grants on: $$missing"; exit 1; }; \
+	echo "  ok: every table grants the verbs the application needs"; \
 	\
 	if app_psql -c 'CREATE TABLE doom_privilege_probe (id int)' >/dev/null 2>&1; then \
 		app_psql -c 'DROP TABLE IF EXISTS doom_privilege_probe' >/dev/null 2>&1 || true; \
