@@ -272,12 +272,20 @@ Full traceback, server-side, against the same ID.
 make test
 ```
 
-74 passing.
+All passing — the count is in COMPLIANCE.md §6, which is the only file that
+publishes it.
 
-> Three of these exist because the control fails *quietly*. Session
+> Several of these exist because the control fails *quietly*. Session
 > revocation is the clearest: increment the version column, forget to compare
 > it in the user loader, and the feature still looks like it works while every
 > old cookie stays valid. The test is the only thing that notices.
+>
+> If you want the strongest version of that point, two controls in this codebase
+> *were* written and *did* fail quietly, and an external audit found them: a
+> 124-entry breach corpus of which 123 entries were below the 12-character
+> minimum, so the length check rejected them first and the screen matched exactly
+> one string; and the denied-access audit record, which was added to the session
+> and then discarded by the 404 that followed it. Both now have tests.
 
 ---
 
@@ -295,9 +303,21 @@ viable attack - on availability. See D-04.
 **"Can't someone guess a share token?"** - 256 bits. The realistic attack is
 scraping leaked tokens, which is what the rate limits and `noindex` address.
 
-**"What would you add next?"** - `gitleaks`, `bandit` and `pip-audit` in CI;
-they're specified in PIPELINE-NOTES.md. Then ClamAV on uploads.
+**"What would you add next?"** - TLS between the containers (ASVS 1.9.1 and
+9.2.2, the largest remaining L2 gap), then ClamAV on uploads for 12.4.2, then an
+SBOM. `gitleaks`, `bandit`, `pip-audit`, `semgrep`, `hadolint`, Trivy and
+Renovate are already running — PIPELINE-NOTES.md says which trigger on what.
 
 **"What's still weak?"** - Registration reveals whether a username is taken; a
-compromised account exposes that user's whole inventory; no malware scanning.
-All four accepted risks are written up in SECURITY.md §4.
+compromised account exposes that user's whole inventory; no antivirus scanning of
+uploads; no TLS between containers. Nine accepted risks are written up in
+SECURITY.md §4, and the complete picture — 36 requirements that are not a clean
+pass, out of 253 — is the exception table in COMPLIANCE.md §1.
+
+**"You claim ASVS Level 2. Do you meet it?"** - No, and the ledger says so. 65 of
+126 L2 requirements met, 31 not applicable, 30 exceptions. L1 is 100 of 127 with
+six exceptions. An earlier revision of COMPLIANCE.md claimed L1 "met in full"
+and L2 "met with two compensating controls"; both were overstated, an audit said
+so, and the document was rebuilt to enumerate every requirement rather than
+curate the ones that passed. The scoreboard in COMPLIANCE.md is the honest
+answer, and being able to give it is worth more than the claim was.

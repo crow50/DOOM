@@ -6,10 +6,11 @@ the answer was to accept a risk rather than remove it.
 
 ---
 
-## D-01 - Every limit lives in one file
+## D-01 - Every field bound lives in one file
 
-`app/doom/validation.py` holds every bound in the system. Forms, ORM columns,
-database CHECK constraints and HTML attributes all read from it.
+`app/doom/validation.py` holds every bound on user data — text lengths,
+quantities, password length, tree depth, upload size and type. Forms, ORM
+columns, database CHECK constraints and HTML attributes all read from it.
 
 The alternative - a `maxlength` in a template, a `Length()` in a form, a
 `String(120)` in a model - puts the same number in four places with no
@@ -19,6 +20,27 @@ old width, and the disagreement surfaces as a 500 or, worse, as data the
 application did not expect to be able to store.
 
 One constant, referenced everywhere, cannot disagree with itself.
+
+**What this decision does not cover.** An audit pointed out that "every limit
+lives in one file" was being read as a claim about the whole stack, and it is
+not one. Two categories sit outside `validation.py` deliberately:
+
+- **The request body cap exists twice.** Caddy rejects above 12 MB
+  (`caddy/Caddyfile`) so the application never buffers what it would refuse at
+  10 MB (`MAX_UPLOAD_BYTES`). Two numbers with a deliberate gap between them, in
+  two languages, with no shared constant available — the edge proxy cannot read
+  a Python module. The gap is the point; a single value would mean Caddy either
+  refusing what the app allows or passing through what it rejects.
+- **Pagination and batch caps are per-view.** `.limit(200)` on the item list,
+  `files[:10]` on upload, `.limit(500)` on the public share page. These are
+  response-size ceilings, not security bounds: exceeding one costs a slow page,
+  not a violated invariant, and the right number differs per view. Hoisting them
+  into `validation.py` would give the file the appearance of authority over
+  limits it does not meaningfully govern.
+
+The distinction worth holding on to: `validation.py` is the single source of
+truth for **what the application will accept as data**. It is not, and does not
+claim to be, a registry of every numeric constant in the deployment.
 
 The layering is deliberate, not redundant. The HTML attribute is a
 **usability hint** and is never treated as a control - a client that ignores
@@ -57,7 +79,10 @@ later upgrades each account silently as its owner next signs in.
 ## D-03 - 12-character minimum, no composition rules
 
 NIST SP 800-63B withdrew composition rules ("one uppercase, one digit, one
-symbol") because they measurably fail. Faced with them, people produce
+symbol") because they measurably fail. The citation is **SP 800-63B-4**, final
+31 July 2025, which supersedes the Rev. 3 that ASVS 4.0.3 was itself written
+against; both revisions agree on this point, and Rev. 4 keeps the blocklist
+requirement that D-03 also implements. Faced with them, people produce
 `Password1!` - which satisfies every rule and is in every cracking dictionary -
 while genuinely strong passphrases get rejected for lacking a symbol. The rules
 narrow the search space instead of widening it.
@@ -888,11 +913,21 @@ matches it exactly.
 Four controls, and one correction to this document's own claims.
 
 **The correction first.** An earlier revision called missing MFA "the largest
-gap against L2". That was wrong. ASVS 4.0 has no blanket Level 2 requirement
+gap against L2". That was wrong. ASVS 4.0.3 has no blanket Level 2 requirement
 for multi-factor authentication — V2.2.4 (phishing resistance) is **Level 3**,
 and V2.7/V2.8 apply only *if* OTP authenticators are used. Left uncorrected it
 would have been a false claim in a document whose entire value is that its
 claims can be checked.
+
+**And a correction to the correction — see D-37.** That paragraph overshot.
+**V2.3.2 is Level 2** and asks that "enrollment and use of user-provided
+authentication devices are supported, such as a U2F or FIDO token". It does not
+require a second factor to be mandatory, but it does require the capability, and
+there is no enrollment path here at all. So single-factor is an L2 gap *and* an
+L3 one, and it is recorded as **Not met** at 2.3.2 in the ledger. Two corrections
+in a row on the same paragraph is a good argument for enumerating requirements
+from the standard rather than reasoning about them from memory, which is what
+D-37 changes.
 
 ### Anti-caching on authenticated responses (8.1.1, 8.2.1)
 
@@ -985,6 +1020,337 @@ JSON, which is what a collector consumes. The security-relevant half — the
 audit trail — is in Postgres, hash-chained and append-only, which is a
 stronger property than remote shipping alone.
 
-Both are recorded in `COMPLIANCE.md` §4 as compensating-control arguments, not
+Both are recorded in `COMPLIANCE.md` §3 as compensating-control arguments, not
 as met requirements. A verifier is free to disagree; pretending they were
 implemented would be worse than either.
+
+---
+
+## D-37 — COMPLIANCE.md becomes an exhaustive ledger
+
+An external audit found the ASVS claims in this project overstated. Not
+fabricated — every control it named exists — but the *claims* outran the
+implementation, and the shape of the document was why.
+
+### What was wrong
+
+`COMPLIANCE.md` §1 was a curated table of about 76 controls that were working,
+out of the 253 L1/L2 requirements ASVS 4.0.3 contains. Four failure modes follow
+from that shape, and all four had occurred:
+
+1. **A curated list cannot support a level claim.** Nothing in it enumerated what
+   "L1 in full" required, so nothing could show the claim was met — and V2.1.8
+   (password strength meter, Level 1) was absent entirely: not claimed, not marked
+   inapplicable, not listed as a gap.
+2. **The same requirement could appear twice with opposite verdicts.** 14.2.1 was
+   "Pinned; scanning on the roadmap" in §1 and a gap in §4.
+3. **Rows could credit controls that did not exist.** 5.2.1 cited an `nh3`
+   allowlist "for Markdown". `nh3` was a pinned dependency no module imported, and
+   there is no Markdown rendering.
+4. **Paraphrasing weakened requirements.** 14.2.1 became "no known-vulnerable
+   components" (it says "up to date, preferably using a dependency checker", and
+   its CWE is 1026, not the 1104 the row carried). 12.4.2 — which says *antivirus
+   scanners*, and is Level 1 — became "content scanned **or** neutralised", with a
+   re-encode offered against it. The malware gap in §4 was then filed under
+   12.4.1, which is a different requirement about storage location.
+
+Two more findings were about drift rather than shape: four files published four
+different test counts, and `PIPELINE-NOTES.md` described as future work a pipeline
+that had already shipped.
+
+### What changed
+
+The ledger is **generated from the requirement list**, not assembled from the
+implementation. All 253 L1/L2 requirements get a row whether or not anything was
+built for them, so absence is now visible by construction. The gap table is
+*derived* from those rows rather than maintained beside them, which makes finding
+(2) structurally impossible rather than merely unlikely.
+
+**Compensating is counted separately from Met.** This is the load-bearing change.
+An argument that the risk is handled is not the same as meeting the requirement,
+and the scoreboard now refuses to add the two together. It is also the reason the
+honest numbers are publishable: L1 is 100 of 127 with six exceptions, L2 is 65 of
+126 with thirty.
+
+**`tools/check_docs.py` runs in `make lint`.** Three checks: one file publishes the
+test count, the exception table matches the ledger's non-Met rows, and every ASVS
+id cited in any document is a real 4.0.3 requirement with a row. The audit's
+findings were all reachable by grep; the absence of a grep is why they survived
+ten commits.
+
+### Why some findings were closed in code instead
+
+Where a claim was cheap to make true, making it true beat downgrading it — and two
+of those turned out to be controls that were written but did not work:
+
+- **2.1.7 — the breach corpus could not fire.** `COMMON_PASSWORDS` held 124
+  entries, of which **123 were shorter than `PASSWORD_MIN`**. `check_policy`
+  rejects on length before consulting the corpus, so the screen could only ever
+  match one string: `administrator`. This is worth dwelling on, because ASVS 2.1.7
+  anticipates it exactly — it asks for the top 1,000 or 10,000 passwords "**which
+  match the system's password policy**", and a conventional top-10,000 list does
+  not match a 12-character policy at all. The corpus is now 10,000 entries drawn
+  from a 1,000,000-entry release and filtered to 12 characters *first*.
+- **7.2.2 — denied access was not being recorded.** `record_audit` defaults to
+  riding along with the caller's transaction, and every denial path ends in
+  `abort(404)`. Nothing else in that request commits, so the row was added to the
+  session and rolled back at teardown. The trail recorded no denials while
+  `authz.py` carried a comment about enumeration being invisible without them.
+  `commit=True`, as the failed-login path already did.
+- **7.1.1 / 13.1.3 — share tokens were being logged.** `security/logging.py`
+  dropped the query string with a comment saying it "can carry a share token",
+  while the token actually travels as a path segment. `request.path` was logged
+  verbatim, so every visit to a shared page wrote a live capability credential
+  into the log. Now scrubbed to `/t/[redacted]`.
+- **2.1.8 and 2.1.12** — a dependency-free strength meter and reveal toggle, both
+  Level 1, both previously absent. Served from `static/`, so `script-src 'self'`
+  needed no weakening.
+- **3.4.4** — the session cookie now carries the `__Host-` prefix, which is a
+  browser-enforced version of the guarantees the cookie attributes were already
+  asking for.
+- **4.2.1** — "No IDOR" was a universal negative resting on a helper. It is now
+  two checks that can fail: every endpoint in `url_map` must be classified with
+  its scoping mechanism recorded, and bob is asked for alice's objects through
+  every route that takes an id. The classification found that 16 of 43 routes
+  reached objects without the helper. None was exploitable, but one of them —
+  checkout, which re-implemented the query inline to get `SELECT ... FOR UPDATE` —
+  was the route skipping the denial audit above. It now uses
+  `get_owned_for_update()`, so the vetted mechanism covers the locking case too.
+
+`assert_owned()` was deleted rather than fixed. It was dead code that documentation
+could have credited, which is worse than no control at all.
+
+### What was deliberately left as a gap
+
+TLS between containers (1.9.1, 1.9.2, 9.2.2), off-host log shipping (1.7.2),
+antivirus scanning (12.4.2) and the SBOM (14.2.5) are recorded as unmet. Each is
+real work with runtime consequences, and the argument for the current position is
+in `COMPLIANCE.md` §3 where a verifier can disagree with it. The point of this
+decision is that an argument is now labelled as an argument.
+
+### A second round, from CI
+
+Four checks went red on the first push, and the split is worth recording because
+three of the four were not regressions:
+
+- **The IDOR sweep failed on my own test, not on the application.** `labels.sheet`
+  takes repeatable `?location=` / `?item=` parameters; the test sent
+  `?location_id=`, so the selection was empty and the view redirected instead of
+  refusing. With the right parameter bob gets his 404. A test that asserts a
+  security property has to address the thing it thinks it is addressing — the
+  wrong query-string key made it assert nothing at all, and it would have kept
+  passing once the redirect was accounted for.
+- **Trivy's two HIGH findings were pip's vendored tree** — `pip/_vendor/vendor.txt`
+  lists `setuptools==70.3.0`, exactly the flagged version. Neither package is a
+  dependency of this application. The runtime image never installs anything, so
+  pip is now stripped from it entirely: the vulnerable code is gone rather than
+  excepted, which is also what 14.2.2 asks for.
+- **The lockfile check was a clock, not a check.** It recompiled into an empty
+  `/tmp` file, so pip-compile had no pins to honour and always resolved to latest;
+  `wrapt` 2.4.1 shipped between two CI runs and turned the build red with nothing
+  changed in the repository. Seeding the output file from the committed lockfile
+  makes it ask the question it was written to ask — does the lockfile still
+  satisfy `requirements.in` — and leaves upgrades to Renovate.
+- **Gunicorn's access log** was the one real finding, disclosed in the first round
+  and closed in this one. See 7.1.1 and 13.1.3.
+
+The first three share a shape: a check that is not testing what its name says.
+That is the same defect as the documentation this ADR is about, one layer down.
+
+### A third round: the control that was never created
+
+`make seed` failed with `password authentication failed for user "doom_app"`. It
+was not a password mismatch. The role did not exist, and neither did the `citext`
+extension — and both had been missing on every clean install since the first
+commit.
+
+`db/init/01-roles.sh` interpolated `${APP_DB_PASSWORD}`, but the `db` service is
+handed only `APP_DB_PASSWORD_FILE`. The official postgres image calls its
+`file_env()` helper for four names — `POSTGRES_PASSWORD`, `POSTGRES_USER`,
+`POSTGRES_DB`, `POSTGRES_INITDB_ARGS` — and there is no generic `*_FILE` handling,
+so nothing ever opened that path. Under `set -u` the reference was fatal *while
+the heredoc was being expanded*, which means `psql` was never invoked at all: the
+`CREATE EXTENSION` on the line above went with it.
+
+Three things then conspired to hide it, and each is worth naming because each is a
+pattern rather than an accident:
+
+- **A failure that repaired itself into a lie.** The container exited, and
+  `restart: unless-stopped` brought it back onto a data directory that now had a
+  `PG_VERSION` in it. The entrypoint skips `/docker-entrypoint-initdb.d` entirely
+  in that case, so the second start was clean. The evidence of the failure was in
+  the first start's logs and nowhere else.
+- **A healthcheck that answered the wrong question.** `pg_isready` with no host
+  checks the unix socket, and the *temporary* server postgres runs during
+  initialisation answers there too (it starts with `listen_addresses=''`). So the
+  database reported healthy while its bootstrap was still running, or had already
+  failed. It now checks TCP, which is the only thing `web` can use.
+- **An error message that is deliberately unhelpful.** Postgres reports a missing
+  role and a wrong password identically, so as not to confirm which accounts
+  exist. Correct of postgres, and it sent the first hour of this investigation
+  after a password mismatch that did not exist.
+
+The reason it survived is the important part. `make test` connects to a separate
+`doom_test` database as the **admin** role and creates `citext` itself, and CI
+never ran `make upgrade` or `make seed`. So the entire suite passed, on every
+commit, whether or not the application role existed. The two-role split is the
+control T-08, T-35 and D-08 all rest on, and `COMPLIANCE.md` cited it as evidence
+for 4.1.3 and 1.2.1 — while nothing anywhere authenticated as `doom_app`.
+
+`make verify-db-roles` now does, in CI, on every push: the role exists, it can read
+and write rows, it cannot execute DDL, and it cannot touch `audit_log`. `make
+upgrade` runs in CI too, which on its own would have caught the missing extension,
+since the initial migration declares a `CITEXT` column.
+
+The "write" half of that arrived a round later than the sentence did. The first
+version of the check proved `SELECT` and stopped, so `INSERT` — the only verb
+`make seed` needs — was still unchecked, and `make seed` itself still did not run
+anywhere. Both are closed: the check sweeps `has_table_privilege()` for all four
+DML verbs across every table, and CI runs `make seed` immediately after
+`make upgrade`.
+
+**The operational consequence, which is the part that bites twice.** Fixing
+`01-roles.sh` fixes nothing on a machine that already has a database. The postgres
+entrypoint skips `/docker-entrypoint-initdb.d` whenever the data directory is
+non-empty, so the corrected script never executes there, `doom_app` still does not
+exist, and postgres still reports that as "password authentication failed" — the
+original symptom, unchanged, with the fix sitting in the repository unused. The
+only cure is `make clean` and a rebuild, and `make verify-db-roles` is the one
+command that says so out loud rather than leaving you to infer it from a password
+error.
+
+Which makes three rounds with the same shape. The documentation described controls
+nobody had checked; the lockfile check measured PyPI rather than the lockfile; the
+failure handler followed logs forever so the failure it existed to explain was
+never printed; and here a bootstrap script's exit status was discarded by a restart
+policy and a healthcheck that agreed with it. In every case the control was
+written, documented, and cited, and in every case the thing that would have proved
+it worked did not exist. Writing the check is the control; the rest is intent.
+
+---
+
+## D-38 — One regenerated baseline instead of a migration history
+
+Seven migrations accumulated in six days: an enum widening, a four-tier location
+rework, checkouts, the audit chain, barcode columns, attachment dedup, per-device
+sessions. Every schema change added a file to review in a diff, describing a
+transformation of data that existed on exactly one laptop.
+
+**They are squashed to a single baseline, regenerated from the models whenever the
+schema moves, until the schema stops moving.** `make baseline` does it;
+`make migrate` is still there for when incremental history starts mattering.
+
+### Why the usual argument doesn't apply yet
+
+The case for keeping every migration is that a migration describes a *change*, not
+a state, and some changes carry knowledge the models cannot express. The
+four-tier rework is the perfect example: it did not merely narrow the
+`location_kind` enum, it translated the existing rows — a `rack` became a
+`shelf`, a `warehouse` became a `site`. `models.py` states the destination and has
+no way to state that mapping. Lose the migration and a database from before that
+day can never move forward.
+
+That argument is airtight *when a database exists that you cannot drop*. None
+does. Nobody else runs DOOM, the test suite builds its schema with
+`db.create_all()` and never touches a migration, and `make clean` is part of the
+ordinary loop. The history was protecting rows nobody has.
+
+The cost of squashing is "everyone with a database must recreate it", which today
+means one person who recreates it anyway — and that cost rises permanently the
+moment this ships or anyone self-hosts. So the decision has a deadline: **start
+keeping real history at the first deployment that holds data somebody would miss.**
+Practically, that is the first tagged release, or the first time a person other
+than the author runs `make up` and intends to keep what they put in it.
+
+### What this forces, and why it is an improvement
+
+A file that gets regenerated cannot hold anything durable. The audit-log
+`REVOKE UPDATE, DELETE` was living inside migration `a1c4e7b90d21`, and that was
+already wrong for two reasons that had nothing to do with squashing:
+
+- it made a **security control conditional on a schema revision having run**, so a
+  database initialised but never migrated had a fully writable audit log
+- that revision's `downgrade()` **handed the verbs back**, so rolling back one
+  schema change silently removed the control
+
+It now lives in `flask db-grants`, an idempotent command `make upgrade` runs after
+`flask db upgrade`. The baseline is pure schema and can be thrown away freely; the
+privilege rules are independent of it and re-runnable. `make verify-db-roles`
+asserts the outcome in CI, which is what makes the move safe to have made at all —
+if the REVOKE had been lost in the squash, the next push would have failed.
+
+The extension creation moved with it. `CREATE EXTENSION IF NOT EXISTS citext` is
+in `db/init/01-roles.sh` and now also in `db-grants`, which removes a hidden
+ordering dependency between database initialisation and the migration that
+declares a `CITEXT` column.
+
+### The rule while this holds
+
+Schema change during development means: edit `models.py`, run `make baseline`,
+recreate your database. There is no per-change migration to write, and no
+migration to review. In exchange, there is no upgrade path between development
+databases — which is the correct trade only for as long as nobody needs one.
+
+---
+
+## D-39 — The runtime image applies OS security updates at build time
+
+`app/Dockerfile` runs `apt-get upgrade -y` in the runtime stage. hadolint's
+DL3005 says not to, and the rule is ignored deliberately rather than by
+oversight.
+
+### What prompted it
+
+Trivy went red on a commit that changed migrations, a CLI command, the Makefile
+and documentation — no dependency moved, no Dockerfile line changed. Twelve
+findings, nine HIGH and three CRITICAL, every one of them a Debian package in
+the base image and every one already fixed upstream:
+
+| Package | In the image | Fixed in | Findings |
+|---|---|---|---|
+| `perl-base` | 5.40.1-6 | 5.40.1-6+deb13u1 | 3 CRITICAL, 4 HIGH |
+| `libsqlite3-0` | 3.46.1-7+deb13u1 | 3.46.1-7+deb13u2 | 2 HIGH |
+| `libpcre2-8-0` | 10.46-1~deb13u1 | 10.46-1~deb13u2 | 2 HIGH |
+| `gzip` | 1.13-1 | 1.13-1+deb13u1 | 1 HIGH |
+
+Nothing here did anything wrong. `python:3.14.7-slim` is pinned, and a pinned
+tag freezes the OS packages at whatever shipped the day that tag was last
+rebuilt. Debian publishes security updates continuously in between. Without an
+upgrade step, the image is *reproducibly vulnerable* — the build is
+deterministic and the determinism is the problem.
+
+### Why not pin the fixed versions instead
+
+The reproducible-looking alternative is
+`apt-get install gzip=1.13-1+deb13u1 libpcre2-8-0=10.46-1~deb13u2 …`. It fails
+for a structural reason: **Debian's archive carries only the current version of
+each package.** The moment `+deb13u2` supersedes `+deb13u1`, the pin stops
+resolving and the build breaks — so the pin does not hold a version, it schedules
+an outage for the day of the next security fix. Holding it would require a
+snapshot mirror, which is a lot of infrastructure to buy the ability to ship
+known-vulnerable packages on purpose.
+
+### What is actually being pinned
+
+Not a set of versions — a policy: **this image ships the current security state
+of the Debian release its base image names.** The base tag is still pinned, so
+the release, the Python version and the package set are all fixed; what floats is
+the patch level within that release, in the one direction Debian guarantees is
+ABI-compatible. Renovate moves the base tag itself.
+
+The reproducibility that is lost was already partial. `PIPELINE-NOTES.md` records
+that base images are pinned to tags and not digests, so a re-pushed tag would
+already change the image underneath a rebuild.
+
+### The scope of the exception
+
+Runtime stage only. The builder stage is not upgraded and does not need to be —
+it is not shipped and not scanned, and compiling against the older headers and
+running against the newer libraries is the safe direction of that skew, not the
+dangerous one.
+
+This does not make the image CVE-free. It closes the window between Debian
+publishing a fix and the base image being rebuilt, which is where all twelve of
+these lived. A CVE Debian has not yet fixed is still a CVE in this image, and
+`ignore-unfixed: true` in the Trivy workflow means the scan will not fail the
+build for it — that is the deliberate position (D-36), not an oversight.

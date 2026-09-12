@@ -191,7 +191,7 @@ Stating these is part of the threat model. An undefended surface that has been r
 | Anti-automation on registration (CAPTCHA) | Self-hosted instances are not open registration targets at meaningful scale. Rate limiting is the proportionate answer |
 | Username enumeration on the registration form | Unavoidable - the form must say a name is taken. Mitigated by rate limiting, accepted openly |
 | NFC tag cloning | Physically unpreventable with cheap NDEF tags. Handled by making the URL a low-value capability rather than a credential |
-| Malware scanning of uploads | ClamAV is the production answer; out of scope here. Files are never executed and always served as attachments |
+| Antivirus scanning of uploads | ClamAV is the answer and it is not implemented. Images are re-encoded, which destroys an embedded payload; PDF, text and Markdown are stored byte for byte. Files are never executed and always served as attachments. Recorded as **Not met** against ASVS 12.4.2, which is Level 1 |
 | Denial of service at network scale | Requires infrastructure the operator does not have. Application-layer limits only |
 
 ---
@@ -204,7 +204,9 @@ What remains after every control above is in place.
 2. **A determined griefer can impose repeated 15-minute lockouts** on a username they know. Bounded, not eliminated.
 3. **A compromised user account exposes that user's entire inventory.** No inner boundary exists below the account.
 4. **Photographs can leak context that EXIF stripping cannot reach** - a visible address on an envelope, a view through a window. No technical control addresses this; the demo documentation notes it as user guidance.
-5. **The app is only as current as its dependencies.** No automated CVE scanning is in scope here; the roadmap in `PIPELINE-NOTES.md` addresses it.
+5. **The app is only as current as its dependencies.** `pip-audit`, Trivy and Renovate all run, and the lockfile is hash-pinned and drift-checked — but base images are pinned to a tag rather than a digest, so a re-pushed tag would go unnoticed. `PIPELINE-NOTES.md` records what runs where.
+6. **Traffic between containers is unencrypted.** Three internal hops are plaintext, so an attacker with a foothold on the Docker bridge sees the database session and the Redis password. The `internal: true` network is the compensating position, argued in `COMPLIANCE.md` §3 and not counted as a pass.
+7. **A share token is still a secret in a URL.** Both logs now scrub it — the application's and gunicorn's, in the path and the `Referer` — but a capability URL can still be shoulder-surfed, pasted into a chat, or left in browser history. Rotation is the answer, not redaction.
 
 ---
 

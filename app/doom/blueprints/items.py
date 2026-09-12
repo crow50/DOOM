@@ -28,7 +28,12 @@ from ..forms import (
 )
 from ..models import Attachment, Checkout, DocLink, Item, Location, Movement, utcnow
 from ..security.audit import record_audit
-from ..security.authz import get_owned_or_404, owned_query
+from ..security.authz import (
+    get_owned_for_update,
+    get_owned_or_404,
+    owned_query,
+    uuid_or_404,
+)
 from ..security.lookup import LookupUnavailable, lookup_barcode
 from ..security.redirects import safe_referrer_path
 from ..security.uploads import UploadRejected, store_upload
@@ -37,19 +42,6 @@ from ..timeline import item_timeline
 logger = logging.getLogger(__name__)
 
 bp = Blueprint("items", __name__, url_prefix="/items")
-
-
-def _uuid_or_404(raw: str):
-    """Parse a path parameter, treating garbage exactly like a miss.
-
-    A malformed id must take the same route as a valid-but-unowned one, or the
-    difference becomes an oracle (D-06).
-    """
-    import uuid as _uuid_mod
-    try:
-        return _uuid_mod.UUID(str(raw))
-    except (ValueError, AttributeError, TypeError):
-        abort(404)
 
 
 def _location_choices(include_unassigned: bool = True) -> list[tuple[str, str]]:
@@ -613,15 +605,11 @@ def checkout(item_id: str):
     """
     form = CheckoutForm()
 
-    locked = db.session.execute(
-        select(Item)
-        .where(Item.id == _uuid_or_404(item_id), Item.owner_id == current_user.id)
-        .with_for_update()
-    ).scalar_one_or_none()
-
-    if locked is None:
-        db.session.rollback()
-        abort(404)
+    # get_owned_for_update rather than an inline predicate: the lock is the only
+    # thing this path needs beyond get_owned_or_404, and re-implementing the
+    # ownership filter to obtain it previously meant skipping the access_denied
+    # audit record that the helper emits (ASVS 1.4.4, 7.2.2).
+    locked = get_owned_for_update(Item, item_id)
 
     if not form.validate_on_submit():
         db.session.rollback()
@@ -687,7 +675,7 @@ def check_in(item_id: str, checkout_id: str):
 
     record = db.session.execute(
         select(Checkout).where(
-            Checkout.id == _uuid_or_404(checkout_id),
+            Checkout.id == uuid_or_404(checkout_id),
             Checkout.item_id == item.id,
             Checkout.returned_at.is_(None),
         )
@@ -777,8 +765,13 @@ def delete_link(item_id: str, link_id: str):
     form = ConfirmForm()
 
     if form.validate_on_submit():
+        # Coerced, not passed through: an unparseable link_id reaching the
+        # comparison raises a DataError and surfaces as a 500, where every other
+        # bad id in this application is a 404 (D-06).
         link = db.session.execute(
-            select(DocLink).where(DocLink.id == link_id, DocLink.item_id == item.id)
+            select(DocLink).where(
+                DocLink.id == uuid_or_404(link_id), DocLink.item_id == item.id
+            )
         ).scalar_one_or_none()
 
         if link is not None:

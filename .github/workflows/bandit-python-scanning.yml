@@ -1,11 +1,16 @@
 name: Bandit Python Security Scanning 
 
+# '**/app' matches a path component named "app", not the app/ subtree, so this
+# scan did not reliably run on a change to application code.
 on:
   push:
-    paths:
-      - '**/app'
     branches:
       - main
+    paths:
+      - 'app/**'
+  pull_request:
+    paths:
+      - 'app/**'
 
 jobs:
   analyze:

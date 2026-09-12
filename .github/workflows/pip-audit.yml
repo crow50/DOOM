@@ -1,11 +1,23 @@
 name: Pip Audit 
 
+# Recorded as the evidence for ASVS 14.2.1, so it has to run where that claim is
+# checked.  The previous trigger was push-to-main only, filtered on '**/app' -- a
+# glob that matches a path component named exactly "app", not the app/ subtree,
+# so the dependency scan did not reliably fire even on main, let alone on a pull
+# request proposing a dependency change.
 on:
   push:
-    paths:
-      - '**/app'
     branches:
       - main
+    paths:
+      - 'app/requirements*.txt'
+      - 'app/requirements*.in'
+      - '.github/workflows/pip-audit.yml'
+  pull_request:
+    paths:
+      - 'app/requirements*.txt'
+      - 'app/requirements*.in'
+      - '.github/workflows/pip-audit.yml'
 
 jobs:
   pip_audit:

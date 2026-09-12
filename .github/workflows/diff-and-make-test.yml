@@ -6,25 +6,86 @@ on:
 jobs:
   lint-and-compile:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
-      - run: pip install pip-tools
+      # Pinned: resolution and output formatting both vary between pip-tools
+      # releases, so an unpinned install makes this check fail on its own
+      # upgrade rather than on anything in the repository.
+      - run: pip install 'pip-tools==7.6.1'
+
+      # Seed the output file from the committed lockfile before recompiling.
+      # pip-compile honours the pins already in its output file unless --upgrade
+      # is passed, so this asks "does the lockfile still satisfy
+      # requirements.in?" - which is the repository's business. Compiling into an
+      # empty /tmp file instead asks "has anything on PyPI been released since?",
+      # which turns every upstream publish into a red build with no change here.
+      # That is exactly what happened: wrapt 2.4.1 shipped between two runs.
+      # Upgrades are Renovate's job; pip-audit and Trivy catch vulnerable pins.
+      - run: cp app/requirements.txt /tmp/requirements-hashed.txt
       - run: pip-compile --generate-hashes app/requirements.in -o /tmp/requirements-hashed.txt
       - run: diff -I '^#' /tmp/requirements-hashed.txt app/requirements.txt
       - run: make lint
 
   test:
     runs-on: ubuntu-latest
+    # Without this a hung step burns the default six hours of runner time before
+    # anyone finds out. Nothing here legitimately takes more than a few minutes.
+    timeout-minutes: 20
     env:
       PUBLIC_BASE_URL: http://localhost
     steps:
       - uses: actions/checkout@v6
       - run: make build
       - run: make init
+
+      # Anonymous Docker Hub pulls from GitHub-hosted runners are rate-limited
+      # and occasionally reset mid-handshake. That is exactly how this job last
+      # failed - "connection reset by peer" fetching the postgres manifest,
+      # before a single test ran - and it is not something a code change can
+      # prevent. Retrying only the pull leaves `make up` to fail on its own
+      # merits: a genuinely broken image still fails three times here and then
+      # fails the build.
+      - name: Pre-pull third-party images
+        run: |
+          for attempt in 1 2 3; do
+            if docker compose pull --quiet db cache caddy; then exit 0; fi
+            echo "pull attempt $attempt failed; retrying in $((attempt * 10))s"
+            sleep $((attempt * 10))
+          done
+          echo "could not pull third-party images after 3 attempts"
+          exit 1
+
       - run: make up
-      - name: Show db logs on failure
+
+      # CI never ran the migration path before, so nothing exercised the real
+      # `doom` database at all - only the doom_test one the suite builds with
+      # db.create_all() as the admin role. That is why a bootstrap failure that
+      # left the application role and the citext extension uncreated went
+      # unnoticed: the initial migration declares a CITEXT column, so this step
+      # alone would have caught it.
+      - run: make upgrade
+
+      # `make seed` is the only step that writes rows through the ORM as the
+      # restricted role, and until now CI ran everything around it and never it:
+      # `make test` connects to doom_test as the ADMIN role and builds its schema
+      # with db.create_all(), so nothing exercised the migrated schema and the
+      # app role together. A grant that failed to apply, or a baseline that
+      # drifted from models.py, would have gone green through the whole pipeline
+      # and failed on the first row a user wrote.
+      - run: make seed
+
+      - name: Show container state and logs on failure
         if: failure()
-        run: make logs
+        run: make logs-dump
       - run: make test
+      # The published test count is only checkable where the container and the
+      # docs/ tree are both present, which is here and not in the lint job.
+      - run: make verify-test-count
+
+      # Connects as the restricted role and proves the two-role split is real:
+      # it exists, it can read and write rows, and it can do neither DDL nor
+      # anything to audit_log. Nothing else in CI authenticates as that role.
+      - run: make verify-db-roles

@@ -103,9 +103,13 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-doom}
       POSTGRES_USER: ${POSTGRES_ADMIN_USER:-doom_admin}
-      # The official image supports _FILE for exactly this reason.
+      # The official image supports _FILE for POSTGRES_PASSWORD, POSTGRES_USER,
+      # POSTGRES_DB and POSTGRES_INITDB_ARGS.  Those four, and no others - there
+      # is no generic *_FILE handling.
       POSTGRES_PASSWORD_FILE: /run/secrets/doom_postgres_password
       APP_DB_USER: ${APP_DB_USER:-doom_app}
+      # Which is why this one is read by db/init/01-roles.sh itself.  It was not,
+      # once, and the application role was silently never created.
       APP_DB_PASSWORD_FILE: /run/secrets/doom_app_db_password
     volumes:
       - pgdata:/var/lib/postgresql
@@ -114,8 +118,15 @@ services:
       - internal
     security_opt:
       - no-new-privileges:true
+    # -h 127.0.0.1 is load-bearing.  Without a host, pg_isready checks the unix
+    # socket - which the *temporary* server started during initialisation also
+    # answers on, since that one runs with listen_addresses=''.  So a database
+    # whose init scripts were still running, or had just failed, reported healthy,
+    # `web` was released to start against it, and a failed bootstrap looked like a
+    # successful one.  Over TCP the check can only pass once the real server is up,
+    # which is the only thing `web` can use anyway.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-doom_admin} -d ${POSTGRES_DB:-doom}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_ADMIN_USER:-doom_admin} -d ${POSTGRES_DB:-doom}"]
       interval: 5s
       timeout: 5s
       retries: 10

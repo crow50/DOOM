@@ -104,6 +104,41 @@ def register_cli(app: Flask) -> None:
         click.echo(f"  verified {result['checked']} of {result['total']} rows")
         raise SystemExit(2)
 
+    @app.cli.command("db-grants")
+    def db_grants() -> None:
+        """Apply the privilege rules that are not schema.
+
+        These used to live inside a schema migration, which was a bad home for
+        them in two ways.  They depended on a *particular revision*
+        having run, so a database initialised but never migrated had a fully
+        writable audit log; and that revision's ``downgrade()`` handed the verbs
+        back, so rolling back one schema change quietly removed a security
+        control.  Now that the migration history is a single regenerable
+        baseline (D-38), anything durable has to live outside it entirely.
+
+        Idempotent by construction, and run by ``make upgrade`` after
+        ``flask db upgrade``.  ``make verify-db-roles`` proves the outcome.
+        """
+        import os
+
+        from sqlalchemy import text
+
+        app_user = os.environ.get("APP_DB_USER", "doom_app")
+
+        # citext is created by db/init/01-roles.sh at first initialisation, but
+        # the users table declares a CITEXT column, so saying it here too costs
+        # nothing and removes a hidden ordering dependency between the two.
+        db.session.execute(text("CREATE EXTENSION IF NOT EXISTS citext"))
+
+        # The load-bearing one (T-45, D-33).  REVOKE is idempotent: revoking a
+        # privilege the role does not hold is a no-op, not an error.
+        db.session.execute(
+            text(f'REVOKE UPDATE, DELETE ON audit_log FROM "{app_user}"')
+        )
+        db.session.commit()
+
+        click.echo(f"Applied privilege rules: audit_log is append-only for '{app_user}'.")
+
     @app.cli.command("seed")
     def seed() -> None:
         """Create a demo account and a small warehouse tree."""

@@ -10,6 +10,7 @@ different engine would verify nothing.
 from __future__ import annotations
 
 import os
+import pathlib
 
 import pytest
 from flask.testing import FlaskClient
@@ -194,3 +195,32 @@ def login(client, username: str, password: str = "a-long-enough-passphrase"):
         data={"username": username, "password": password},
         follow_redirects=False,
     )
+
+def pytest_collection_modifyitems(session, config, items):
+    """Fail collection if docs/COMPLIANCE.md publishes the wrong test count.
+
+    An audit found four files claiming four different test counts, none of them
+    right. The count now lives in exactly one place, ``tools/check_docs.py``
+    fails the build if a second file starts quoting one, and this hook is what
+    keeps the surviving number honest - it is the only place that knows the real
+    figure, and it runs on every ``make test``.
+    """
+    import re
+
+    ledger = pathlib.Path(__file__).resolve().parents[2] / "docs" / "COMPLIANCE.md"
+    if not ledger.exists():
+        return
+
+    published = re.findall(
+        r"(\d{2,5})\s+tests? pinning", ledger.read_text(encoding="utf-8")
+    )
+    if not published:
+        return
+
+    claimed, actual = int(published[0]), len(items)
+    if claimed != actual:
+        raise pytest.UsageError(
+            f"docs/COMPLIANCE.md claims {claimed} tests, but {actual} were "
+            f"collected. Update the count in COMPLIANCE.md §6 - it is the one "
+            f"place that publishes it."
+        )

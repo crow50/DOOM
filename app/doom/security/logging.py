@@ -20,6 +20,7 @@ import logging
 import sys
 import uuid
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from flask import Flask, g, has_request_context, request
 
@@ -36,6 +37,51 @@ REDACTED = "[redacted]"
 def _looks_sensitive(key: str) -> bool:
     lowered = str(key).lower()
     return any(fragment in lowered for fragment in SENSITIVE_KEY_FRAGMENTS)
+
+
+#: Path prefixes whose next segment is a secret rather than an identifier.
+#:
+#: ``/t/<token>`` is a capability URL: the token in it *is* the credential, so a
+#: request path is not safe to log verbatim the way ``/items/<uuid>`` is.  An
+#: object id identifies a row that still requires a session to reach; a share
+#: token grants access on its own to anyone who reads it back out of a log.
+SECRET_PATH_PREFIXES = ("/t/",)
+
+
+def scrub_path(path: str) -> str:
+    """Replace a secret path segment with a placeholder.
+
+    Keeps the shape of the URL - which route was hit, and that it carried a
+    token - while removing the only part that is worth stealing.
+    """
+    for prefix in SECRET_PATH_PREFIXES:
+        if path.startswith(prefix):
+            rest = path[len(prefix):]
+            tail = rest.split("/", 1)
+            remainder = f"/{tail[1]}" if len(tail) > 1 else ""
+            return f"{prefix}{REDACTED}{remainder}"
+    return path
+
+
+def scrub_url(value: str | None) -> str | None:
+    """Scrub a whole URL, not just a path.
+
+    ``Referer`` arrives as an absolute URL, and ``Referrer-Policy`` is
+    ``same-origin`` - so following any link from a shared page sends
+    ``https://host/t/<token>`` to the server, where gunicorn would otherwise log
+    it verbatim.  The path component gets the same treatment as
+    :func:`scrub_path`, and the query string is dropped entirely, matching what
+    the application log already does with it.
+    """
+    if not value:
+        return value
+
+    split = urlsplit(value)
+    scrubbed = scrub_path(split.path)
+    if scrubbed == split.path and not split.query:
+        return value
+
+    return urlunsplit((split.scheme, split.netloc, scrubbed, "", ""))
 
 
 def redact(value: Any, _depth: int = 0) -> Any:
@@ -65,8 +111,11 @@ class JsonFormatter(logging.Formatter):
 
         if has_request_context():
             payload["method"] = request.method
-            # request.path only; the query string can carry a share token.
-            payload["path"] = request.path
+            # The query string is dropped outright, and the path is scrubbed:
+            # a share token travels as a path segment (``/t/<token>``), so
+            # recording request.path verbatim wrote a live capability
+            # credential into every log line that a shared page produced.
+            payload["path"] = scrub_path(request.path)
             # Meaningful only because ProxyFix rewrote remote_addr from the
             # one X-Forwarded-For hop Caddy controls (T-07).
             payload["ip"] = request.remote_addr
