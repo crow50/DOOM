@@ -68,6 +68,15 @@ jobs:
       # alone would have caught it.
       - run: make upgrade
 
+      # `make seed` is the only step that writes rows through the ORM as the
+      # restricted role, and until now CI ran everything around it and never it:
+      # `make test` connects to doom_test as the ADMIN role and builds its schema
+      # with db.create_all(), so nothing exercised the migrated schema and the
+      # app role together. A grant that failed to apply, or a baseline that
+      # drifted from models.py, would have gone green through the whole pipeline
+      # and failed on the first row a user wrote.
+      - run: make seed
+
       - name: Show container state and logs on failure
         if: failure()
         run: make logs-dump
