@@ -109,6 +109,11 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@echo "Now set PUBLIC_BASE_URL in .env before printing any labels."
 
 ## --------------------------------------------------------------- database
+# NOT the development path right now - see `make baseline` and D-38.  While the
+# schema is still moving there is one regenerated baseline rather than a chain
+# of revisions, so this target is for when that stops being true and real
+# history starts.
+#
 # Generating a migration has to WRITE files, but the web container runs with a
 # read-only root filesystem.  Rather than weaken that, generation happens in a
 # throwaway container with a writable layer and the result is copied out.
@@ -125,9 +130,46 @@ migrate: ## Generate a migration from model changes (M="message")
 	@docker rm -f doom-mig >/dev/null
 	@echo "New migration written to app/migrations/versions - review it, then: make build && make upgrade"
 
+# Two steps, because only one of them is schema.  `flask db-grants` applies the
+# audit_log REVOKE, which used to live inside a migration - a bad home for it
+# twice over: it depended on a particular revision having run, and that
+# revision's downgrade() handed the verbs back.  Now the migration history is a
+# regenerable baseline (D-38), so nothing durable can live in it at all.
+# Development only, and deliberately destructive.
+#
+# While the schema is still moving, the migration history is a single baseline
+# regenerated from the models rather than a chain of incremental revisions
+# (D-38).  The trade is: no per-change migration file to write and review, at
+# the cost of recreating the database whenever the schema changes.  This is that
+# recreation.
+#
+# Autogenerate diffs the models against what is already in the database, so a
+# database that is already up to date produces an EMPTY migration.  That is why
+# this drops the volume first rather than just deleting the files.
+.PHONY: baseline
+baseline: ## Regenerate the one baseline migration from models (DESTROYS the database)
+	@echo "This deletes every migration file and recreates the database from scratch."
+	@read -p "Type 'yes' to continue: " ok; [ "$$ok" = "yes" ] || exit 1
+	rm -f app/migrations/versions/*.py
+	$(COMPOSE) down -v
+	$(MAKE) up
+	@docker rm -f doom-mig >/dev/null 2>&1 || true
+	docker run --name doom-mig --network doom_internal --user root \
+		-e DATABASE_URL="$(ADMIN_DSN)" \
+		-e SECRET_KEY="$(SECRET_KEY)" \
+		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
+		doom-web flask db migrate -m "baseline schema"
+	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
+	@docker rm -f doom-mig >/dev/null
+	@echo
+	@echo "Baseline written to app/migrations/versions - read it, then:"
+	@echo "  make build && make upgrade && make verify-db-roles"
+
 .PHONY: upgrade
-upgrade: ## Apply pending migrations (runs as the ADMIN role, never the app role)
+upgrade: ## Apply migrations and privilege rules (ADMIN role, never the app role)
 	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db upgrade
+	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db-grants
 
 .PHONY: seed
 seed: ## Load demo data

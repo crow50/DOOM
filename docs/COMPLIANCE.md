@@ -151,7 +151,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 
 | ASVS | L | Requirement | Status | Evidence | CWE |
 |---|:--:|---|---|---|:--:|
-| 1.1.1 | 2 | Verify the use of a secure software development lifecycle that addresses security in all stages of development | Met | Threat model written before the code, 36 ADRs in `DECISIONS.md`, controls pinned by tests, 7 CI workflows | - |
+| 1.1.1 | 2 | Verify the use of a secure software development lifecycle that addresses security in all stages of development | Met | Threat model written before the code, 38 ADRs in `DECISIONS.md`, controls pinned by tests, 8 CI workflows | - |
 | 1.1.2 | 2 | Verify the use of threat modeling for every design change or sprint planning to identify threats, plan for countermeasures, facilitate appropriate risk responses, and guide ... | Partial | `THREAT-MODEL.md` (47 threats) written once before the code, not revisited per design change | 1053 |
 | 1.1.3 | 2 | Verify that all user stories and features contain functional security constraints, such as "As a user, I should be able to view and edit my profile. I should not be able to ... | Partial | Security constraints recorded per decision in `DECISIONS.md`; no user-story artifact exists to carry them | 1110 |
 | 1.1.4 | 2 | Verify documentation and justification of all the application's trust boundaries, components, and significant data flows | Met | `THREAT-MODEL.md` §4 - 8 trust boundaries | 1059 |
@@ -559,11 +559,12 @@ for that reason — the logging half is fixed, the design half is a choice.
 Someone with database access *and* the source can recompute the chain. An
 externally recorded head hash is the mitigation, and the account page shows one
 (D-33). Two further limits are worth stating because the previous revision did
-not: the `REVOKE UPDATE, DELETE` lives in migration `a1c4e7b90d21`, **not** in
-`db/init/01-roles.sh` as `security/audit.py` used to claim — so a deployment that
-initialises the database but never migrates leaves the application role holding
-the broad four-verb grant from `01-roles.sh:38` — and that migration's
-`downgrade()` re-grants both verbs.
+not: the `REVOKE UPDATE, DELETE` is applied by `flask db-grants`, which
+`make upgrade` runs, and **not** by `db/init/01-roles.sh` as `security/audit.py`
+once claimed. It lived in a migration until D-38, which meant a database that was
+initialised but never migrated had a writable audit log and a single `downgrade()`
+handed the verbs back. `make verify-db-roles` now asserts the outcome on every
+CI run, which is the part that makes the claim checkable rather than stated.
 
 ### Uploads are neutralised, not scanned (12.4.2)
 

@@ -16,13 +16,14 @@ mechanisms harden it, and they work at different layers:
 
 * ``UPDATE`` and ``DELETE`` are revoked on ``audit_log`` for the application's
   database role, so even a complete SQL injection through the app cannot rewrite
-  history — only append to it.  The revoke lives in migration
-  ``a1c4e7b90d21``, **not** in ``db/init/01-roles.sh``: that script grants the
-  role the broad SELECT/INSERT/UPDATE/DELETE default, and this table is the one
-  exception carved out of it afterwards.  Two consequences worth knowing: a
-  deployment that initialises the database but never migrates leaves the role
-  holding both verbs, and that migration's ``downgrade()`` re-grants them.
-  Scope is exactly this table; every other table keeps full DML.
+  history — only append to it.  The revoke is applied by ``flask db-grants``,
+  which ``make upgrade`` runs, and **not** by ``db/init/01-roles.sh``: that
+  script grants the role the broad SELECT/INSERT/UPDATE/DELETE default, and this
+  table is the one exception carved out of it afterwards.  It used to live in a
+  migration, which meant a database that was initialised but never migrated had
+  a writable audit log, and a single ``downgrade()`` handed the verbs back
+  (D-38).  Scope is exactly this table; every other table keeps full DML, and
+  ``make verify-db-roles`` fails if any of that stops being true.
 * Each row stores the hash of the previous one, so removing or editing any row
   invalidates every hash after it.  ``flask audit-verify`` finds the break.
 

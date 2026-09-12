@@ -1209,3 +1209,67 @@ never printed; and here a bootstrap script's exit status was discarded by a rest
 policy and a healthcheck that agreed with it. In every case the control was
 written, documented, and cited, and in every case the thing that would have proved
 it worked did not exist. Writing the check is the control; the rest is intent.
+
+---
+
+## D-38 — One regenerated baseline instead of a migration history
+
+Seven migrations accumulated in six days: an enum widening, a four-tier location
+rework, checkouts, the audit chain, barcode columns, attachment dedup, per-device
+sessions. Every schema change added a file to review in a diff, describing a
+transformation of data that existed on exactly one laptop.
+
+**They are squashed to a single baseline, regenerated from the models whenever the
+schema moves, until the schema stops moving.** `make baseline` does it;
+`make migrate` is still there for when incremental history starts mattering.
+
+### Why the usual argument doesn't apply yet
+
+The case for keeping every migration is that a migration describes a *change*, not
+a state, and some changes carry knowledge the models cannot express. The
+four-tier rework is the perfect example: it did not merely narrow the
+`location_kind` enum, it translated the existing rows — a `rack` became a
+`shelf`, a `warehouse` became a `site`. `models.py` states the destination and has
+no way to state that mapping. Lose the migration and a database from before that
+day can never move forward.
+
+That argument is airtight *when a database exists that you cannot drop*. None
+does. Nobody else runs DOOM, the test suite builds its schema with
+`db.create_all()` and never touches a migration, and `make clean` is part of the
+ordinary loop. The history was protecting rows nobody has.
+
+The cost of squashing is "everyone with a database must recreate it", which today
+means one person who recreates it anyway — and that cost rises permanently the
+moment this ships or anyone self-hosts. So the decision has a deadline: **start
+keeping real history at the first deployment that holds data somebody would miss.**
+Practically, that is the first tagged release, or the first time a person other
+than the author runs `make up` and intends to keep what they put in it.
+
+### What this forces, and why it is an improvement
+
+A file that gets regenerated cannot hold anything durable. The audit-log
+`REVOKE UPDATE, DELETE` was living inside migration `a1c4e7b90d21`, and that was
+already wrong for two reasons that had nothing to do with squashing:
+
+- it made a **security control conditional on a schema revision having run**, so a
+  database initialised but never migrated had a fully writable audit log
+- that revision's `downgrade()` **handed the verbs back**, so rolling back one
+  schema change silently removed the control
+
+It now lives in `flask db-grants`, an idempotent command `make upgrade` runs after
+`flask db upgrade`. The baseline is pure schema and can be thrown away freely; the
+privilege rules are independent of it and re-runnable. `make verify-db-roles`
+asserts the outcome in CI, which is what makes the move safe to have made at all —
+if the REVOKE had been lost in the squash, the next push would have failed.
+
+The extension creation moved with it. `CREATE EXTENSION IF NOT EXISTS citext` is
+in `db/init/01-roles.sh` and now also in `db-grants`, which removes a hidden
+ordering dependency between database initialisation and the migration that
+declares a `CITEXT` column.
+
+### The rule while this holds
+
+Schema change during development means: edit `models.py`, run `make baseline`,
+recreate your database. There is no per-change migration to write, and no
+migration to review. In exchange, there is no upgrade path between development
+databases — which is the correct trade only for as long as nobody needs one.
