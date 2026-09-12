@@ -181,6 +181,13 @@ to `caddy/Caddyfile`; Caddy handles Let's Encrypt from there.
 database dump alone is not a backup - every photo and document lives in the
 volume. `make restore` takes both.
 
+**Changing anything in `db/init/` needs `make clean`.** Those scripts run only
+when the postgres data directory is empty; on an existing volume the entrypoint
+skips them silently, so an edit there has no effect until the volume is destroyed.
+If `make seed` fails with *"password authentication failed for user doom_app"*,
+this is almost certainly why - run `make verify-db-roles`, which reports it as a
+skipped bootstrap rather than a wrong password.
+
 **NFC.** Web NFC is Chromium-on-Android only; there is no iOS support. QR
 codes work everywhere and carry the same URL.
 

@@ -1202,6 +1202,23 @@ and write rows, it cannot execute DDL, and it cannot touch `audit_log`. `make
 upgrade` runs in CI too, which on its own would have caught the missing extension,
 since the initial migration declares a `CITEXT` column.
 
+The "write" half of that arrived a round later than the sentence did. The first
+version of the check proved `SELECT` and stopped, so `INSERT` — the only verb
+`make seed` needs — was still unchecked, and `make seed` itself still did not run
+anywhere. Both are closed: the check sweeps `has_table_privilege()` for all four
+DML verbs across every table, and CI runs `make seed` immediately after
+`make upgrade`.
+
+**The operational consequence, which is the part that bites twice.** Fixing
+`01-roles.sh` fixes nothing on a machine that already has a database. The postgres
+entrypoint skips `/docker-entrypoint-initdb.d` whenever the data directory is
+non-empty, so the corrected script never executes there, `doom_app` still does not
+exist, and postgres still reports that as "password authentication failed" — the
+original symptom, unchanged, with the fix sitting in the repository unused. The
+only cure is `make clean` and a rebuild, and `make verify-db-roles` is the one
+command that says so out loud rather than leaving you to infer it from a password
+error.
+
 Which makes three rounds with the same shape. The documentation described controls
 nobody had checked; the lockfile check measured PyPI rather than the lockfile; the
 failure handler followed logs forever so the failure it existed to explain was
