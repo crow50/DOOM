@@ -116,6 +116,13 @@ than lowering the gate.
 saying why the interpolated identifier is safe. A bare `# nosemgrep` silences
 every rule on that line and should not appear.
 
+**The runtime image ships no tests either.** `make test` builds and runs the
+`test` stage of `app/Dockerfile` - the runtime image plus `tests/`, `pytest.ini`
+and a venv with `requirements-dev.txt` installed. The runtime stage copies an
+explicit allowlist and fails its own build if `import pytest` succeeds. Because
+`test` is the Dockerfile's final stage, anything that builds without naming a
+target gets it: compose, Trivy and the publish workflow all say `runtime`.
+
 **The runtime image ships no pip.** It is removed in the runtime stage, along with
 setuptools, `pkg_resources` and `ensurepip`. Nothing in the container installs
 anything, and pip's *vendored* dependency tree was the source of every **Python**

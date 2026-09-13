@@ -27,6 +27,11 @@ jobs:
       - run: cp app/requirements.txt /tmp/requirements-hashed.txt
       - run: pip-compile --generate-hashes app/requirements.in -o /tmp/requirements-hashed.txt
       - run: diff -I '^#' /tmp/requirements-hashed.txt app/requirements.txt
+      # Same check for the test-only lockfile, which is constrained to the
+      # runtime one so the two cannot pin a shared package differently.
+      - run: cp app/requirements-dev.txt /tmp/requirements-dev-hashed.txt
+      - run: pip-compile --generate-hashes app/requirements-dev.in -o /tmp/requirements-dev-hashed.txt
+      - run: diff -I '^#' /tmp/requirements-dev-hashed.txt app/requirements-dev.txt
       - run: make lint
 
   test:

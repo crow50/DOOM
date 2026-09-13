@@ -14,9 +14,21 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends build-essential \
  && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY requirements.txt requirements-dev.txt ./
 RUN python -m venv --upgrade-deps /opt/venv \
  && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# A second venv for the `test` stage: the runtime venv plus pytest.  Built
+# here, where pip and the compilers are, so the test stage below can copy it
+# in without reinstating either.  Nothing from it reaches the runtime image.
+#
+# `python -m pip`, not `bin/pip`: the copied venv's console scripts still carry
+# the ORIGINAL venv's interpreter in their shebang, so `venv-test/bin/pip`
+# would install straight back into /opt/venv - which is exactly what happened
+# the first time, and what the `! import pytest` check in the runtime stage
+# exists to catch.  The interpreter resolves its prefix from its own location.
+RUN cp -a /opt/venv /opt/venv-test \
+ && /opt/venv-test/bin/python -m pip install --no-cache-dir -r requirements-dev.txt
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +96,19 @@ RUN set -eux; \
     done; \
     rm -rf /usr/local/lib/python3.*/ensurepip; \
     rm -f /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.*; \
-    python -c "import flask, sqlalchemy, gunicorn, PIL, magic, argon2, redis, qrcode, pytest"
+    python -c "import flask, sqlalchemy, gunicorn, PIL, magic, argon2, redis, qrcode"; \
+    ! python -c "import pytest" 2>/dev/null
 
 WORKDIR /srv/doom
-COPY --chown=root:root . /srv/doom
+# An explicit allowlist, not `COPY .`: the shipped image holds the package,
+# the WSGI entry and the migrations, and nothing else from this directory -
+# not the tests, not pytest.ini, not the lockfiles, not this file.  A glob
+# with a .dockerignore beside it can regress silently (the ignore file was in
+# the wrong directory for a while and excluded nothing); three named paths
+# cannot.  ASVS 14.2.2.
+COPY --chown=root:root doom       /srv/doom/doom
+COPY --chown=root:root migrations /srv/doom/migrations
+COPY --chown=root:root wsgi.py    /srv/doom/wsgi.py
 
 # The upload directory is the one writable path in an otherwise read-only
 # filesystem, and it must be owned by the unprivileged runtime user or the
@@ -118,3 +139,21 @@ CMD ["sh", "-c", "exec gunicorn \
       --logger-class doom.security.gunicorn_logging.JsonAccessLogger \
       --forwarded-allow-ips '*' \
       wsgi:app"]
+
+
+# ---------------------------------------------------------------------------
+# Test stage - the runtime image plus the suite and a runner.  Never shipped.
+#
+# This is the LAST stage on purpose only in the sense that it has to come
+# after `runtime`; it is NOT the default.  A plain `docker build` picks the
+# final stage, so every consumer names its target: compose builds `web` with
+# `target: runtime`, the Trivy and publish workflows pass `--target runtime`,
+# and `make test` is the only thing that asks for this one.
+# ---------------------------------------------------------------------------
+FROM runtime AS test
+
+USER 0:0
+COPY --from=builder /opt/venv-test /opt/venv
+COPY --chown=root:root tests      /srv/doom/tests
+COPY --chown=root:root pytest.ini /srv/doom/pytest.ini
+USER 10001:10001

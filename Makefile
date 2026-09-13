@@ -283,29 +283,31 @@ unlock-user: ## Clear a lockout: make unlock-user USER=alice
 # Tests need CREATE privileges for db.create_all(), so they run against a
 # separate database under the ADMIN role.  The application itself never gets
 # these credentials.
+#
+# They run from the `test` build stage - the runtime image plus the suite and
+# pytest - because the runtime image no longer carries either (ASVS 14.2.2).
+# The service sits behind a compose profile so nothing but this target builds
+# or starts it.  The one-off `-e` overrides that used to live here are now the
+# service's own environment in docker-compose.yml.
 .PHONY: test
 test: ## Run the test suite
 	@$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d postgres \
 		-c "SELECT 1 FROM pg_database WHERE datname='doom_test'" | grep -q 1 || { \
 		$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d postgres -c "CREATE DATABASE doom_test;" && \
 		$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d doom_test -c "CREATE EXTENSION IF NOT EXISTS citext;"; }
-	$(COMPOSE) run --rm \
-		-e DATABASE_URL="postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/doom_test" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/9" \
-		web python -m pytest -p no:cacheprovider -q
+	$(COMPOSE) --profile test build --quiet test
+	$(COMPOSE) --profile test run --rm test python -m pytest -p no:cacheprovider -q
 
-# The container image excludes docs/, so the collection hook in tests/conftest.py
-# cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
+# The test image has no docs/ (the build context is app/), so the collection
+# hook in tests/conftest.py cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
 # what pytest collects in the container and compares against the one number the
 # documentation publishes.  Four files once published four different counts, none
 # of them right; this is what makes the surviving one checkable in CI.
 .PHONY: verify-test-count
 verify-test-count: ## Check COMPLIANCE.md's test count against what pytest collects
 	@claimed=$$(grep -oE '[0-9]+ tests pinning' docs/COMPLIANCE.md | head -1 | cut -d' ' -f1); \
-	actual=$$($(COMPOSE) run --rm -T \
-		-e DATABASE_URL="postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/doom_test" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/9" \
-		web python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
+	$(COMPOSE) --profile test build --quiet test; \
+	actual=$$($(COMPOSE) --profile test run --rm -T test python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
 		| grep -oE '^[0-9]+ tests? collected' | cut -d' ' -f1); \
 	if [ -z "$$actual" ]; then echo "FAIL: could not collect tests"; exit 1; fi; \
 	if [ "$$claimed" != "$$actual" ]; then \
@@ -381,7 +383,7 @@ restore: ## Restore from a backup pair: make restore DB=... UPLOADS=...
 clean: ## Stop and DELETE all data volumes
 	@echo "This destroys the database, every uploaded file, .env, and secrets."
 	@read -p "Type 'yes' to continue: " ok; [ "$$ok" = "yes" ] || exit 1
-	$(COMPOSE) down -v 
+	$(COMPOSE) --profile test down -v --rmi local
 	@rm -f .env
 	@rm -rf secrets
 

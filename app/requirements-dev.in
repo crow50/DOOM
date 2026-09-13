@@ -1,0 +1,5 @@
+# Test-only dependencies.  Installed into the `test` build stage and nowhere
+# else: the runtime image ships no test runner (ASVS 14.2.2).  Constrained to
+# the runtime lockfile so the two can never disagree on a shared package.
+-c requirements.txt
+pytest

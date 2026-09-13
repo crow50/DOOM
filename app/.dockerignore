@@ -1,0 +1,24 @@
+# Read by Docker from the build-context root, which is THIS directory: compose
+# and the workflows build with context ./app.  A previous copy lived at the
+# repository root, where nothing read it, and excluded nothing.
+#
+# What is in the shipped image is decided by the explicit COPY allowlist in the
+# Dockerfile, not here.  This file keeps junk and secrets out of the build
+# context itself, so they cannot land in a layer by accident (T-27).
+.env
+*.pem
+*.key
+*.crt
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+.vscode/
+.idea/
+*.swp
+.DS_Store

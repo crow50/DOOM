@@ -26,6 +26,3 @@ qrcode
 
 requests
 python-dotenv
-
-# --- test only ---
-pytest

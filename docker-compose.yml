@@ -67,6 +67,9 @@ services:
   web:
     build:
       context: ./app
+      # Named, because the Dockerfile's last stage is `test` and an unnamed
+      # build would ship the test suite.
+      target: runtime
     restart: unless-stopped
     # ASVS 6.4.1 — secrets arrive as read-only files, not environment
     # variables. An env var is inherited by every child process, shows up in
@@ -123,6 +126,42 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # test - the `test` build stage: runtime image plus the suite and pytest.
+  # Behind a profile so `make up` and `make build` never touch it; `make test`
+  # names it explicitly.  Runs against the separate doom_test database as the
+  # ADMIN role (the suite needs CREATE for db.create_all()), never against the
+  # real one, and holds no secret files - the tests set their own SECRET_KEY.
+  # ---------------------------------------------------------------------------
+  test:
+    profiles: ["test"]
+    build:
+      context: ./app
+      target: test
+    image: doom-web-test
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_ADMIN_USER:-doom_admin}:${POSTGRES_PASSWORD}@db:5432/doom_test
+      REDIS_URL: redis://:${REDIS_PASSWORD}@cache:6379/9
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://test.invalid}
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      # The suite exercises uploads.  Before this service existed, `make test`
+      # ran inside `web` and wrote its fixtures into the REAL uploads volume;
+      # an ephemeral tmpfs is the right place for them.
+      - /var/lib/doom/uploads:size=64m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
   # ---------------------------------------------------------------------------
   # db - postgres.  No published port; internal network only.

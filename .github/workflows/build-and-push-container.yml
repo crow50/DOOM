@@ -49,6 +49,8 @@ jobs:
         with:
           context: ./app
           file: ./app/Dockerfile
+          # The Dockerfile's last stage is `test`; never publish that one.
+          target: runtime
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
