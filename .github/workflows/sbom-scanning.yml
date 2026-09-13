@@ -1,6 +1,7 @@
 name: SBOM Generation and Vulnerability Scan
 
 on:
+  workflow_dispatch: {}
   push:
     paths:
       - 'app/**'
