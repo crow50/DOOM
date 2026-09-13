@@ -1,20 +1,26 @@
 name: Semgrep
 
+# Every push, not just main: this branch carried a Blocking finding for weeks
+# that CI never saw, because the job only fired on main and on pull requests
+# and there was no pull request.
 on:
-  pull_request:
   push:
-    branches:
-      - main
+  pull_request:
 
 jobs:
   semgrep:
     name: Semgrep Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     container:
       image: semgrep/semgrep
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      # --error is what makes this a gate. Without it semgrep exits 0 no matter
+      # what it finds - a run on this branch reported "Findings: 1 (1 blocking)"
+      # followed by "Scan completed successfully" and a green check. A scanner
+      # that cannot fail is a log line, not a control (ASVS 1.14.3).
       - name: Run Semgrep
-        run: semgrep --config p/flask --config p/owasp-top-ten app/
+        run: semgrep --config p/flask --config p/owasp-top-ten --error app/

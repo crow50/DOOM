@@ -15,9 +15,9 @@ So this is now a record of what runs, and a much shorter list of what does not.
 | Tool | What it catches | Where | Runs on |
 |---|---|---|---|
 | **gitleaks** | Secrets entering history | [`gitleaks-secret-scanning.yml`](../.github/workflows/gitleaks-secret-scanning.yml) + [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) | push, PR, and pre-commit |
-| **bandit** | Weak hashing, `shell=True`, `eval`, hardcoded credentials | [`bandit-python-scanning.yml`](../.github/workflows/bandit-python-scanning.yml) | push to `main`, PR |
-| **pip-audit** | Known CVEs in pinned dependencies | [`pip-audit.yml`](../.github/workflows/pip-audit.yml) | push to `main`, PR |
-| **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | push to `main`, PR |
+| **bandit** | Weak hashing, `shell=True`, `eval`, hardcoded credentials | [`bandit-python-scanning.yml`](../.github/workflows/bandit-python-scanning.yml) | push and PR touching `app/`; **gates** on medium+ severity/confidence over `app/doom`, uploads full SARIF |
+| **pip-audit** | Known CVEs in pinned dependencies | [`pip-audit.yml`](../.github/workflows/pip-audit.yml) | push and PR touching the lockfile; **gates** |
+| **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | every push and PR; **gates** (`--error`) |
 | **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | Dockerfile changes, PR |
 | **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR |
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
@@ -99,11 +99,22 @@ for byte, and 12.4.2 is a **Level 1** requirement that says "antivirus scanners"
 
 ## Notes for anyone extending this
 
-**bandit will flag `security/passwords.py`.** It contains a module-level constant
-that looks like a hardcoded password. It is the dummy Argon2 hash used to equalise
-login timing for unknown users (`passwords.py:47`) — a deliberate control, not a
-credential. Annotate it with `# nosec` and a comment rather than silencing the
-rule globally.
+**Which scanners can actually fail a build.** All of them, now — but two could
+not until an external audit checked. `semgrep` exits 0 on findings unless
+`--error` is passed, and a run on this branch reported "Findings: 1 (1 blocking)"
+followed by a green check. `PyCQA/bandit-action` ends its command with `|| true`
+and only uploads SARIF. Both are now invoked so that a finding is a red build:
+`semgrep --error`, and `bandit -r app/doom -ll -ii` run directly. Bandit's
+remaining Low-severity notes (`B105` on audit-label strings such as
+`"Password changed"`, `B110` on the deliberate `except: pass` in the
+timing-equalisation path) are below the gate and appear only in the SARIF report;
+if one ever needs silencing, annotate the line with `# nosec` and a reason rather
+than lowering the gate.
+
+**Suppressions name the rule.** The one `# nosemgrep` in the codebase
+(`cli.py`, the `REVOKE` in `db-grants`) carries the full rule id and a comment
+saying why the interpolated identifier is safe. A bare `# nosemgrep` silences
+every rule on that line and should not appear.
 
 **The runtime image ships no pip.** It is removed in the runtime stage, along with
 setuptools, `pkg_resources` and `ensurepip`. Nothing in the container installs

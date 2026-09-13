@@ -1,14 +1,14 @@
 name: Pip Audit 
 
 # Recorded as the evidence for ASVS 14.2.1, so it has to run where that claim is
-# checked.  The previous trigger was push-to-main only, filtered on '**/app' -- a
+# checked.  The first trigger was push-to-main only, filtered on '**/app' -- a
 # glob that matches a path component named exactly "app", not the app/ subtree,
 # so the dependency scan did not reliably fire even on main, let alone on a pull
-# request proposing a dependency change.
+# request proposing a dependency change.  The second was any-branch on PR but
+# still main-only on push, which meant a feature branch with no PR open never
+# ran it at all.  Now: every push and PR that touches the lockfile.
 on:
   push:
-    branches:
-      - main
     paths:
       - 'app/requirements*.txt'
       - 'app/requirements*.in'

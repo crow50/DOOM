@@ -120,10 +120,26 @@ def register_cli(app: Flask) -> None:
         ``flask db upgrade``.  ``make verify-db-roles`` proves the outcome.
         """
         import os
+        import re
 
         from sqlalchemy import text
 
         app_user = os.environ.get("APP_DB_USER", "doom_app")
+
+        # There is no bind parameter for an identifier, so the role name has to
+        # be spliced into the statement text.  db/init/01-roles.sh makes the
+        # same point about its own bootstrap and hands the job to psql's
+        # :"var" quoting; this is the Python equivalent - the dialect's
+        # identifier preparer, which always double-quotes and doubles any
+        # embedded quote.  The pattern check in front of it is belt and braces:
+        # the value comes from the operator's .env, not from a request, but a
+        # project that argues about injection should not carry an f-string
+        # into SQL anywhere, including here.
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", app_user):
+            raise click.ClickException(
+                f"APP_DB_USER {app_user!r} is not a plain lowercase identifier."
+            )
+        role = db.engine.dialect.identifier_preparer.quote_identifier(app_user)
 
         # citext is created by db/init/01-roles.sh at first initialisation, but
         # the users table declares a CITEXT column, so saying it here too costs
@@ -132,8 +148,13 @@ def register_cli(app: Flask) -> None:
 
         # The load-bearing one (T-45, D-33).  REVOKE is idempotent: revoking a
         # privilege the role does not hold is a no-op, not an error.
+        #
+        # The nosemgrep below is for avoid-sqlalchemy-text: REVOKE has no ORM
+        # form, and the only interpolated value is the identifier validated
+        # and dialect-quoted above.
         db.session.execute(
-            text(f'REVOKE UPDATE, DELETE ON audit_log FROM "{app_user}"')
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(f"REVOKE UPDATE, DELETE ON audit_log FROM {role}")
         )
         db.session.commit()
 
