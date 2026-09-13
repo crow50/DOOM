@@ -1131,11 +1131,12 @@ could have credited, which is worse than no control at all.
 
 ### What was deliberately left as a gap
 
-TLS between containers (1.9.1, 1.9.2, 9.2.2), off-host log shipping (1.7.2),
-antivirus scanning (12.4.2) and the SBOM (14.2.5) are recorded as unmet. Each is
-real work with runtime consequences, and the argument for the current position is
-in `COMPLIANCE.md` §3 where a verifier can disagree with it. The point of this
-decision is that an argument is now labelled as an argument.
+TLS between containers (1.9.1, 1.9.2, 9.2.2), off-host log shipping (1.7.2) and
+antivirus scanning (12.4.2) are recorded as unmet. Each is real work with runtime
+consequences, and the argument for the current position is in `COMPLIANCE.md` §3
+where a verifier can disagree with it. The point of this decision is that an
+argument is now labelled as an argument. The SBOM (14.2.5) was in this list too,
+until `sbom-scanning.yml` (syft + grype) closed it.
 
 ### A second round, from CI
 

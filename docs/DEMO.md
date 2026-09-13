@@ -304,8 +304,8 @@ viable attack - on availability. See D-04.
 scraping leaked tokens, which is what the rate limits and `noindex` address.
 
 **"What would you add next?"** - TLS between the containers (ASVS 1.9.1 and
-9.2.2, the largest remaining L2 gap), then ClamAV on uploads for 12.4.2, then an
-SBOM. `gitleaks`, `bandit`, `pip-audit`, `semgrep`, `hadolint`, Trivy and
+9.2.2, the largest remaining L2 gap), then ClamAV on uploads for 12.4.2.
+`gitleaks`, `bandit`, `pip-audit`, `semgrep`, `hadolint`, Trivy, syft/grype and
 Renovate are already running — PIPELINE-NOTES.md says which trigger on what.
 
 **"What's still weak?"** - Registration reveals whether a username is taken; a

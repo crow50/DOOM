@@ -54,8 +54,8 @@ meeting it.
 | Level | Requirements | Met | Partial | Compensating | Not met | N/A |
 |---|---:|---:|---:|---:|---:|---:|
 | **L1** | 127 | 100 | 2 | 1 | 3 | 21 |
-| **L2** | 126 | 65 | 15 | 5 | 10 | 31 |
-| **L1 + L2** | 253 | 165 | 17 | 6 | 13 | 52 |
+| **L2** | 126 | 66 | 15 | 5 | 9 | 31 |
+| **L1 + L2** | 253 | 166 | 17 | 6 | 12 | 52 |
 
 Stated as plainly as the numbers allow:
 
@@ -64,10 +64,10 @@ Stated as plainly as the numbers allow:
   (no antivirus scanning of uploads), 5.2.6 (a DNS-rebinding window in the
   optional lookup), 13.1.3 (a share token is a secret that travels in a URL) and
   8.3.3 (no privacy notice in the interface). Each is argued in §1.
-- **Level 2 is not met in full.** 65 of 126 met, 31 not applicable, and 30
+- **Level 2 is not met in full.** 66 of 126 met, 31 not applicable, and 29
   exceptions — most consequentially 1.9.1, 1.9.2 and 9.2.2 (no TLS between
-  containers), 1.7.2 (logs are not shipped off-host), 14.2.5 (no SBOM) and 2.3.2
-  (no second-factor enrollment path).
+  containers), 1.7.2 (logs are not shipped off-host) and 2.3.2 (no second-factor
+  enrollment path).
 - **Level 3 is not claimed,** and no L3 row appears below. L3 expects segregation
   of duties, phishing-resistant multi-factor authentication, HSM-backed key
   management and independent verification, none of which this deployment has.
@@ -131,7 +131,6 @@ those rows ever disagree.
 | 11.1.8 | 2 | **Not met** | Verify that the application has configurable alerting when automated attacks or unusual ... | No alerting exists, configurable or otherwise |
 | 12.4.2 | 1 | **Not met** | Verify that files obtained from untrusted sources are scanned by antivirus scanners to prevent ... | No antivirus scanner is present. Images are fully re-encoded, which destroys embedded payloads - but PDFs and text/markdown are stored byte for byte (`security/uploads.py:238-240`) |
 | 13.1.3 | 1 | Compensating | Verify API URLs do not expose sensitive information, such as the API key, session tokens etc | A share token is a capability URL, so it is deliberately in the path. It is 256-bit, revocable, rate limited and every open is audited - but it is a secret in a URL and reaches the access log |
-| 14.2.5 | 2 | **Not met** | Verify that a Software Bill of Materials (SBOM) is maintained of all third party libraries in ... | No SBOM is generated. Tracked separately and expected before this work reaches `main` |
 | 14.2.6 | 2 | **Not met** | Verify that the attack surface is reduced by sandboxing or encapsulating third party libraries ... | Third-party libraries run in-process with the application's full privileges; no per-library sandboxing exists |
 <!-- exceptions:end -->
 
@@ -480,7 +479,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 | 14.2.2 | 1 | Verify that all unneeded features, documentation, sample applications and configurations are removed | Met | Multi-stage build whose runtime stage copies an explicit allowlist (`doom/`, `migrations/`, `wsgi.py`) and asserts `import pytest` fails; the suite and its runner exist only in the `test` build target, which every consumer avoids by naming `target: runtime`; pip, setuptools and wheel are stripped; `app/.dockerignore` keeps junk and `.env` out of the context. An earlier row credited a `.dockerignore` at the repository root - the build context was `./app`, so Docker never read it and the tests shipped | 1002 |
 | 14.2.3 | 1 | Verify that if application assets, such as JavaScript libraries, CSS or web fonts, are hosted externally on a Content Delivery Network (CDN) or external provider, Subresource ... | N/A | No asset is hosted externally - CSP is `default-src 'self'` with no CDN, so there is nothing for SRI to cover | 829 |
 | 14.2.4 | 2 | Verify that third party components come from pre-defined, trusted and continually maintained repositories | Met | PyPI only, every version pinned with a SHA-256 hash; Renovate keeps the set maintained | 829 |
-| 14.2.5 | 2 | Verify that a Software Bill of Materials (SBOM) is maintained of all third party libraries in use | **Not met** | No SBOM is generated. Tracked separately and expected before this work reaches `main` | - |
+| 14.2.5 | 2 | Verify that a Software Bill of Materials (SBOM) is maintained of all third party libraries in use | Met | `sbom-scanning.yml` generates a CycloneDX inventory with syft on every push/PR touching `app/**`, keeps it as a build artifact, and scans it with grype (`fail-build` on HIGH+, unfixed ignored, SARIF to the Security tab) | - |
 | 14.2.6 | 2 | Verify that the attack surface is reduced by sandboxing or encapsulating third party libraries to expose only the required behaviour into the application | **Not met** | Third-party libraries run in-process with the application's full privileges; no per-library sandboxing exists | 265 |
 | 14.3.2 | 1 | Verify that web or application server and application framework debug modes are disabled in production to eliminate debug features, developer consoles, and unintended ... | Met | `DEBUG = False` and `TESTING = False`, and `config.py:169` refuses to start if `FLASK_DEBUG` is set | 497 |
 | 14.3.3 | 1 | Verify that the HTTP headers or any part of the HTTP response do not expose detailed version information of system components | Met | `Server` header stripped by both Caddy (`caddy/Caddyfile:26`) and the application (`security/headers.py:125`) | 200 |

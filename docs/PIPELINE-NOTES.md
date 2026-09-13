@@ -20,6 +20,7 @@ So this is now a record of what runs, and a much shorter list of what does not.
 | **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | every push and PR; **gates** (`--error`) |
 | **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | Dockerfile changes, PR |
 | **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR |
+| **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc.; **gates** on HIGH+ unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
 | **Lockfile drift** | A hand-edited `requirements.txt` | [`diff-and-make-test.yml`](../.github/workflows/diff-and-make-test.yml) | every push and PR |
 | **Hash-pinned installs** | A substituted artifact, not merely a wrong version | `app/requirements.txt` — every pin carries `--hash=sha256:` | every build |
@@ -62,17 +63,8 @@ claim is checked, and nothing in the pipeline was verifying that.
 
 ## Not shipped
 
-Two items, both real, both recorded as gaps in
+One item, real, and recorded as a gap in
 [COMPLIANCE.md](COMPLIANCE.md) rather than described here as future work.
-
-### SBOM — ASVS 14.2.5, **Not met**
-
-```bash
-syft doom-web -o cyclonedx-json > sbom.json
-```
-
-One command, and it answers "are we affected by X" in seconds rather than an
-afternoon. Tracked separately and expected before this work reaches `main`.
 
 ### Antivirus scanning of uploads — ASVS 12.4.2, **Not met**
 
@@ -115,6 +107,15 @@ than lowering the gate.
 (`cli.py`, the `REVOKE` in `db-grants`) carries the full rule id and a comment
 saying why the interpolated identifier is safe. A bare `# nosemgrep` silences
 every rule on that line and should not appear.
+
+**Why the SBOM scan is one step, not two.** Trivy needs two invocations
+because its `severity:` input filters what is *found*, not just the exit code
+— the gate step only looks at HIGH/CRITICAL and a second, always-run step at
+every severity feeds the SARIF upload. `anchore/scan-action`'s `severity-cutoff`
+only decides `fail-build`; the SARIF it writes carries every severity grype
+found regardless. One `grype` step, gated on HIGH-and-above with unfixed
+findings ignored (parity with Trivy's `ignore-unfixed`, and for the same
+reason — see I-9 in the 2026-09-12 audit), covers both the gate and the report.
 
 **The runtime image ships no tests either.** `make test` builds and runs the
 `test` stage of `app/Dockerfile` - the runtime image plus `tests/`, `pytest.ini`

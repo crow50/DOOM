@@ -336,10 +336,10 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
    [COMPLIANCE.md](COMPLIANCE.md) §3, not counted as a pass.
 7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
    collector consumes, but nothing collects it here.
-8. **No SBOM** (14.2.5). Tracked separately.
 
 Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
-Renovate all run, and the lockfile is hash-pinned. See
-[PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where, and
-[COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these eight are the ones
-worth reading in isolation, not the complete set.
+Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5):
+`sbom-scanning.yml` generates one with syft and scans it with grype on every
+push and PR. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where,
+and [COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these seven are the
+ones worth reading in isolation, not the complete set.
