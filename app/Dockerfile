@@ -129,6 +129,12 @@ EXPOSE 8000
 
 # PYTHONDONTWRITEBYTECODE matters here: with read_only:true set in compose,
 # any attempt to write .pyc files next to the source would fail.
+#
+# --no-control-socket: gunicorn 25.1+ opens a management socket under the
+# user's home by default, for `gunicornc`.  Nothing here uses it, the user has
+# no home and the filesystem is read-only, so every boot logged
+# "[ERROR] Control server error: Read-only file system: '/home/doom'" - an
+# unneeded interface being attempted rather than removed (ASVS 14.2.2).
 CMD ["sh", "-c", "exec gunicorn \
       --bind 0.0.0.0:8000 \
       --workers ${GUNICORN_WORKERS:-2} \
@@ -138,6 +144,7 @@ CMD ["sh", "-c", "exec gunicorn \
       --error-logfile - \
       --logger-class doom.security.gunicorn_logging.JsonAccessLogger \
       --forwarded-allow-ips '*' \
+      --no-control-socket \
       wsgi:app"]
 
 
