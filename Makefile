@@ -120,15 +120,29 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 .PHONY: migrate
 migrate: ## Generate a migration from model changes (M="message")
 	@docker rm -f doom-mig >/dev/null 2>&1 || true
-	docker run --name doom-mig --network doom_internal --user root \
+	@# Silenced with @: make echoes recipe lines, and this one carries the
+	@# admin DSN, SECRET_KEY and the redis password.  Unsilenced, all three
+	@# landed in the terminal, in scrollback, and in any CI log that ran it.
+	@# They are still passed as -e, visible in `docker inspect doom-mig` for
+	@# the seconds the throwaway container exists: the dev-only exception to
+	@# 6.4.1, because the app has no file-based path for the ADMIN role and
+	@# should not grow one.
+	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
+	@docker run --name doom-mig --network doom_internal --user root \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "$(or $(M),auto)"
-	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
-	@docker rm -f doom-mig >/dev/null
-	@echo "New migration written to app/migrations/versions - review it, then: make build && make upgrade"
+	@before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
+	docker cp -q doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
+	docker rm -f doom-mig >/dev/null; \
+	after=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
+	if [ "$$before" = "$$after" ]; then \
+		echo "  no schema changes detected - nothing written"; \
+	else \
+		echo "  new migration written to app/migrations/versions - review it, then: make build && make upgrade"; \
+	fi
 
 # Two steps, because only one of them is schema.  `flask db-grants` applies the
 # audit_log REVOKE, which used to live inside a migration - a bad home for it
@@ -154,7 +168,15 @@ baseline: ## Regenerate the one baseline migration from models (DESTROYS the dat
 	$(COMPOSE) down -v
 	$(MAKE) up
 	@docker rm -f doom-mig >/dev/null 2>&1 || true
-	docker run --name doom-mig --network doom_internal --user root \
+	@# Silenced with @: make echoes recipe lines, and this one carries the
+	@# admin DSN, SECRET_KEY and the redis password.  Unsilenced, all three
+	@# landed in the terminal, in scrollback, and in any CI log that ran it.
+	@# They are still passed as -e, visible in `docker inspect doom-mig` for
+	@# the seconds the throwaway container exists: the dev-only exception to
+	@# 6.4.1, because the app has no file-based path for the ADMIN role and
+	@# should not grow one.
+	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
+	@docker run --name doom-mig --network doom_internal --user root \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
