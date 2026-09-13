@@ -100,3 +100,6 @@ jobs:
       # of this check grepped for variable *names* and missed the passwords
       # embedded in DATABASE_URL; this one greps for the values.
       - run: make verify-secrets
+      - name: Show container state and logs on failure (final)
+        if: failure()
+        run: make logs-dump
