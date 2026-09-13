@@ -350,7 +350,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 |---|:--:|---|---|---|:--:|
 | 7.1.1 | 1 | Verify that the application does not log credentials or payment details. Session tokens should only be stored in logs in an irreversible, hashed form | Met | Credentials are never logged (`security/logging.py:28-52`), and the share token is scrubbed from both logs - the application's (`scrub_path`) and gunicorn's (`security/gunicorn_logging.py`) | 532 |
 | 7.1.2 | 1 | Verify that the application does not log other sensitive data as defined under local privacy laws or relevant security policy | Met | `SENSITIVE_KEY_FRAGMENTS` redaction (`security/logging.py:28-31`) applied to every structured field | 532 |
-| 7.1.3 | 2 | Verify that the application logs security relevant events including successful and failed authentication events, access control failures, deserialization failures and input ... | Met | `audit_log` records authentication, access-control denials, uploads, sharing and custody changes | 778 |
+| 7.1.3 | 2 | Verify that the application logs security relevant events including successful and failed authentication events, access control failures, deserialization failures and input ... | Met | `audit_log` records authentication, access-control denials (including a well-formed share token that matches nothing - the one attack the public surface has - recorded by a 12-character prefix, never the token), uploads, sharing and custody changes | 778 |
 | 7.1.4 | 2 | Verify that each log event includes necessary information that would allow for a detailed investigation of the timeline when an event happens | Met | Each event carries actor, action, object, timestamp, IP and correlation id (`security/audit.py:97-116`) | 778 |
 | 7.2.1 | 2 | Verify that all authentication decisions are logged, without storing sensitive session tokens or passwords | Met | Both success and failure are recorded; no token or password is stored with them | 778 |
 | 7.2.2 | 2 | Verify that all access control decisions can be logged and all failed decisions are logged | Met | `security/authz.py:79-84` audits every denial, including the inline checkout query (`blueprints/items.py:616-620`) | 285 |
@@ -638,7 +638,7 @@ interface, which is what 8.3.3 asks for and why that row reads Partial.
 Most of this ledger is executable rather than asserted.
 
 ```bash
-make test           # 288 tests pinning the controls above
+make test           # 292 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges

@@ -40,7 +40,7 @@ tracked without moving the item, so it still knows where it lives.
 Every add, removal, move and checkout is written to a ledger, which is where
 the name comes from. Each item and location shows one merged history:
 movements, custody, edits, uploads, sharing changes, and every time a shared
-link was opened.
+link was opened - or a plausible one was refused.
 
 ---
 

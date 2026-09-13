@@ -128,3 +128,48 @@ class TestRobots:
     def test_robots_disallows_everything(self, client):
         response = client.get("/robots.txt")
         assert b"Disallow: /" in response.data
+
+
+class TestShareMissesAreAudited:
+    """A well-formed token that matches nothing is what guessing looks like;
+    garbage in the path is a broken link. Only the first is recorded, and the
+    token itself never is (it might be valid tomorrow, and audit_log is
+    append-only)."""
+
+    def _denials(self):
+        from doom.models import AuditLog
+
+        return db.session.execute(
+            db.select(AuditLog).where(
+                AuditLog.action == "access_denied", AuditLog.object_type == "share"
+            )
+        ).scalars().all()
+
+    def test_well_formed_miss_is_recorded_without_the_token(self, client):
+        token = new_share_token()
+        assert client.get(f"/t/{token}").status_code == 404
+
+        rows = self._denials()
+        assert len(rows) == 1
+        assert rows[0].object_id == token[:12] + "…"
+        assert token not in (rows[0].object_id or "")
+        assert token not in (rows[0].detail or "")
+
+    def test_revoked_token_is_a_recorded_miss(self, client, alice_item):
+        """Unsharing must look like a miss from outside, and a miss is logged."""
+        token = _share(alice_item)
+        alice_item.visibility = "private"
+        db.session.commit()
+
+        assert client.get(f"/t/{token}").status_code == 404
+        assert len(self._denials()) == 1
+
+    def test_garbage_is_a_404_and_not_recorded(self, client):
+        for junk in ("garbage", "x" * 42, "x" * 44, "has space" + "a" * 34, "a" * 43 + "/extra"):
+            assert client.get(f"/t/{junk}").status_code == 404
+        assert self._denials() == []
+
+    def test_a_valid_token_is_not_a_miss(self, client, alice_item):
+        token = _share(alice_item)
+        assert client.get(f"/t/{token}").status_code == 200
+        assert self._denials() == []
