@@ -43,10 +43,12 @@ http://{$DOOM_DOMAIN:localhost} {
 {$DOOM_DOMAIN:localhost} {
 	encode gzip
 
-	# First of two body-size gates (T-28).  Set slightly above the app's own
-	# 10 MB limit so oversized uploads are refused by Flask with a styled 413
-	# rather than by Caddy with a bare error - the app still enforces its own
-	# cap, this one just stops absurd bodies before they reach Python.
+	# Second of two body-size gates (T-28), not the first: Werkzeug rejects an
+	# oversized Content-Length before reading the body, so a 13 MB upload gets
+	# Flask's styled 413 without this ever firing.  Set slightly above the
+	# app's 10 MB limit so that stays true, and so the one case this does
+	# catch - a chunked body with no declared length - is stopped here before
+	# it reaches Python.
 	request_body {
 		max_size 12MB
 	}

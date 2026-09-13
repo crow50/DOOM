@@ -99,7 +99,7 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@# do not appear in `docker inspect`, are not inherited by child processes,
 	@# and cannot be read out of /proc/<pid>/environ.
 	@chmod 444 secrets/*
-	@echo "  wrote secrets/ (mode 600, gitignored)"
+	@echo "  wrote secrets/ (files 0444 inside a 0700 directory, gitignored)"
 	@echo
 	@echo "Secrets are hex-encoded: URL-safe, so they cannot corrupt a DSN."
 	@echo "The application reads them from /run/secrets/, never from its"

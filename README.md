@@ -124,8 +124,9 @@ attributes all read from it, so a bound cannot be tightened in one place and lef
 loose in another.
 
 Two kinds of limit necessarily sit outside it, and it is worth knowing which:
-the request body cap exists twice by design (Caddy rejects at 12 MB so the app
-never buffers what it would refuse at 10 MB), and pagination and batch caps are
+the request body cap exists twice by design (Flask refuses anything over 10 MB
+on its `Content-Length` before reading a byte; Caddy's 12 MB cap is the backstop
+for bodies that declare no length), and pagination and batch caps are
 hardcoded per view. Those are performance ceilings rather than security bounds —
 but "every limit in one file" was too strong a claim, and `docs/DECISIONS.md`
 D-01 now says which limits D-01 actually covers.

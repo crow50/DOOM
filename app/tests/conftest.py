@@ -201,9 +201,12 @@ def pytest_collection_modifyitems(session, config, items):
 
     An audit found four files claiming four different test counts, none of them
     right. The count now lives in exactly one place, ``tools/check_docs.py``
-    fails the build if a second file starts quoting one, and this hook is what
-    keeps the surviving number honest - it is the only place that knows the real
-    figure, and it runs on every ``make test``.
+    fails the build if a second file starts quoting one, and this hook keeps
+    the surviving number honest when the suite runs from a source checkout.
+
+    Inside the test image there is no ``docs/`` (the build context is
+    ``app/``), so here it returns early and does nothing - which is why
+    ``make verify-test-count`` exists and is what CI runs.
     """
     import re
 

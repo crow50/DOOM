@@ -85,6 +85,7 @@ Ranked by what an attacker would want and what a loss would cost the operator.
 |---|---|---|
 | ① | Internet → Caddy | TLS only. The sole published port. Request bodies capped before reaching the app |
 | ② | Caddy → web | `X-Forwarded-For` is **overwritten**, never appended - a client-supplied value must never be believed |
+| ② | Caddy → web | Everything is proxied, including `/healthz`. It is the only unauthenticated application route besides login, registration and share pages: it touches no database, returns two bytes, and is exempt from the rate limiter because the container healthcheck polls it every ten seconds. Reachable on purpose; a probe learns only that something answers, and cannot make it cost anything |
 | ③ | Anonymous → authenticated | Argon2id verification, rate limited, timing-equalised |
 | ④ | Authenticated → **this** object | Ownership is a `WHERE` clause on every query. **The single most important boundary in the system** |
 | ⑤ | Request data → application | Allowlist validation; models never built from raw form data |
