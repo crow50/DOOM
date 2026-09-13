@@ -16,6 +16,11 @@ services:
     environment:
       DOOM_DOMAIN: ${DOOM_DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      # The plaintext listener redirects to https://host:HTTPS_PORT.  Caddy's
+      # automatic redirect targets the bare site address, which on the
+      # unprivileged default ports sent visitors to :443 where nothing
+      # listens.
+      HTTPS_PORT: ${HTTPS_PORT:-443}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -25,6 +30,34 @@ services:
         condition: service_healthy
     networks:
       - edge
+    # --- container hardening (T-34) ---
+    # The same posture as `web`, and it matters more here: this is the one
+    # process that parses bytes straight off the network.  Until an audit
+    # checked, it ran as root with Docker's full default capability set on a
+    # writable filesystem - the strongest starting position in the stack, on
+    # the most exposed process.
+    #
+    # The image chmods /data/caddy and /config/caddy to 1777, so a non-root
+    # Caddy can still write its internal CA and autosaved config into the
+    # named volumes.  A caddy_data volume created by an OLDER root Caddy has
+    # root-owned 0700 directories inside it; wipe it once (`make clean`, or
+    # `docker volume rm doom_caddy_data`) and let this one recreate the CA.
+    #
+    # cap_drop ALL, then exactly one back.  The image setcaps the caddy binary
+    # with cap_net_bind_service=+ep, and the kernel refuses to exec a file
+    # whose capabilities lie outside the bounding set ("operation not
+    # permitted" on every restart), so it cannot be dropped entirely.  It is
+    # also the one capability a port-80/443 listener legitimately needs.
+    # Verify: CapEff in /proc/1/status is 0000000000000400 - bit 10, that
+    # capability, and nothing else.
+    user: "10002:10002"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
 

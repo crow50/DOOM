@@ -172,7 +172,14 @@ nobody trusts.
 **Ports.** Defaults are 8080/8443 so the stack starts under rootless Docker,
 which refuses to bind below 1024. On a rootful daemon, set `HTTP_PORT=80`
 and `HTTPS_PORT=443` and drop the port from `PUBLIC_BASE_URL` - before
-printing labels.
+printing labels. The plaintext port only redirects, and it redirects to
+whatever `HTTPS_PORT` is.
+
+**Upgrading from a version where Caddy ran as root.** Caddy now runs as
+uid 10002 and cannot read the CA that a root Caddy wrote into `caddy_data`.
+Once: `docker compose rm -sf caddy && docker volume rm doom_caddy_data
+doom_caddy_config`, then `make up`. A new internal CA is generated, so
+re-run `make trust-cert` on any phone that trusted the old one.
 
 **A real domain.** Point `DOOM_DOMAIN` at it and add `email you@example.com`
 to `caddy/Caddyfile`; Caddy handles Let's Encrypt from there.

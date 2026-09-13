@@ -389,7 +389,7 @@ numbers are the ones 4.0.3 assigns, not ones chosen here.
 
 | ASVS | L | Requirement | Status | Evidence | CWE |
 |---|:--:|---|---|---|:--:|
-| 9.1.1 | 1 | Verify that TLS is used for all client connectivity, and does not fall back to insecure or unencrypted communications | Met | Caddy terminates TLS and redirects HTTP (`caddy/Caddyfile:14`); `SESSION_COOKIE_SECURE` prevents any plaintext fallback | 319 |
+| 9.1.1 | 1 | Verify that TLS is used for all client connectivity, and does not fall back to insecure or unencrypted communications | Met | Caddy terminates TLS; an explicit `http://` site in `caddy/Caddyfile` answers plaintext with a 308 to `https://host:HTTPS_PORT` (the automatic redirect dropped the port and sent visitors to :443 on the default 8080/8443 configuration); `SESSION_COOKIE_SECURE` prevents any plaintext fallback | 319 |
 | 9.1.2 | 1 | Verify using up to date TLS testing tools that only strong cipher suites are enabled, with the strongest cipher suites set as preferred | Met | Caddy's defaults - modern suites only, no configuration weakening them | 326 |
 | 9.1.3 | 1 | Verify that only the latest recommended versions of the TLS protocol are enabled, such as TLS 1.2 and TLS 1.3 | Met | Caddy negotiates TLS 1.2/1.3 only | 326 |
 | 9.2.1 | 2 | Verify that connections to and from the server use trusted TLS certificates | Partial | A real domain gets Let's Encrypt certificates; the default `DOOM_DOMAIN=localhost` uses Caddy's internal CA, which no client trusts without `make trust-cert` | 295 |

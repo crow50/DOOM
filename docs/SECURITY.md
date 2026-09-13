@@ -226,7 +226,7 @@ client and an SSRF hole.
 
 | Threat | Control | Where |
 |---|---|---|
-| T-34 Container escape | Non-root uid 10001, `cap_drop: ALL`, `no-new-privileges`, read-only rootfs | `docker-compose.yml`, `Dockerfile` |
+| T-34 Container escape | `web`: uid 10001, `cap_drop: ALL`, read-only rootfs. `cache`: uid 999, `cap_drop: ALL`, read-only. `caddy`: uid 10002, read-only, `cap_drop: ALL` + `NET_BIND_SERVICE` only. `db`: official image drops to `postgres`. All `no-new-privileges`. Until an audit checked, `caddy` - the one process parsing bytes off the network - ran as root with the full default capability set on a writable filesystem | `docker-compose.yml`, `Dockerfile` |
 | T-34 Network exposure | `db` and `cache` on an `internal: true` network; no published ports | `docker-compose.yml` |
 | T-07 Rate-limit evasion | Caddy **overwrites** `X-Forwarded-For`; `ProxyFix(x_for=1)` | `Caddyfile`, `__init__.py` |
 | T-14 Host header poisoning | Label URLs from `PUBLIC_BASE_URL`, never `request.host_url` | `blueprints/labels.py` |

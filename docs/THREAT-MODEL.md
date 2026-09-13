@@ -171,7 +171,7 @@ Each threat carries the control that answers it. `T-##` identifiers are cited by
 
 | ID | Threat | Control |
 |---|---|---|
-| T-34 | Container escape or host pivot after app compromise | Non-root uid 10001, `cap_drop: ALL`, `no-new-privileges`, read-only rootfs, `db`/`cache` on an internal-only network |
+| T-34 | Container escape or host pivot after app compromise | Every service non-root, `no-new-privileges`, read-only rootfs: `web` (uid 10001) and `cache` (999) with `cap_drop: ALL`; `caddy` (10002) with exactly `NET_BIND_SERVICE`; `db` drops to `postgres` via the official entrypoint. `db`/`cache` on an internal-only network |
 | T-35 | Database takeover following any injection | App role is neither superuser nor schema owner; migrations use a **separate** privileged DSN the app never holds |
 | T-36 | A share token being mistaken for an authorisation grant | **The token identifies; the session authorizes.** Public routes resolve to a reduced view and expose no mutating endpoint |
 
