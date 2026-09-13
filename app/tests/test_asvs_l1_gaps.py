@@ -8,6 +8,8 @@ check live and die together.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from conftest import login
 
@@ -69,6 +71,21 @@ class TestPasswordStrengthMeter:
         html = response.get_data(as_text=True)
         assert "js/password-meter.js" in html
         assert "data-password-meter" in html
+
+    @pytest.mark.parametrize("path", ["/register", "/account/password"])
+    def test_the_length_floor_reaches_the_meter_from_validation(self, client, alice, path):
+        """One PASSWORD_MIN.  The script used to carry its own `12`, which is a
+        second copy of a bound the README says lives in exactly one file."""
+        from doom import validation as v
+
+        if path != "/register":
+            login(client, "alice")
+        html = client.get(path).get_data(as_text=True)
+        assert f'data-min-length="{v.PASSWORD_MIN}"' in html
+
+        script = client.get("/static/js/password-meter.js").get_data(as_text=True)
+        assert "data-min-length" in script
+        assert not re.search(r"MIN_LENGTH\s*=\s*\d", script), "the meter has grown its own length literal"
 
     def test_meter_is_not_the_authority(self, client):
         """The server rejects a weak password even though the meter is advisory."""

@@ -20,7 +20,18 @@
 (function () {
   "use strict";
 
-  var MIN_LENGTH = 12;
+  /* The length floor is NOT defined here.  validation.PASSWORD_MIN is the
+   * one source of truth for it (README: "every field bound lives in one
+   * file"), and the form writes it onto the input as data-min-length.  A
+   * second literal in this file drifted from the first once; reading the
+   * attribute means it cannot. */
+  function minLength(input) {
+    var n = parseInt(input.getAttribute("data-min-length"), 10);
+    if (!n || n < 1) {
+      throw new Error("password-meter: data-min-length missing on " + (input.name || "input"));
+    }
+    return n;
+  }
 
   /* Substrings that make a password predictable regardless of its length.
    * A deliberately short list: the real breach-corpus screen is server-side
@@ -33,7 +44,7 @@
   ];
 
   var BANDS = [
-    { label: "Too short", hint: "Needs at least " + MIN_LENGTH + " characters." },
+    { label: "Too short", hint: "" },   /* hint filled per input, from its minimum */
     { label: "Weak", hint: "Predictable. A few unrelated words would be far stronger." },
     { label: "Fair", hint: "Acceptable, but more length would help more than more symbols." },
     { label: "Good", hint: "Solid." },
@@ -75,8 +86,8 @@
   }
 
   /* 0-4.  Length dominates, which is the whole point of the policy. */
-  function score(value) {
-    if (value.length < MIN_LENGTH) return 0;
+  function score(value, min) {
+    if (value.length < min) return 0;
 
     var lower = value.toLowerCase();
     for (var i = 0; i < WEAK_FRAGMENTS.length; i++) {
@@ -96,6 +107,7 @@
   }
 
   function buildMeter(input) {
+    var min = minLength(input);
     var wrap = document.createElement("div");
     wrap.className = "pw-meter";
 
@@ -122,11 +134,12 @@
         text.textContent = "";
         return;
       }
-      var band = score(value);
+      var band = score(value, min);
+      var hint = band === 0 ? "Needs at least " + min + " characters." : BANDS[band].hint;
       /* Width comes from the band class in doom.css rather than an inline
        * style, so nothing here depends on style-src allowing unsafe-inline. */
       fill.className = "pw-meter-fill pw-meter-fill-" + band;
-      text.textContent = BANDS[band].label + " - " + BANDS[band].hint;
+      text.textContent = BANDS[band].label + " - " + hint;
     }
 
     input.addEventListener("input", update);
