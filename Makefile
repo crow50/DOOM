@@ -242,6 +242,33 @@ verify-db-roles: ## Prove the app role exists and is properly restricted
 	echo "  ok: audit_log is append-only for $(APP_DB_USER)"; \
 	echo "  clean: the two-role split is in place"
 
+# The 6.4.1 claim is that no password reaches a process environment.  The
+# check that used to stand behind it grepped PID 1's environ for
+# `APP_DB_PASSWORD=` and `REDIS_PASSWORD=` - and returned zero while both
+# passwords sat right beside them inside DATABASE_URL= and REDIS_URL=, put
+# there by an entrypoint that assembled the DSNs in shell and exported them.
+# A check that names the variables it expects can only find the leak it
+# already knows about.  This one looks for the password values themselves,
+# in the master, in a worker, and in what `docker inspect` would show.
+.PHONY: verify-secrets
+verify-secrets: ## Prove no secret value is in any process environment or in docker inspect
+	@set -e; \
+	echo "checking that secret values stay out of process environments..."; \
+	environs=$$($(COMPOSE) exec -T web sh -c 'for p in /proc/[0-9]*; do cat $$p/environ 2>/dev/null; echo; done | tr "\\0" "\\n"'); \
+	for f in app_db_password redis_password secret_key; do \
+		val=$$(cat secrets/$$f); \
+		if docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
+			echo "FAIL: the value of secrets/$$f appears in docker inspect"; exit 1; fi; \
+		if printf '%s' "$$environs" | grep -qF "$$val"; then \
+			echo "FAIL: the value of secrets/$$f is in a process environment inside web"; exit 1; fi; \
+	done; \
+	echo "  ok: no secret value in docker inspect"; \
+	echo "  ok: no secret value in any process environment (master or workers)"; \
+	if $(COMPOSE) exec -T web sh -c "tr '\\0' '\\n' < /proc/1/environ" | grep -qE '^(DATABASE_URL|REDIS_URL|SECRET_KEY|APP_DB_PASSWORD|REDIS_PASSWORD)='; then \
+		echo "FAIL: a DSN or raw secret variable is set in PID 1's environment"; exit 1; fi; \
+	echo "  ok: only *_FILE paths reach the process; the DSNs are assembled in-process"; \
+	echo "  clean: secrets are files, and stay files"
+
 .PHONY: shell
 shell: ## Shell inside the web container
 	$(COMPOSE) exec web /bin/bash

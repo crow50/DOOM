@@ -89,3 +89,9 @@ jobs:
       # it exists, it can read and write rows, and it can do neither DDL nor
       # anything to audit_log. Nothing else in CI authenticates as that role.
       - run: make verify-db-roles
+
+      # The other half of the 6.4.1 evidence: the values in secrets/ appear in
+      # no process environment and not in `docker inspect`. An earlier version
+      # of this check grepped for variable *names* and missed the passwords
+      # embedded in DATABASE_URL; this one greps for the values.
+      - run: make verify-secrets

@@ -975,11 +975,20 @@ recognise your own devices, not a browsing history.
 
 Environment variables are the weakest common way to hold a secret. They are
 inherited by every child process, appear in `docker inspect`, and can be read
-straight out of `/proc/<pid>/environ`. The application now reads
-`SECRET_KEY_FILE` and friends from mounted files, and an entrypoint assembles
-the two DSNs so no password reaches the process environment at all. Verified:
-`docker inspect` shows only `*_FILE` paths, and the count of raw secrets in
-PID 1's environ is zero.
+straight out of `/proc/<pid>/environ`. The application reads
+`SECRET_KEY_FILE` and friends from mounted files and assembles the two DSNs
+in-process (`config.py`), so no password reaches any process environment.
+Verified by `make verify-secrets`, which greps every process environment and
+`docker inspect` for the secret *values*.
+
+**A second claim I had to walk back.** The first version of this used a shell
+entrypoint to build `DATABASE_URL` and `REDIS_URL` and `export` them before
+`exec`ing gunicorn. That is an environment variable with a password in it, in
+PID 1 and inherited by every worker — exactly what the paragraph above says
+must not happen — and the published check missed it because it grepped for
+`APP_DB_PASSWORD=` rather than for the password. An external audit read the
+environ directly. The entrypoint is gone, the DSNs are built in Python from the
+`*_FILE` values, and the check now looks for values, not names.
 
 Postgres uses the official image's `_FILE` support. Redis has none, so its
 password moved from `--requirepass` on the command line — visible in the

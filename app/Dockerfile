@@ -96,19 +96,15 @@ COPY --chown=root:root . /srv/doom
 RUN mkdir -p /var/lib/doom/uploads \
  && chown -R 10001:10001 /var/lib/doom
 
-# Installed while still root: a non-root USER cannot chmod a root-owned file,
-# and the entrypoint must stay root-owned and non-writable so the application
-# cannot rewrite the thing that assembles its own credentials.
-COPY --chown=root:root entrypoint.sh /usr/local/bin/doom-entrypoint
-RUN chmod 0555 /usr/local/bin/doom-entrypoint
-
 USER 10001:10001
 
 EXPOSE 8000
 
-# Assembles DATABASE_URL and REDIS_URL from the mounted secret files, so no
-# password ever reaches the process environment (ASVS 6.4.1).
-ENTRYPOINT ["/usr/local/bin/doom-entrypoint"]
+# No ENTRYPOINT.  There used to be a shell script here that read the secret
+# files and exported DATABASE_URL and REDIS_URL before exec'ing gunicorn - which
+# put both passwords into PID 1's environment and every worker's, the exact
+# thing the file-based secrets exist to prevent.  config.py now assembles the
+# DSNs in-process (ASVS 6.4.1); `make verify-secrets` proves nothing leaks.
 
 # PYTHONDONTWRITEBYTECODE matters here: with read_only:true set in compose,
 # any attempt to write .pyc files next to the source would fail.

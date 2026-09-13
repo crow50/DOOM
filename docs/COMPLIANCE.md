@@ -638,7 +638,7 @@ interface, which is what 8.3.3 asks for and why that row reads Partial.
 Most of this ledger is executable rather than asserted.
 
 ```bash
-make test           # 281 tests pinning the controls above
+make test           # 286 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges
@@ -659,12 +659,15 @@ that has no ledger row, or if a second file starts publishing its own test count
 Secrets never reach the process environment (1.6.2, 6.4.1):
 
 ```bash
-docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -i password
-# only *_FILE paths appear, never a value
-
-docker compose exec web sh -c 'tr "\0" "\n" < /proc/1/environ | grep -cE "^(SECRET_KEY|APP_DB_PASSWORD|REDIS_PASSWORD)="'
-# 0
+make verify-secrets   # greps every process environment and `docker inspect` for the VALUES in secrets/
 ```
+
+The check used to be a grep for the variable *names* (`APP_DB_PASSWORD=`,
+`REDIS_PASSWORD=`) in PID 1's environ, and it returned 0 while both passwords
+sat beside them inside `DATABASE_URL=` and `REDIS_URL=`, exported by an
+entrypoint script. A check that names what it expects to find can only find
+the leak it already knows about; this one looks for the secret values
+themselves, in the master, in every worker, and in the container config.
 
 As the application's own database role, all of these must fail:
 
