@@ -13,6 +13,10 @@ on:
       - 'app/**'
       - '.github/workflows/bandit-python-scanning.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
