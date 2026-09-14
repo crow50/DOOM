@@ -142,7 +142,7 @@ def get_owned_for_update(model: type[T], obj_id: str | uuid.UUID) -> T:
 
 
 def owned_query(model: type[T]):
-    """A SELECT already narrowed to the current user's rows.
+    """Return a SELECT already narrowed to the current user's rows.
 
     Use as the starting point for every listing, so scoping is the default
     rather than something each view has to remember to add.

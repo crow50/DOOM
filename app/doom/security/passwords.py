@@ -157,7 +157,7 @@ def verify_password(stored_hash: str | None, candidate: str) -> bool:
 
 
 def needs_rehash(stored_hash: str) -> bool:
-    """True when a hash predates the current cost parameters.
+    """Check if a hash predates the current cost parameters.
 
     Called after a successful login, while the plaintext is briefly available,
     so raising the cost settings silently upgrades every account as its owner

@@ -57,7 +57,7 @@ _CHAIN_LOCK_KEY = 0x0D00_4D17
 
 
 def _chain_head():
-    """Current tail of the chain, or None when the log is empty."""
+    """Return current tail of the chain, or None when the log is empty."""
     from ..models import AuditLog
 
     return db.session.execute(

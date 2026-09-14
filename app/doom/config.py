@@ -85,7 +85,9 @@ def _require(name: str, *, min_length: int = 1) -> str:
 
 
 def _database_url() -> str:
-    """The application's DSN, assembled here so no password touches the environment.
+    """Assemble the application's DSN.
+
+    The application's DSN, assembled here so no password touches the environment.
 
     ``DATABASE_URL`` wins when it is set: that is how ``make upgrade``,
     ``make test`` and ``make migrate`` hand a one-off container the ADMIN
@@ -115,7 +117,7 @@ def _database_url() -> str:
 
 
 def _redis_url() -> str:
-    """The rate limiter's DSN.  Same rule, same reason as :func:`_database_url`."""
+    """Assemble the rate limiter's DSN. Same rule, same reason as :func:`_database_url`."""
     explicit = os.environ.get("REDIS_URL", "").strip()
     if explicit:
         return explicit
@@ -208,7 +210,7 @@ class Config:
 
     @staticmethod
     def verify_runtime() -> None:
-        """Final guard against a debug-enabled boot.
+        """Check the final guard against a debug-enabled boot.
 
         Checked at application-factory time as well as here, because
         FLASK_DEBUG in the environment would otherwise switch on the

@@ -181,7 +181,7 @@ def delete(attachment_id: str):
     node_id = attachment.item_id or attachment.location_id
 
     def still_referenced(name: str) -> bool:
-        """True when another attachment row points at the same blob.
+        """Check if another attachment row points at the same blob.
 
         Deduplication means one file can back several rows; deleting a row must
         not pull the bytes out from under the others (T-47).

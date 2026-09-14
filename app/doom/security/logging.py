@@ -134,7 +134,7 @@ class JsonFormatter(logging.Formatter):
 
 
 def new_correlation_id() -> str:
-    """Identifier shared between a user-facing error page and the server log.
+    """Return an identifier for tracing a request through the stack.
 
     The user is given this and nothing else.  It lets them report a fault
     precisely while the stack trace, the query, and the schema stay on the

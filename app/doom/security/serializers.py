@@ -60,7 +60,7 @@ def public_location(
     attachments: list[Attachment],
     links: list[DocLink],
 ) -> dict[str, Any]:
-    """A shared container: what is inside it, one level down.
+    """Return a shared container: what is inside it, one level down.
 
     Contents are listed because that is the entire point of scanning a tote.
     Each entry carries a share token only if that item is itself shared, so

@@ -49,7 +49,7 @@ PERMISSIONS_POLICY = ", ".join(
 
 
 def _is_authenticated() -> bool:
-    """True when a signed-in user is looking at this response."""
+    """Check if the current user has a valid session."""
     try:
         from flask_login import current_user
 

@@ -22,7 +22,7 @@ from flask import request, url_for
 
 
 def is_safe_redirect(target: str | None) -> bool:
-    """True only for a same-application relative path.
+    r"""Check if target is a same-application relative path.
 
     Rejects, in order of how often each is missed:
 

@@ -1,8 +1,11 @@
-"""Flask extension singletons, instantiated unbound and initialised by the
-application factory.
+"""Flask extension singletons.
+
+Instantiated unbound and initialised by the application factory.
 """
 
 from __future__ import annotations
+
+
 
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
