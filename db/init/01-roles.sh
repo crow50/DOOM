@@ -40,11 +40,11 @@ fi
 # should not have one in its own bootstrap.
 psql -v ON_ERROR_STOP=1 \
      -v app_user="$APP_DB_USER" \
-     -v app_password="$APP_DB_PASSWORD" \
      -v db_name="$POSTGRES_DB" \
      -v schema_owner="$POSTGRES_USER" \
      --username "$POSTGRES_USER" \
      --dbname "$POSTGRES_DB" <<-'EOSQL'
+	\getenv app_password APP_DB_PASSWORD
 	-- citext gives case-insensitive UNIQUE on usernames, so "Admin" and "admin"
 	-- cannot both exist.  Requires superuser, which is precisely why migrations
 	-- run as doom_admin and not as the application role.
