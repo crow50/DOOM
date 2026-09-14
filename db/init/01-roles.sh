@@ -31,6 +31,9 @@ if [ -z "${APP_DB_PASSWORD:-}" ] && [ -n "${APP_DB_PASSWORD_FILE:-}" ]; then
     APP_DB_PASSWORD="$(tr -d '\n' < "$APP_DB_PASSWORD_FILE")"
 fi
 : "${APP_DB_PASSWORD:?set APP_DB_PASSWORD or APP_DB_PASSWORD_FILE}"
+# psql's \getenv below reads its OWN process environment, not this script's
+# shell variables - a plain assignment above is invisible to it.
+export APP_DB_PASSWORD
 : "${APP_DB_USER:?set APP_DB_USER}"
 
 # The heredoc is quoted, so the shell expands nothing and psql does the
