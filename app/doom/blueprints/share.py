@@ -20,6 +20,7 @@ online, a link forwarded once too often, a page a crawler found.
 from __future__ import annotations
 
 import logging
+import re
 
 from flask import Blueprint, Response, abort, render_template, request, session
 from sqlalchemy import select
@@ -65,8 +66,17 @@ def _resolve(token: str):
     which kind it is. Only rows explicitly marked shared can match, so
     unsharing takes effect immediately and rotation invalidates the printed
     label at once.
+
+    A miss on a well-formed token is audited; garbage is not. Every other
+    object-scoped route already records ``access_denied`` for a plausible id
+    that matches nothing (7.2.2), and this one did not, which left token
+    guessing - the only attack this surface has - invisible in the ledger.
+    The token itself is never written: a rotated-away token and a mistyped
+    one look the same here, and a value that might be valid tomorrow does
+    not belong in an append-only table. Twelve characters is enough to
+    correlate a burst and far too few to reconstruct 256 bits.
     """
-    if not token or len(token) > 128:
+    if not token or not re.fullmatch(v.SHARE_TOKEN_PATTERN, token):
         abort(404)
 
     item = db.session.execute(
@@ -83,6 +93,13 @@ def _resolve(token: str):
     if location is not None:
         return location
 
+    record_audit(
+        action="access_denied",
+        object_type="share",
+        object_id=f"{token[:12]}…",
+        detail="unknown or revoked share token",
+        commit=True,
+    )
     abort(404)
 
 

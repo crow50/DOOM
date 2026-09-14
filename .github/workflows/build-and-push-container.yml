@@ -1,11 +1,11 @@
 name: Build and Push Docker Image
 
+# 'app/**', not '**/app': the latter matches a path component named "app" and
+# never fired on a change under app/.  This workflow had zero runs.
 on:
   push:
     paths:
-      - '**/app'
-      - '**/Dockerfile'
-      - '**/.dockerignore'
+      - 'app/**'
     branches:
       - main
 
@@ -49,6 +49,8 @@ jobs:
         with:
           context: ./app
           file: ./app/Dockerfile
+          # The Dockerfile's last stage is `test`; never publish that one.
+          target: runtime
           push: ${{ github.event_name == 'push' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

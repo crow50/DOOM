@@ -36,3 +36,9 @@
   </p>
 </section>
 {% endblock %}
+
+{% block scripts %}
+  {# ASVS 2.1.8 (strength meter) and 2.1.12 (reveal toggle).  Both are advisory:
+     security/passwords.py rejects a weak password whether or not this loads. #}
+  <script src="{{ url_for('static', filename='js/password-meter.js') }}" defer></script>
+{% endblock %}

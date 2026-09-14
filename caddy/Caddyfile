@@ -2,6 +2,13 @@
 	# No admin API surface inside the container.
 	admin off
 
+	# Caddy tries to install its internal root CA into the container's own
+	# system trust store, which needs root and serves nothing - no process in
+	# this container is a TLS client of this server.  Running unprivileged,
+	# the attempt just fails loudly at every boot.  The CA reaches the devices
+	# that need it through `make trust-cert`.
+	skip_install_trust
+
 	# Deploying against a real public domain? Add your ACME contact here:
 	#
 	#     email you@example.com
@@ -9,15 +16,39 @@
 	# It is left out by default because DOOM_DOMAIN=localhost is served by
 	# Caddy's internal CA, which needs no ACME account - and an empty `email`
 	# directive is a parse error rather than a no-op.
+
+	# HTTP/1.1 and HTTP/2 only.  With h3 on, every response carried
+	# `alt-svc: h3=":443"` - a UDP port compose never publishes, and the wrong
+	# number whenever HTTPS_PORT is not 443.  Advertising an endpoint that does
+	# not exist is noise at best and a probe target at worst.
+	servers {
+		protocols h1 h2
+	}
+}
+
+# The plaintext listener exists only to send people to the TLS one, and it is
+# written out rather than left to Caddy's automatic redirect for two reasons:
+#
+#   - the automatic redirect targets the bare site address, so on the
+#     unprivileged default ports (8080 -> 8443) it sent visitors to
+#     https://localhost/ - port 443, where nothing listens.  HTTPS_PORT is
+#     passed in by compose so the Location header carries the real port;
+#   - the `-Server` below applies inside a site block, and the automatic
+#     redirect is generated outside any, so it still said "Server: Caddy".
+http://{$DOOM_DOMAIN:localhost} {
+	header -Server
+	redir https://{host}:{$HTTPS_PORT:443}{uri} 308
 }
 
 {$DOOM_DOMAIN:localhost} {
 	encode gzip
 
-	# First of two body-size gates (T-28).  Set slightly above the app's own
-	# 10 MB limit so oversized uploads are refused by Flask with a styled 413
-	# rather than by Caddy with a bare error - the app still enforces its own
-	# cap, this one just stops absurd bodies before they reach Python.
+	# Second of two body-size gates (T-28), not the first: Werkzeug rejects an
+	# oversized Content-Length before reading the body, so a 13 MB upload gets
+	# Flask's styled 413 without this ever firing.  Set slightly above the
+	# app's 10 MB limit so that stays true, and so the one case this does
+	# catch - a chunked body with no declared length - is stopped here before
+	# it reaches Python.
 	request_body {
 		max_size 12MB
 	}

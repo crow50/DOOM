@@ -9,8 +9,10 @@ parallelises 64 MiB of RAM per guess.
 
 from __future__ import annotations
 
+import functools
 import hmac
 import logging
+import pathlib
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
@@ -47,35 +49,34 @@ _hasher = PasswordHasher(
 _DUMMY_HASH = _hasher.hash("doom-timing-equalisation-placeholder")
 
 
-#: The passwords actually seen at the top of every breach corpus.  A short
-#: embedded list catches the overwhelming majority of real-world weak choices;
-#: docs/PIPELINE-NOTES.md covers loading a full list such as rockyou or the
-#: Pwned Passwords k-anonymity API.
-COMMON_PASSWORDS = frozenset(
-    {
-        "123456", "123456789", "12345678", "password", "qwerty", "abc123",
-        "111111", "123123", "1234567890", "1234567", "qwerty123", "000000",
-        "iloveyou", "1q2w3e4r", "admin", "qwertyuiop", "654321", "555555",
-        "lovely", "7777777", "welcome", "888888", "princess", "dragon",
-        "password1", "123qwe", "letmein", "monkey", "sunshine", "master",
-        "football", "shadow", "michael", "superman", "trustno1", "baseball",
-        "passw0rd", "password123", "administrator", "changeme", "secret",
-        "whatever", "zaq12wsx", "asdfghjkl", "qazwsx", "starwars", "computer",
-        "freedom", "batman", "pokemon", "jordan23", "hunter2", "access",
-        "flower", "hottie", "loveme", "zxcvbnm", "asdfgh", "qwerty1234",
-        "photoshop", "internet", "service", "ranger", "buster", "soccer",
-        "harley", "thomas", "robert", "matthew", "jordan", "daniel",
-        "corvette", "hockey", "killer", "george", "sexy", "andrew",
-        "charlie", "superman1", "asshole", "fuckyou", "dallas", "jessica",
-        "panties", "pepper", "1111", "austin", "william", "danielle",
-        "golfer", "summer", "heather", "hammer", "yankees", "joshua",
-        "maggie", "biteme", "enter", "ashley", "thunder", "cowboy",
-        "silver", "richard", "orange", "merlin", "michelle", "corvette1",
-        "bigdog", "cheese", "matrix", "patrick", "martin", "hello",
-        "welcome1", "letmein1", "qwe123", "1qaz2wsx", "trustno1!", "iloveyou1",
-        "inventory", "warehouse", "doomdoom", "doom1234", "storage123",
-    }
-)
+#: The breach corpus, screened against by :func:`check_policy`.
+#:
+#: ASVS 4.0.3 V2.1.7 permits a local list, but is specific about which one:
+#: "the top 1,000 or 10,000 most common passwords **which match the system's
+#: password policy**".  That qualifier is the whole requirement here.  Because
+#: :data:`validation.PASSWORD_MIN` is 12, a conventional top-10,000 list is
+#: almost entirely under the length floor, and every one of those entries is
+#: rejected by the length check below before this set is ever consulted - so
+#: such a list screens nothing at all.
+#:
+#: The file therefore holds the top 10,000 breached passwords *of at least 12
+#: characters*, drawn from a 1,000,000-entry corpus.  See the header of
+#: ``data/common_passwords.txt`` for provenance, and D-03 for the reasoning.
+#:
+#: Loaded once, lazily, so importing this module for hashing alone does not pay
+#: for the file, and so a missing file is a startup-time error in one place.
+_CORPUS_PATH = pathlib.Path(__file__).with_name("data") / "common_passwords.txt"
+
+
+@functools.lru_cache(maxsize=1)
+def common_passwords() -> frozenset[str]:
+    """Return the lowercased breach corpus, reading it on first use."""
+    with _CORPUS_PATH.open(encoding="utf-8") as handle:
+        return frozenset(
+            line.strip()
+            for line in handle
+            if line.strip() and not line.startswith("#")
+        )
 
 
 class PasswordPolicyError(ValueError):
@@ -107,7 +108,7 @@ def check_policy(password: str, *, username: str | None = None) -> None:
             f"Keep it under {v.PASSWORD_MAX} characters."
         )
 
-    if password.lower() in COMMON_PASSWORDS:
+    if password.lower() in common_passwords():
         raise PasswordPolicyError(
             "That password appears in well-known breach lists and would be "
             "among the first guesses tried. Choose something else."

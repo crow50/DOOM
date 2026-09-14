@@ -1,0 +1,75 @@
+name: SBOM Generation and Vulnerability Scan
+
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - 'Dockerfile'
+      - '.dockerignore'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom-scan:
+    runs-on: ubuntu-latest
+
+    # Set permissions for the job to allow uploading SARIF reports
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+        # Building the image the SBOM describes
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
+
+        # ASVS 14.2.5: generate a CycloneDX inventory of every third-party
+        # library in the runtime image, and keep it as a retrievable artifact.
+      - name: Generate SBOM with syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: doom-organizer:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          artifact-name: doom-organizer-sbom.cyclonedx.json
+
+        # Scan the SBOM itself, not a second image pull. only-fixed mirrors
+        # Trivy's ignore-unfixed so the ~150 unfixed Debian CVEs already
+        # accepted for this image (see PIPELINE-NOTES.md) don't also redden
+        # this job. grype's SARIF output carries every severity regardless of
+        # fail-build, so one step covers both the gate and the Security tab.
+      - name: Scan SBOM with grype
+        id: grype
+        uses: anchore/scan-action@v6
+        with:
+          sbom: sbom.cyclonedx.json
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: sarif
+
+      - name: Upload grype scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: 'grype-sbom-scan'

@@ -43,8 +43,16 @@ rebuild: ## Rebuild images from scratch, ignoring cache
 	$(COMPOSE) build --no-cache
 
 .PHONY: logs
-logs: ## Tail logs from every service
+logs: ## Follow logs from every service (interactive)
 	$(COMPOSE) logs -f --tail=100
+
+# `logs` follows, which is right at a terminal and wrong in CI: as a failure
+# handler it never returns, so the job hangs until the runner times out instead
+# of printing the reason it failed. This is the same thing without the -f.
+.PHONY: logs-dump
+logs-dump: ## Print recent logs and container state, then exit
+	-$(COMPOSE) ps -a
+	-$(COMPOSE) logs --no-color --tail=200
 
 .PHONY: ps
 ps: ## Show container status
@@ -91,7 +99,7 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@# do not appear in `docker inspect`, are not inherited by child processes,
 	@# and cannot be read out of /proc/<pid>/environ.
 	@chmod 444 secrets/*
-	@echo "  wrote secrets/ (mode 600, gitignored)"
+	@echo "  wrote secrets/ (files 0444 inside a 0700 directory, gitignored)"
 	@echo
 	@echo "Secrets are hex-encoded: URL-safe, so they cannot corrupt a DSN."
 	@echo "The application reads them from /run/secrets/, never from its"
@@ -101,25 +109,99 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@echo "Now set PUBLIC_BASE_URL in .env before printing any labels."
 
 ## --------------------------------------------------------------- database
+# NOT the development path right now - see `make baseline` and D-38.  While the
+# schema is still moving there is one regenerated baseline rather than a chain
+# of revisions, so this target is for when that stops being true and real
+# history starts.
+#
 # Generating a migration has to WRITE files, but the web container runs with a
 # read-only root filesystem.  Rather than weaken that, generation happens in a
 # throwaway container with a writable layer and the result is copied out.
 .PHONY: migrate
 migrate: ## Generate a migration from model changes (M="message")
 	@docker rm -f doom-mig >/dev/null 2>&1 || true
+	@# Silenced with @: make echoes recipe lines, and this one carries the
+	@# admin DSN, SECRET_KEY and the redis password.  Unsilenced, all three
+	@# landed in the terminal, in scrollback, and in any CI log that ran it.
+	@# They are still passed as -e, visible in `docker inspect doom-mig` for
+	@# the seconds the throwaway container exists: the dev-only exception to
+	@# 6.4.1, because the app has no file-based path for the ADMIN role and
+	@# should not grow one.  The trap guarantees that window closes even if
+	@# `flask db migrate` itself fails, instead of leaving doom-mig stopped
+	@# and inspectable indefinitely.
+	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
+	@set -e; \
+	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
+	before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
 	docker run --name doom-mig --network doom_internal --user root \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
-		doom-web flask db migrate -m "$(or $(M),auto)"
+		doom-web flask db migrate -m "$(or $(M),auto)"; \
+	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
+	after=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
+	if [ "$$before" = "$$after" ]; then \
+		echo "  no schema changes detected - nothing written"; \
+	else \
+		echo "  new migration written to app/migrations/versions - review it, then: make build && make upgrade"; \
+	fi
+
+# Two steps, because only one of them is schema.  `flask db-grants` applies the
+# audit_log REVOKE, which used to live inside a migration - a bad home for it
+# twice over: it depended on a particular revision having run, and that
+# revision's downgrade() handed the verbs back.  Now the migration history is a
+# regenerable baseline (D-38), so nothing durable can live in it at all.
+# Development only, and deliberately destructive.
+#
+# While the schema is still moving, the migration history is a single baseline
+# regenerated from the models rather than a chain of incremental revisions
+# (D-38).  The trade is: no per-change migration file to write and review, at
+# the cost of recreating the database whenever the schema changes.  This is that
+# recreation.
+#
+# Autogenerate diffs the models against what is already in the database, so a
+# database that is already up to date produces an EMPTY migration.  That is why
+# this drops the volume first rather than just deleting the files.
+.PHONY: baseline
+baseline: ## Regenerate the one baseline migration from models (DESTROYS the database)
+	@echo "This deletes every migration file and recreates the database from scratch."
+	@read -p "Type 'yes' to continue: " ok; [ "$$ok" = "yes" ] || exit 1
+	rm -f app/migrations/versions/*.py
+	$(COMPOSE) down -v
+	$(MAKE) up
+	@docker rm -f doom-mig >/dev/null 2>&1 || true
+	@# Silenced with @: make echoes recipe lines, and this one carries the
+	@# admin DSN, SECRET_KEY and the redis password.  Unsilenced, all three
+	@# landed in the terminal, in scrollback, and in any CI log that ran it.
+	@# They are still passed as -e, visible in `docker inspect doom-mig` for
+	@# the seconds the throwaway container exists: the dev-only exception to
+	@# 6.4.1, because the app has no file-based path for the ADMIN role and
+	@# should not grow one.  The trap guarantees that window closes even if
+	@# `flask db migrate` itself fails, instead of leaving doom-mig stopped
+	@# and inspectable indefinitely.
+	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
+	@set -e; \
+	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
+	docker run --name doom-mig --network doom_internal --user root \
+		-e DATABASE_URL="$(ADMIN_DSN)" \
+		-e SECRET_KEY="$(SECRET_KEY)" \
+		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
+		doom-web flask db migrate -m "baseline schema"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
-	@docker rm -f doom-mig >/dev/null
-	@echo "New migration written to app/migrations/versions - review it, then: make build && make upgrade"
+	@echo
+	@echo "Baseline written to app/migrations/versions - read it, then:"
+	@echo "  make build && make upgrade && make verify-db-roles"
 
 .PHONY: upgrade
-upgrade: ## Apply pending migrations (runs as the ADMIN role, never the app role)
+upgrade: ## Apply migrations and privilege rules (ADMIN role, never the app role)
+	@# db/init/01-roles.sh creates citext once, on a fresh volume.  A volume
+	@# that predates citext and never re-ran init would otherwise fail here
+	@# on the first CITEXT column the baseline migration creates.
+	$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d $(POSTGRES_DB) -c "CREATE EXTENSION IF NOT EXISTS citext;"
 	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db upgrade
+	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db-grants
 
 .PHONY: seed
 seed: ## Load demo data
@@ -133,6 +215,91 @@ db-shell: ## psql as the ADMIN role
 db-shell-app: ## psql as the RESTRICTED app role - use this to prove least privilege
 	$(COMPOSE) exec -e PGPASSWORD=$(APP_DB_PASSWORD) db \
 		psql -U $(APP_DB_USER) -d $(POSTGRES_DB) -h 127.0.0.1
+
+# The two-role split is the control T-08, T-35 and D-08 all rest on, and until
+# this target existed nothing checked it: `make test` connects to a separate
+# doom_test database as the ADMIN role, so the whole suite passes whether or not
+# doom_app exists.  It did not exist - db/init/01-roles.sh aborted on an unbound
+# variable before creating it, and the container restarted onto an already
+# initialised data directory, skipping the script and looking healthy.  Postgres
+# reports a missing role as "password authentication failed" (it will not confirm
+# whether a role exists), so the only symptom was `make seed` failing as though
+# the password were wrong.
+#
+# The grant sweep below was added for the same reason one step further in: the
+# original version proved doom_app could SELECT and stopped there, so INSERT -
+# the one verb `make seed` actually needs - was never checked by anything.  A
+# table that missed the ALTER DEFAULT PRIVILEGES grant would have passed every
+# check in CI and failed on the first row written.  It asks the catalogue
+# instead of writing a probe row, because the app role cannot clean up after
+# itself on audit_log by design.
+#
+# Each assertion below is the executable evidence for a row in COMPLIANCE.md.
+.PHONY: verify-db-roles
+verify-db-roles: ## Prove the app role exists and is properly restricted
+	@set -e; \
+	app_psql() { $(COMPOSE) exec -T -e PGPASSWORD=$(APP_DB_PASSWORD) db \
+		psql -v ON_ERROR_STOP=1 -qtAX -U $(APP_DB_USER) -d $(POSTGRES_DB) -h 127.0.0.1 "$$@"; }; \
+	echo "checking the application database role..."; \
+	\
+	app_psql -c 'SELECT 1' >/dev/null \
+		|| { echo "FAIL: $(APP_DB_USER) cannot log in - was db/init/01-roles.sh skipped?"; exit 1; }; \
+	echo "  ok: $(APP_DB_USER) can connect over TCP"; \
+	\
+	test "$$(app_psql -c \
+		"SELECT count(*) FROM pg_extension WHERE extname = 'citext'")" = "1" \
+		|| { echo "FAIL: citext missing - 01-roles.sh creates it, so init did not complete"; exit 1; }; \
+	echo "  ok: citext is installed"; \
+	\
+	app_psql -c 'SELECT count(*) FROM items' >/dev/null \
+		|| { echo "FAIL: $(APP_DB_USER) cannot SELECT (migrations run?)"; exit 1; }; \
+	echo "  ok: DML reads are permitted"; \
+	\
+	missing="$$(app_psql -c "SELECT coalesce(string_agg(c.relname || ' ' || v.verb, ', ' ORDER BY c.relname, v.verb), '') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace CROSS JOIN (VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) AS v(verb) WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname NOT IN ('alembic_version') AND NOT (c.relname = 'audit_log' AND v.verb IN ('UPDATE', 'DELETE')) AND NOT has_table_privilege(c.oid, v.verb)")"; \
+	[ -z "$$missing" ] || { echo "FAIL: $(APP_DB_USER) is missing DML grants on: $$missing"; exit 1; }; \
+	echo "  ok: every table grants the verbs the application needs"; \
+	\
+	if app_psql -c 'CREATE TABLE doom_privilege_probe (id int)' >/dev/null 2>&1; then \
+		app_psql -c 'DROP TABLE IF EXISTS doom_privilege_probe' >/dev/null 2>&1 || true; \
+		echo "FAIL: $(APP_DB_USER) can CREATE TABLE - it holds DDL it must not have"; exit 1; \
+	fi; \
+	echo "  ok: DDL is refused"; \
+	\
+	if app_psql -c "UPDATE audit_log SET detail = 'x'" >/dev/null 2>&1; then \
+		echo "FAIL: $(APP_DB_USER) can UPDATE audit_log - history is rewritable"; exit 1; \
+	fi; \
+	if app_psql -c 'DELETE FROM audit_log' >/dev/null 2>&1; then \
+		echo "FAIL: $(APP_DB_USER) can DELETE from audit_log - history is erasable"; exit 1; \
+	fi; \
+	echo "  ok: audit_log is append-only for $(APP_DB_USER)"; \
+	echo "  clean: the two-role split is in place"
+
+# The 6.4.1 claim is that no password reaches a process environment.  The
+# check that used to stand behind it grepped PID 1's environ for
+# `APP_DB_PASSWORD=` and `REDIS_PASSWORD=` - and returned zero while both
+# passwords sat right beside them inside DATABASE_URL= and REDIS_URL=, put
+# there by an entrypoint that assembled the DSNs in shell and exported them.
+# A check that names the variables it expects can only find the leak it
+# already knows about.  This one looks for the password values themselves,
+# in the master, in a worker, and in what `docker inspect` would show.
+.PHONY: verify-secrets
+verify-secrets: ## Prove no secret value is in any process environment or in docker inspect
+	@set -e; \
+	echo "checking that secret values stay out of process environments..."; \
+	environs=$$($(COMPOSE) exec -T web sh -c 'for p in /proc/[0-9]*; do cat $$p/environ 2>/dev/null; echo; done | tr "\\0" "\\n"'); \
+	for f in app_db_password redis_password secret_key; do \
+		val=$$(cat secrets/$$f); \
+		if docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
+			echo "FAIL: the value of secrets/$$f appears in docker inspect"; exit 1; fi; \
+		if printf '%s' "$$environs" | grep -qF "$$val"; then \
+			echo "FAIL: the value of secrets/$$f is in a process environment inside web"; exit 1; fi; \
+	done; \
+	echo "  ok: no secret value in docker inspect"; \
+	echo "  ok: no secret value in any process environment (master or workers)"; \
+	if $(COMPOSE) exec -T web sh -c "tr '\\0' '\\n' < /proc/1/environ" | grep -qE '^(DATABASE_URL|REDIS_URL|SECRET_KEY|APP_DB_PASSWORD|REDIS_PASSWORD)='; then \
+		echo "FAIL: a DSN or raw secret variable is set in PID 1's environment"; exit 1; fi; \
+	echo "  ok: only *_FILE paths reach the process; the DSNs are assembled in-process"; \
+	echo "  clean: secrets are files, and stay files"
 
 .PHONY: shell
 shell: ## Shell inside the web container
@@ -148,16 +315,38 @@ unlock-user: ## Clear a lockout: make unlock-user USER=alice
 # Tests need CREATE privileges for db.create_all(), so they run against a
 # separate database under the ADMIN role.  The application itself never gets
 # these credentials.
+#
+# They run from the `test` build stage - the runtime image plus the suite and
+# pytest - because the runtime image no longer carries either (ASVS 14.2.2).
+# The service sits behind a compose profile so nothing but this target builds
+# or starts it.  The one-off `-e` overrides that used to live here are now the
+# service's own environment in docker-compose.yml.
 .PHONY: test
 test: ## Run the test suite
 	@$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d postgres \
 		-c "SELECT 1 FROM pg_database WHERE datname='doom_test'" | grep -q 1 || { \
 		$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d postgres -c "CREATE DATABASE doom_test;" && \
 		$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d doom_test -c "CREATE EXTENSION IF NOT EXISTS citext;"; }
-	$(COMPOSE) run --rm \
-		-e DATABASE_URL="postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/doom_test" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/9" \
-		web python -m pytest -p no:cacheprovider -q
+	$(COMPOSE) --profile test build --quiet test
+	$(COMPOSE) --profile test run --rm test python -m pytest -p no:cacheprovider -q
+
+# The test image has no docs/ (the build context is app/), so the collection
+# hook in tests/conftest.py cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
+# what pytest collects in the container and compares against the one number the
+# documentation publishes.  Four files once published four different counts, none
+# of them right; this is what makes the surviving one checkable in CI.
+.PHONY: verify-test-count
+verify-test-count: ## Check COMPLIANCE.md's test count against what pytest collects
+	@claimed=$$(grep -oE '[0-9]+ tests pinning' docs/COMPLIANCE.md | head -1 | cut -d' ' -f1); \
+	$(COMPOSE) --profile test build --quiet test; \
+	actual=$$($(COMPOSE) --profile test run --rm -T test python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
+		| grep -oE '^[0-9]+ tests? collected' | cut -d' ' -f1); \
+	if [ -z "$$actual" ]; then echo "FAIL: could not collect tests"; exit 1; fi; \
+	if [ "$$claimed" != "$$actual" ]; then \
+		echo "FAIL: docs/COMPLIANCE.md claims $$claimed tests, pytest collects $$actual"; \
+		exit 1; \
+	fi; \
+	echo "  clean: docs/COMPLIANCE.md and pytest agree on $$actual tests"
 
 .PHONY: audit-verify
 audit-verify: ## Verify the audit hash chain and print the head hash
@@ -170,10 +359,17 @@ lint: ## Template safety grep - fails if user data could bypass autoescaping
 		echo; \
 		echo "FAIL: '|safe' or 'Markup()' found."; \
 		echo "User-supplied content must never bypass Jinja2 autoescaping (T-19)."; \
-		echo "Sanitise with nh3 instead and render the result as text."; \
+		echo "Render user content as text. If a genuine untrusted-HTML surface"; \
+		echo "is ever needed, add a sanitiser as a dependency and a ledger row"; \
+		echo "for ASVS 5.2.1 first - do not reach for |safe."; \
 		exit 1; \
 	fi
 	@echo "  clean: no autoescape bypasses"
+	@python3 tools/check_docs.py
+
+.PHONY: passwords-corpus
+passwords-corpus: ## Regenerate the breach corpus in security/data/
+	@python3 tools/build_password_corpus.py
 
 ## ------------------------------------------------------------------- certs
 .PHONY: trust-cert
@@ -217,9 +413,11 @@ restore: ## Restore from a backup pair: make restore DB=... UPLOADS=...
 ## ------------------------------------------------------------------- clean
 .PHONY: clean
 clean: ## Stop and DELETE all data volumes
-	@echo "This destroys the database and every uploaded file."
+	@echo "This destroys the database, every uploaded file, .env, and secrets."
 	@read -p "Type 'yes' to continue: " ok; [ "$$ok" = "yes" ] || exit 1
-	$(COMPOSE) down -v
+	$(COMPOSE) --profile test down -v --rmi local
+	@rm -f .env
+	@rm -rf secrets
 
 .PHONY: help
 help: ## Show this help

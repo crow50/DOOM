@@ -22,11 +22,7 @@ argon2-cffi
 # --- content handling ---
 Pillow
 python-magic
-nh3
 qrcode
 
 requests
 python-dotenv
-
-# --- test only ---
-pytest

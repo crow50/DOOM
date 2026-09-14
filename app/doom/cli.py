@@ -104,6 +104,62 @@ def register_cli(app: Flask) -> None:
         click.echo(f"  verified {result['checked']} of {result['total']} rows")
         raise SystemExit(2)
 
+    @app.cli.command("db-grants")
+    def db_grants() -> None:
+        """Apply the privilege rules that are not schema.
+
+        These used to live inside a schema migration, which was a bad home for
+        them in two ways.  They depended on a *particular revision*
+        having run, so a database initialised but never migrated had a fully
+        writable audit log; and that revision's ``downgrade()`` handed the verbs
+        back, so rolling back one schema change quietly removed a security
+        control.  Now that the migration history is a single regenerable
+        baseline (D-38), anything durable has to live outside it entirely.
+
+        Idempotent by construction, and run by ``make upgrade`` after
+        ``flask db upgrade``.  ``make verify-db-roles`` proves the outcome.
+        """
+        import os
+        import re
+
+        from sqlalchemy import text
+
+        app_user = os.environ.get("APP_DB_USER", "doom_app")
+
+        # There is no bind parameter for an identifier, so the role name has to
+        # be spliced into the statement text.  db/init/01-roles.sh makes the
+        # same point about its own bootstrap and hands the job to psql's
+        # :"var" quoting; this is the Python equivalent - the dialect's
+        # identifier preparer, which always double-quotes and doubles any
+        # embedded quote.  The pattern check in front of it is belt and braces:
+        # the value comes from the operator's .env, not from a request, but a
+        # project that argues about injection should not carry an f-string
+        # into SQL anywhere, including here.
+        if not re.fullmatch(r"[a-z_][a-z0-9_]{0,62}", app_user):
+            raise click.ClickException(
+                f"APP_DB_USER {app_user!r} is not a plain lowercase identifier."
+            )
+        role = db.engine.dialect.identifier_preparer.quote_identifier(app_user)
+
+        # citext is created by db/init/01-roles.sh at first initialisation, but
+        # the users table declares a CITEXT column, so saying it here too costs
+        # nothing and removes a hidden ordering dependency between the two.
+        db.session.execute(text("CREATE EXTENSION IF NOT EXISTS citext"))
+
+        # The load-bearing one (T-45, D-33).  REVOKE is idempotent: revoking a
+        # privilege the role does not hold is a no-op, not an error.
+        #
+        # The nosemgrep below is for avoid-sqlalchemy-text: REVOKE has no ORM
+        # form, and the only interpolated value is the identifier validated
+        # and dialect-quoted above.
+        db.session.execute(
+            # nosemgrep: python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text
+            text(f"REVOKE UPDATE, DELETE ON audit_log FROM {role}")
+        )
+        db.session.commit()
+
+        click.echo(f"Applied privilege rules: audit_log is append-only for '{app_user}'.")
+
     @app.cli.command("seed")
     def seed() -> None:
         """Create a demo account and a small warehouse tree."""

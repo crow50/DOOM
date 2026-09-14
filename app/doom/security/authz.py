@@ -28,7 +28,7 @@ import logging
 import uuid
 from typing import TypeVar
 
-from flask import abort, request
+from flask import abort
 from flask_login import current_user
 from sqlalchemy import select
 
@@ -55,6 +55,70 @@ def _coerce_uuid(value: str | uuid.UUID) -> uuid.UUID | None:
         return None
 
 
+def uuid_or_404(raw) -> uuid.UUID:
+    """Parse a path parameter, treating garbage exactly like a miss.
+
+    For the id of a row that is scoped through an already-checked parent rather
+    than fetched by :func:`get_owned_or_404` - a link, a checkout - where the
+    ownership predicate is the parent's but the id still has to be a UUID before
+    it reaches a comparison.  Without this, an unparseable value raises a
+    DataError and surfaces as a 500, which is both a different answer from every
+    other bad id (D-06) and a needless stack trace.
+    """
+    parsed = _coerce_uuid(raw)
+    if parsed is None:
+        abort(404)
+    return parsed
+
+
+def record_access_denied(model: type, obj_id, detail: str) -> None:
+    """Append the audit row for a refused object access.
+
+    ``commit=True`` is load-bearing rather than incidental.  Every caller of
+    this function raises immediately afterwards, so there is no later write for
+    the row to ride along with, and the scoped session is rolled back when the
+    app context tears down - which would discard the record entirely and leave
+    enumeration exactly as invisible as the comment below says it must not be.
+    Failed logins pass ``commit=True`` for the same reason (``blueprints/auth.py``).
+    """
+    record_audit(
+        action="access_denied",
+        object_type=model.__name__.lower(),
+        object_id=str(obj_id)[:64],
+        detail=detail,
+        commit=True,
+    )
+
+
+def _owned_row(model: type[T], obj_id, *, for_update: bool):
+    """Shared body of the two fetch helpers - one predicate, one denial path."""
+    parsed = _coerce_uuid(obj_id)
+    if parsed is None:
+        # A malformed id is a miss, not a different answer (D-06) - and it is
+        # deliberately not audited.  Only a well-formed id that addresses
+        # someone else's row is evidence of enumeration; garbage in the path is
+        # a broken link, and recording it would hand any authenticated user an
+        # append-only table to flood.
+        abort(404)
+
+    statement = select(model).where(
+        model.id == parsed,
+        model.owner_id == current_user.id,
+    )
+    if for_update:
+        statement = statement.with_for_update()
+
+    row = db.session.execute(statement).scalar_one_or_none()
+
+    if row is None:
+        # A burst of these against valid-looking UUIDs is what enumeration
+        # looks like from the inside.  Unrecorded, it is invisible.
+        record_access_denied(model, obj_id, "not found or not owned")
+        abort(404)
+
+    return row
+
+
 def get_owned_or_404(model: type[T], obj_id: str | uuid.UUID) -> T:
     """Fetch a row owned by the current user, or abort with 404.
 
@@ -62,29 +126,19 @@ def get_owned_or_404(model: type[T], obj_id: str | uuid.UUID) -> T:
     loading and checking, and no code path that reaches an object belonging to
     another account.
     """
-    parsed = _coerce_uuid(obj_id)
-    if parsed is None:
-        abort(404)
+    return _owned_row(model, obj_id, for_update=False)
 
-    row = db.session.execute(
-        select(model).where(
-            model.id == parsed,
-            model.owner_id == current_user.id,
-        )
-    ).scalar_one_or_none()
 
-    if row is None:
-        # A burst of these against valid-looking UUIDs is what enumeration
-        # looks like from the inside.  Unrecorded, it is invisible.
-        record_audit(
-            action="access_denied",
-            object_type=model.__name__.lower(),
-            object_id=str(obj_id)[:64],
-            detail="not found or not owned",
-        )
-        abort(404)
+def get_owned_for_update(model: type[T], obj_id: str | uuid.UUID) -> T:
+    """``get_owned_or_404`` that also takes a row lock.
 
-    return row
+    Exists so that a view needing ``SELECT ... FOR UPDATE`` does not have to
+    re-implement the ownership predicate inline to get it.  Checkout did exactly
+    that, and in doing so skipped the denial audit above - the single vetted
+    access-control mechanism ASVS 1.4.4 asks for has to cover the locking case
+    too, or it is not single.
+    """
+    return _owned_row(model, obj_id, for_update=True)
 
 
 def owned_query(model: type[T]):
@@ -94,24 +148,3 @@ def owned_query(model: type[T]):
     rather than something each view has to remember to add.
     """
     return select(model).where(model.owner_id == current_user.id)
-
-
-def assert_owned(*objects) -> None:
-    """Verify ownership of already-loaded rows.
-
-    Needed for operations spanning two objects - moving an item into a bin
-    touches both, and validating only the item would let a user file their own
-    property inside someone else's container.  Prefer ``get_owned_or_404``
-    wherever a single lookup will do.
-    """
-    for obj in objects:
-        if obj is None:
-            abort(404)
-        if getattr(obj, "owner_id", None) != current_user.id:
-            record_audit(
-                action="access_denied",
-                object_type=type(obj).__name__.lower(),
-                object_id=str(getattr(obj, "id", "")),
-                detail=f"ownership assertion failed on {request.path}",
-            )
-            abort(404)
