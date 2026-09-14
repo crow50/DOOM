@@ -126,17 +126,20 @@ migrate: ## Generate a migration from model changes (M="message")
 	@# They are still passed as -e, visible in `docker inspect doom-mig` for
 	@# the seconds the throwaway container exists: the dev-only exception to
 	@# 6.4.1, because the app has no file-based path for the ADMIN role and
-	@# should not grow one.
+	@# should not grow one.  The trap guarantees that window closes even if
+	@# `flask db migrate` itself fails, instead of leaving doom-mig stopped
+	@# and inspectable indefinitely.
 	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
-	@docker run --name doom-mig --network doom_internal --user root \
+	@set -e; \
+	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
+	before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
+	docker run --name doom-mig --network doom_internal --user root \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
-		doom-web flask db migrate -m "$(or $(M),auto)"
-	@before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
+		doom-web flask db migrate -m "$(or $(M),auto)"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
-	docker rm -f doom-mig >/dev/null; \
 	after=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
 	if [ "$$before" = "$$after" ]; then \
 		echo "  no schema changes detected - nothing written"; \
@@ -174,22 +177,29 @@ baseline: ## Regenerate the one baseline migration from models (DESTROYS the dat
 	@# They are still passed as -e, visible in `docker inspect doom-mig` for
 	@# the seconds the throwaway container exists: the dev-only exception to
 	@# 6.4.1, because the app has no file-based path for the ADMIN role and
-	@# should not grow one.
+	@# should not grow one.  The trap guarantees that window closes even if
+	@# `flask db migrate` itself fails, instead of leaving doom-mig stopped
+	@# and inspectable indefinitely.
 	@echo "  running 'flask db migrate' as $(POSTGRES_ADMIN_USER) in a throwaway container..."
-	@docker run --name doom-mig --network doom_internal --user root \
+	@set -e; \
+	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
+	docker run --name doom-mig --network doom_internal --user root \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
 		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
-		doom-web flask db migrate -m "baseline schema"
+		doom-web flask db migrate -m "baseline schema"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
-	@docker rm -f doom-mig >/dev/null
 	@echo
 	@echo "Baseline written to app/migrations/versions - read it, then:"
 	@echo "  make build && make upgrade && make verify-db-roles"
 
 .PHONY: upgrade
 upgrade: ## Apply migrations and privilege rules (ADMIN role, never the app role)
+	@# db/init/01-roles.sh creates citext once, on a fresh volume.  A volume
+	@# that predates citext and never re-ran init would otherwise fail here
+	@# on the first CITEXT column the baseline migration creates.
+	$(COMPOSE) exec -T db psql -U $(POSTGRES_ADMIN_USER) -d $(POSTGRES_DB) -c "CREATE EXTENSION IF NOT EXISTS citext;"
 	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db upgrade
 	$(COMPOSE) run --rm -e DATABASE_URL="$(ADMIN_DSN)" web flask db-grants
 
