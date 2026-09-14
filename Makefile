@@ -135,7 +135,7 @@ migrate: ## Generate a migration from model changes (M="message")
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "$(or $(M),auto)"
 	@before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
-	docker cp -q doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
+	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
 	docker rm -f doom-mig >/dev/null; \
 	after=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
 	if [ "$$before" = "$$after" ]; then \
