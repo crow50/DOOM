@@ -107,8 +107,12 @@ def main() -> int:
             break
 
     if len(kept) < 1000:
+        # CodeQL reports clear-text logging of a password here.  What is
+        # interpolated is len(kept) -- an int.  The taint tracker follows `kept`
+        # through len() and reports the count as though it were the contents; no
+        # entry is printed, here or anywhere else in this script.
         print(
-            f"only {len(kept)} entries clear the {minimum}-character policy; "
+            f"only {len(kept)} entries clear the {minimum}-character policy; "  # codeql[py/clear-text-logging-sensitive-data]
             "ASVS 2.1.7 names 1,000 as the lower figure",
             file=sys.stderr,
         )
@@ -141,8 +145,14 @@ def main() -> int:
 # capitalisation of itself.
 """
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(header + "\n".join(kept) + "\n", encoding="utf-8")
-    print(f"wrote {OUT.relative_to(ROOT)}: {len(kept):,} entries, "
+    # CodeQL reports clear-text storage of a password on the write below.  The
+    # corpus *is* the product: a public breach wordlist, published in SecLists
+    # and committed here so the screen works offline.  Storing it as anything
+    # other than clear text would make it unusable for the membership test it
+    # exists to serve, and there is no secret in it to protect.
+    OUT.write_text(header + "\n".join(kept) + "\n", encoding="utf-8")  # codeql[py/clear-text-storage-sensitive-data]
+    # Same len()-taint false positive as above: a count and a length, no entry.
+    print(f"wrote {OUT.relative_to(ROOT)}: {len(kept):,} entries, "  # codeql[py/clear-text-logging-sensitive-data]
           f"lengths {minimum}-{max(len(k) for k in kept)}")
     return 0
 
