@@ -14,13 +14,13 @@ So this is now a record of what runs, and a much shorter list of what does not.
 
 | Tool | What it catches | Where | Runs on |
 |---|---|---|---|
-| **gitleaks** | Secrets entering history | [`gitleaks-secret-scanning.yml`](../.github/workflows/gitleaks-secret-scanning.yml) + [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) | push, PR, and pre-commit |
+| **gitleaks** | Secrets entering history | [`gitleaks-secret-scanning.yml`](../.github/workflows/gitleaks-secret-scanning.yml) + [`.pre-commit-config.yaml`](../.pre-commit-config.yaml) | push, PR, and pre-commit; uploads SARIF |
 | **bandit** | Weak hashing, `shell=True`, `eval`, hardcoded credentials | [`bandit-python-scanning.yml`](../.github/workflows/bandit-python-scanning.yml) | push and PR touching `app/`; **gates** on medium+ severity/confidence over `app/doom`, uploads full SARIF |
 | **pip-audit** | Known CVEs in pinned dependencies | [`pip-audit.yml`](../.github/workflows/pip-audit.yml) | push and PR touching the lockfile; **gates** |
 | **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | every push and PR; **gates** (`--error`) |
 | **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | push and PR touching `app/Dockerfile` |
-| **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR |
-| **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc.; **gates** on HIGH+ unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
+| **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR, and **weekly** |
+| **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc., and **weekly**; **gates** on HIGH+ unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
 | **Lockfile drift** | A hand-edited `requirements.txt` | [`diff-and-make-test.yml`](../.github/workflows/diff-and-make-test.yml) | every push and PR |
 | **Hash-pinned installs** | A substituted artifact, not merely a wrong version | `app/requirements.txt` — every pin carries `--hash=sha256:` | every build |
@@ -173,10 +173,42 @@ occasionally with nothing in the diff to explain it; the usual cause is a CVE
 Debian has published but not yet fixed, and the usual fix is to wait or to remove
 the package.
 
+**Every action is pinned to a commit SHA.** `uses: actions/checkout@v6` trusts
+whatever `v6` points at *today*: a tag is a mutable pointer the publisher can
+move, and moving it is the shape of a real supply-chain attack rather than a
+hypothetical one. Every `uses:` in this directory therefore names a 40-character
+SHA with the release it corresponds to in a trailing comment - the SHA is what
+runs, the comment is for humans. The worst offender before this was
+`anchore/sbom-action@v0`, a floating *major* tag: every release of that action
+for the life of v0 would have been picked up silently, inside the job that
+generates the dependency inventory.
+
+Renovate maintains these: `helpers:pinGitHubActionDigests` bumps the SHA and
+rewrites the comment together, so the two cannot drift apart. Do not "tidy" a
+pin back to a tag.
+
 **Base images are version-pinned but not digest-pinned.** `python:3.14.7-slim`,
 `postgres:18.6-alpine`, `redis:8.10.1-alpine` and `caddy:2.11.4-alpine` are
 reproducible to a tag, not to a digest, so a re-pushed tag would go unnoticed.
-Renovate keeps the versions current; digest pinning is the next increment.
+This is the same hole the action pins above just closed, still open one layer
+down; Renovate keeps the versions current, and digest pinning is the next
+increment.
+
+**The weekly scans exist because the repository is not the only thing that
+changes.** Trivy and the SBOM scan run on a cron as well as on push and pull
+request. Both gate on CVEs in code that a commit here need not have touched -
+a Debian advisory, or a new CVE against a pinned library - so without a schedule
+they are only consulted when somebody happens to edit `app/**`, which for a
+finished image can be never. A scheduled failure opens an issue
+(`update-existing: true`, so one issue rather than a weekly pile) because a red
+check at 06:00 Monday with no pull request attached notifies nobody. Those two
+jobs are the only ones holding `issues: write`.
+
+The issue templates live in `.github/workflows/ISSUE_TEMPLATE/`, which looks
+misplaced and is not: `JasonEtco/create-an-issue` resolves `filename` from the
+workflow directory, and templates moved one level up to `.github/ISSUE_TEMPLATE/`
+are not found. GitHub only discovers workflows from `.yml`/`.yaml` files sitting
+directly in `.github/workflows/`, so a subdirectory of Markdown is inert there.
 
 **`make lint` runs `tools/check_docs.py`.** If you add an ASVS requirement to a
 document, add its ledger row too — the check fails otherwise. That is deliberate:
