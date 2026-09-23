@@ -1,0 +1,74 @@
+name: Build and Push Docker Image
+
+# 'app/**', not '**/app': the latter matches a path component named "app" and
+# never fired on a change under app/.  This workflow had zero runs.
+#
+# workflow_dispatch is here so a failed publish can be retried without an empty
+# commit - this is the only workflow whose output is an artifact someone else
+# consumes, so "just push again" is the expensive way to recover.
+on:
+  workflow_dispatch: {}
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-and-push-container.yml'
+    branches:
+      - main
+
+# Publishing is not cancel-in-progress: two pushes landing close together should
+# both produce their sha tag rather than one silently losing its image.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: doom-organizer
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      # This step and the push below both used to be guarded on
+      # `github.event_name == 'push'`, which has been the only trigger since the
+      # workflow was written - a condition that cannot be false reads like a
+      # dry-run mode exists when none does.
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix={{branch}}-
+            type=ref,event=branch
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
+        with:
+          context: ./app
+          file: ./app/Dockerfile
+          # The Dockerfile's last stage is `test`; never publish that one.
+          target: runtime
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

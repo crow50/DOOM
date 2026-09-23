@@ -1,0 +1,102 @@
+name: SBOM Generation and Vulnerability Scan
+
+# The repository-root 'Dockerfile' and '.dockerignore' filters are gone: neither
+# file has existed at the root since the build context moved under app/, and
+# app/Dockerfile and app/.dockerignore are both matched by 'app/**' already.
+# The weekly run is the point of the schedule, not a belt-and-braces extra: a
+# CVE published against a package already in the image turns this red with
+# nothing in the diff to explain it (see PIPELINE-NOTES.md). Without a cron,
+# that is only discovered when somebody happens to touch app/**, which on a
+# finished image can be never.
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: '30 6 * * 1'  # Mondays 06:30 UTC
+  push:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - '.github/workflows/sbom-scanning.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - '.github/workflows/sbom-scanning.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom-scan:
+    runs-on: ubuntu-latest
+    # A build, an SBOM and a scan; the default six-hour ceiling is not a timeout.
+    timeout-minutes: 20
+
+    # Set permissions for the job to allow uploading SARIF reports
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      issues: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+        # Building the image the SBOM describes
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Build Docker image
+        run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
+
+        # ASVS 14.2.5: generate a CycloneDX inventory of every third-party
+        # library in the runtime image, and keep it as a retrievable artifact.
+      - name: Generate SBOM with syft
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
+        with:
+          image: doom-organizer:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          artifact-name: doom-organizer-sbom.cyclonedx.json
+
+        # Scan the SBOM itself, not a second image pull. only-fixed mirrors
+        # Trivy's ignore-unfixed so the ~150 unfixed Debian CVEs already
+        # accepted for this image (see PIPELINE-NOTES.md) don't also redden
+        # this job. grype's SARIF output carries every severity regardless of
+        # fail-build, so one step covers both the gate and the Security tab.
+      - name: Scan SBOM with grype
+        id: grype
+        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e  # v6.5.1
+        with:
+          sbom: sbom.cyclonedx.json
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: true
+          output-format: sarif
+
+      - name: Upload grype scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype.outputs.sarif }}
+          category: 'grype-sbom-scan'
+
+      # Only on the scheduled run. On a push or a pull request the red check is
+      # already the notification and the author is already looking at it; a cron
+      # failure at 06:00 Monday, against code nobody touched, notifies nobody.
+      # update-existing keeps this to one open issue rather than a weekly pile.
+      - name: Open an issue if the scheduled scan failed
+        if: failure() && github.event_name == 'schedule'
+        uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5  # v2.9.2
+        with:
+          # Relative to .github/workflows/, not to the repository root - this
+          # action resolves the path from the workflow directory. Templates one
+          # level up in .github/ISSUE_TEMPLATE/ are not found.
+          filename: .github/workflows/ISSUE_TEMPLATE/ci-sbom-scan.md
+          update-existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

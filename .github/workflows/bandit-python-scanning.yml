@@ -1,0 +1,49 @@
+name: Bandit Python Security Scanning
+
+# '**/app' matches a path component named "app", not the app/ subtree, so this
+# scan did not reliably run on a change to application code. And main-only:
+# see semgrep.yml for why every push now runs it.
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/bandit-python-scanning.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/bandit-python-scanning.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6.3.0
+        with: { python-version: "3.12" }
+      - run: pip install 'bandit[sarif]'
+
+      # Run directly rather than through PyCQA/bandit-action: that action ends
+      # its command with `|| true` and only uploads a SARIF file, so it can
+      # never fail a build. The gate here is medium-or-higher severity at
+      # medium-or-higher confidence, over the application package only - the
+      # test suite's asserts are not a finding.
+      - name: Bandit (gate)
+        run: bandit -r app/doom -ll -ii
+
+      # Full-severity SARIF for the Security tab, informational.
+      - name: Bandit (report)
+        if: always()
+        run: bandit -r app/doom -f sarif -o bandit.sarif --exit-zero
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        if: always()
+        with:
+          sarif_file: bandit.sarif
+          category: bandit

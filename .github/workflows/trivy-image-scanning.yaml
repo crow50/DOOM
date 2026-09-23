@@ -1,0 +1,104 @@
+name: Trivy Container Scan
+
+# 'Dockerfile' and '.dockerignore' used to be listed here as repository-root
+# paths. Neither has lived at the root since the build context moved under app/,
+# so both filters named a file that cannot change - and the files that replaced
+# them, app/Dockerfile and app/.dockerignore, are already covered by 'app/**'.
+#
+# The pull_request branch filter is gone for the reason recorded in
+# sbom-scanning.yml: a pull request targeting anything other than main skipped
+# the image scan entirely.
+# The weekly run is the point of the schedule, not a belt-and-braces extra: a
+# CVE published against a package already in the image turns this red with
+# nothing in the diff to explain it (see PIPELINE-NOTES.md). Without a cron,
+# that is only discovered when somebody happens to touch app/**, which on a
+# finished image can be never.
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC
+  push:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - '.github/workflows/trivy-image-scanning.yaml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'caddy/**'
+      - 'db/**'
+      - '.github/workflows/trivy-image-scanning.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy-scan:
+    runs-on: ubuntu-latest
+    # A build plus two scans; the default six-hour ceiling is not a timeout.
+    timeout-minutes: 20
+
+    # Set permissions for the job to allow uploading SARIF reports
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+      issues: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+        # Building the Docker image to be scanned
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
+
+      - name: Build Docker image
+        run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
+
+        # Scanning the Docker image with Trivy
+        # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: doom-organizer:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: 'true'
+          severity: 'CRITICAL,HIGH'
+
+        # Generating SARIF report with Trivy
+      - name: Run Trivy and generate SARIF report
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        if: always()
+        with:
+          image-ref: doom-organizer:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-container-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          skip-setup-trivy: 'true' # Reuse Trivy binary from the action's cache to speed up setup
+
+        # Uploading SARIF report to GitHub Security tab
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        if: always()
+        with:
+          sarif_file: 'trivy-container-results.sarif'
+          category: 'trivy-container-scan'
+
+      # Only on the scheduled run. On a push or a pull request the red check is
+      # already the notification and the author is already looking at it; a cron
+      # failure at 06:00 Monday, against code nobody touched, notifies nobody.
+      # update-existing keeps this to one open issue rather than a weekly pile.
+      - name: Open an issue if the scheduled scan failed
+        if: failure() && github.event_name == 'schedule'
+        uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5  # v2.9.2
+        with:
+          # Relative to .github/workflows/, not to the repository root - this
+          # action resolves the path from the workflow directory. Templates one
+          # level up in .github/ISSUE_TEMPLATE/ are not found.
+          filename: .github/workflows/ISSUE_TEMPLATE/ci-trivy-scan.md
+          update-existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

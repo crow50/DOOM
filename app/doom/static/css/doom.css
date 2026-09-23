@@ -399,3 +399,34 @@ input[type="date"] { color-scheme: dark; }
   border-radius: 4px; object-fit: cover;
   border: 1px solid var(--line); background: var(--surface-2);
 }
+
+/* ---------- password strength meter (ASVS 2.1.8, 2.1.12) ---------- */
+/* Widths live here rather than in an inline style so the meter needs nothing
+   from style-src beyond 'self'.  The bar is decorative: the wording under it
+   is what a screen reader announces. */
+.pw-field { position: relative; }
+.pw-reveal {
+  position: absolute; top: 2.1rem; right: 0.4rem;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-muted);
+  border-radius: 6px; padding: 0.15rem 0.45rem; font-size: 0.78rem; cursor: pointer;
+}
+.pw-reveal:hover { border-color: var(--accent-dim); color: var(--ink); }
+.pw-meter { margin-top: 0.4rem; }
+.pw-meter-track {
+  height: 4px; border-radius: 2px; background: var(--surface-2);
+  overflow: hidden;
+}
+.pw-meter-fill {
+  height: 100%; width: 0; border-radius: 2px;
+  background: var(--line); transition: width 120ms linear;
+}
+.pw-meter-fill-0 { width: 20%;  background: var(--danger); }
+.pw-meter-fill-1 { width: 40%;  background: var(--danger); }
+.pw-meter-fill-2 { width: 60%;  background: var(--warn); }
+.pw-meter-fill-3 { width: 80%;  background: var(--ok); }
+.pw-meter-fill-4 { width: 100%; background: var(--ok); }
+.pw-meter-text { margin: 0.25rem 0 0; min-height: 1.1em; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pw-meter-fill { transition: none; }
+}

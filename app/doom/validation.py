@@ -281,6 +281,15 @@ URL_SCHEMES = frozenset({"http", "https"})
 #: the rate limits on share routes make even large-scale guessing pointless.
 SHARE_TOKEN_BYTES = 32
 
+#: What a token issued by ``new_share_token()`` looks like on the wire:
+#: ``secrets.token_urlsafe(32)`` is 43 characters of the URL-safe base64
+#: alphabet, unpadded.  The share route uses this to tell a *miss* - a
+#: well-formed token that matches nothing, which is what guessing looks like
+#: from the inside - from garbage in the path, which is a broken link.  Only
+#: the former is audited, for the same reason authz._owned_row draws the line
+#: there: recording garbage would hand anyone an append-only table to flood.
+SHARE_TOKEN_PATTERN = r"[A-Za-z0-9_-]{43}"  # nosec B105 - token shape, not a credential
+
 #: Printed under each QR code so a bin stays findable by typing if the base
 #: URL ever changes.  Unambiguous alphabet: no 0/O, no 1/I/L.
 SHORT_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"

@@ -1,0 +1,32 @@
+name: Semgrep
+
+# Every push, not just main: this branch carried a Blocking finding for weeks
+# that CI never saw, because the job only fired on main and on pull requests
+# and there was no pull request.
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: Semgrep Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+      # --error is what makes this a gate. Without it semgrep exits 0 no matter
+      # what it finds - a run on this branch reported "Findings: 1 (1 blocking)"
+      # followed by "Scan completed successfully" and a green check. A scanner
+      # that cannot fail is a log line, not a control (ASVS 1.14.3).
+      - name: Run Semgrep
+        run: semgrep --config p/flask --config p/owasp-top-ten --error app/

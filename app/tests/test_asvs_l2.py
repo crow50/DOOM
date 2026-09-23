@@ -164,3 +164,74 @@ class TestSecretsFromFiles:
         monkeypatch.delenv("DOOM_TEST_SECRET_FILE", raising=False)
         monkeypatch.setenv("DOOM_TEST_SECRET", "plain-env")
         assert _read_secret("DOOM_TEST_SECRET") == "plain-env"
+
+
+class TestDsnsAreAssembledInProcess:
+    """ASVS 6.4.1 — the finished DSNs exist only inside the Python process.
+
+    A shell entrypoint used to build them and ``export`` them before exec'ing
+    gunicorn, which put both passwords into PID 1's environment and every
+    worker's.  These pin the replacement: the URL is derived from the ``*_FILE``
+    values, an explicit URL still wins (that is how the admin role reaches
+    ``make upgrade``), and a placeholder password refuses to boot.
+    """
+
+    def test_database_url_is_built_from_the_password_file(self, tmp_path, monkeypatch):
+        from doom.config import _database_url
+
+        secret = tmp_path / "app_db_password"
+        secret.write_text("f" * 64 + "\n")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("APP_DB_USER", "doom_app")
+        monkeypatch.setenv("POSTGRES_DB", "doom")
+        monkeypatch.setenv("APP_DB_PASSWORD_FILE", str(secret))
+
+        assert _database_url() == f"postgresql+psycopg://doom_app:{'f' * 64}@db:5432/doom"
+
+    def test_password_is_url_quoted(self, tmp_path, monkeypatch):
+        """A password is data, not URL structure - it cannot add a host or a query."""
+        from doom.config import _database_url
+
+        secret = tmp_path / "app_db_password"
+        secret.write_text("p@ss/word?with#odd:chars-and-length")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("APP_DB_PASSWORD_FILE", str(secret))
+
+        url = _database_url()
+        assert "@db:5432/" in url
+        assert url.count("@") == 1
+        assert "p%40ss%2Fword%3Fwith%23odd%3Achars" in url
+
+    def test_explicit_url_wins(self, monkeypatch):
+        from doom.config import _database_url, _redis_url
+
+        monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://admin:x@db/doom_test")
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/9")
+        monkeypatch.delenv("APP_DB_PASSWORD_FILE", raising=False)
+        monkeypatch.delenv("REDIS_PASSWORD_FILE", raising=False)
+
+        assert _database_url() == "postgresql+psycopg://admin:x@db/doom_test"
+        assert _redis_url() == "redis://localhost:6379/9"
+
+    def test_placeholder_password_refuses_to_boot(self, tmp_path, monkeypatch):
+        import pytest
+
+        from doom.config import ConfigError, _database_url
+
+        secret = tmp_path / "app_db_password"
+        secret.write_text("CHANGE_ME")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.setenv("APP_DB_PASSWORD_FILE", str(secret))
+
+        with pytest.raises(ConfigError, match="placeholder"):
+            _database_url()
+
+    def test_redis_url_is_built_from_the_password_file(self, tmp_path, monkeypatch):
+        from doom.config import _redis_url
+
+        secret = tmp_path / "redis_password"
+        secret.write_text("e" * 64)
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        monkeypatch.setenv("REDIS_PASSWORD_FILE", str(secret))
+
+        assert _redis_url() == f"redis://:{'e' * 64}@cache:6379/0"

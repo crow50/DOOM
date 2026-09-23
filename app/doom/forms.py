@@ -101,9 +101,19 @@ class RegisterForm(FlaskForm):
             ),
         ],
     )
+    #: data-password-meter opts this field into the client-side strength meter
+    #: and reveal toggle (ASVS 2.1.8, 2.1.12).  Both are hints; security/
+    #: passwords.py remains the only authority on what is acceptable.
     password = PasswordField(
         "Password",
         validators=[InputRequired(), Length(min=v.PASSWORD_MIN, max=v.PASSWORD_MAX)],
+        render_kw={
+            "data-password-meter": "1",
+            # The meter reads its length floor from here, so the only literal
+            # is validation.PASSWORD_MIN.
+            "data-min-length": str(v.PASSWORD_MIN),
+            "autocomplete": "new-password",
+        },
     )
     confirm = PasswordField("Confirm password", validators=[InputRequired()])
     submit = SubmitField("Create account")
@@ -180,6 +190,13 @@ class ChangePasswordForm(FlaskForm):
     new_password = PasswordField(
         "New password",
         validators=[InputRequired(), Length(min=v.PASSWORD_MIN, max=v.PASSWORD_MAX)],
+        render_kw={
+            "data-password-meter": "1",
+            # The meter reads its length floor from here, so the only literal
+            # is validation.PASSWORD_MIN.
+            "data-min-length": str(v.PASSWORD_MIN),
+            "autocomplete": "new-password",
+        },
     )
     confirm = PasswordField("Confirm new password", validators=[InputRequired()])
     submit = SubmitField("Change password")

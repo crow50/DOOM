@@ -17,7 +17,7 @@ from ..extensions import db, limiter
 from ..forms import ConfirmForm, DocLinkForm, LocationForm
 from ..models import Attachment, DocLink, Item, Location
 from ..security.audit import record_audit
-from ..security.authz import get_owned_or_404, owned_query
+from ..security.authz import get_owned_or_404, owned_query, uuid_or_404
 from ..timeline import location_timeline
 
 logger = logging.getLogger(__name__)
@@ -398,7 +398,8 @@ def delete_link(location_id: str, link_id: str):
         # id belonging to another user's node matches nothing.
         link = db.session.execute(
             select(DocLink).where(
-                DocLink.id == link_id, DocLink.location_id == location.id
+                DocLink.id == uuid_or_404(link_id),
+                DocLink.location_id == location.id,
             )
         ).scalar_one_or_none()
 

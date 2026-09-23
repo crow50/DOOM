@@ -1,0 +1,36 @@
+name: Pip Audit
+
+# Recorded as the evidence for ASVS 14.2.1, so it has to run where that claim is
+# checked.  The first trigger was push-to-main only, filtered on '**/app' -- a
+# glob that matches a path component named exactly "app", not the app/ subtree,
+# so the dependency scan did not reliably fire even on main, let alone on a pull
+# request proposing a dependency change.  The second was any-branch on PR but
+# still main-only on push, which meant a feature branch with no PR open never
+# ran it at all.  Now: every push and PR that touches the lockfile.
+on:
+  push:
+    paths:
+      - 'app/requirements*.txt'
+      - 'app/requirements*.in'
+      - '.github/workflows/pip-audit.yml'
+  pull_request:
+    paths:
+      - 'app/requirements*.txt'
+      - 'app/requirements*.in'
+      - '.github/workflows/pip-audit.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pip_audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266  # v1.1.0
+        with:
+          inputs: app/requirements.txt

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
+from urllib.parse import quote
 
 from . import validation as v
 
@@ -83,6 +84,45 @@ def _require(name: str, *, min_length: int = 1) -> str:
     return value
 
 
+def _database_url() -> str:
+    """The application's DSN, assembled here so no password touches the environment.
+
+    ``DATABASE_URL`` wins when it is set: that is how ``make upgrade``,
+    ``make test`` and ``make migrate`` hand a one-off container the ADMIN
+    role's DSN.  The running application never receives one.  It gets the
+    parts - a role name, a database name, and a password that lives in a
+    mounted file - and builds the URL in-process (ASVS 6.4.1).
+
+    This used to be done by a shell entrypoint that ``export``ed the finished
+    URL before ``exec``ing gunicorn.  That put the password into PID 1's
+    environment and, by inheritance, into every worker's - precisely the
+    exposure the file-based secrets were introduced to remove, and the
+    published check (a grep for ``APP_DB_PASSWORD=``) could not see it because
+    the variable was called ``DATABASE_URL``.  ``make verify-secrets`` now
+    greps for the password itself.
+    """
+    explicit = os.environ.get("DATABASE_URL", "").strip()
+    if explicit:
+        return explicit
+
+    user = os.environ.get("APP_DB_USER", "doom_app").strip()
+    name = os.environ.get("POSTGRES_DB", "doom").strip()
+    password = _require("APP_DB_PASSWORD", min_length=16)
+    # quote() rather than trusting `make init`'s hex: a password that arrives
+    # from somewhere else must not be able to smuggle a host or a query string
+    # into the DSN.
+    return f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}@db:5432/{quote(name, safe='')}"
+
+
+def _redis_url() -> str:
+    """The rate limiter's DSN.  Same rule, same reason as :func:`_database_url`."""
+    explicit = os.environ.get("REDIS_URL", "").strip()
+    if explicit:
+        return explicit
+    password = _require("REDIS_PASSWORD", min_length=16)
+    return f"redis://:{quote(password, safe='')}@cache:6379/0"
+
+
 def _flag(name: str, default: bool = False) -> bool:
     return os.environ.get(name, str(default)).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -98,8 +138,9 @@ class Config:
     # --- database -----------------------------------------------------------
     # This is the RESTRICTED role.  The application never receives credentials
     # capable of ALTER or DROP; migrations use a separate admin DSN supplied
-    # only by `make upgrade` (T-35).
-    SQLALCHEMY_DATABASE_URI = _require("DATABASE_URL", min_length=10)
+    # only by `make upgrade` (T-35).  Assembled from APP_DB_PASSWORD_FILE
+    # in-process, so the finished URL exists nowhere but here.
+    SQLALCHEMY_DATABASE_URI = _database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {
         "pool_pre_ping": True,
@@ -107,7 +148,7 @@ class Config:
     }
 
     # --- rate limiting ------------------------------------------------------
-    REDIS_URL = _require("REDIS_URL", min_length=10)
+    REDIS_URL = _redis_url()
     RATELIMIT_STORAGE_URI = REDIS_URL
     RATELIMIT_STRATEGY = "fixed-window"
     RATELIMIT_HEADERS_ENABLED = True
@@ -120,7 +161,14 @@ class Config:
     PUBLIC_BASE_URL = _require("PUBLIC_BASE_URL", min_length=8).rstrip("/")
 
     # --- sessions -----------------------------------------------------------
-    SESSION_COOKIE_NAME = "doom_session"
+    # The "__Host-" prefix is a browser-enforced binding (ASVS 3.4.4): a cookie
+    # carrying it is accepted only when it is Secure, has Path=/, and names no
+    # Domain.  That makes it impossible for a sibling host, or anything that
+    # manages to answer on a subdomain, to set or overwrite this cookie - a
+    # guarantee the attributes below ask for but cannot enforce on their own.
+    # It is refused outright over plaintext HTTP, which is already true of this
+    # cookie because SESSION_COOKIE_SECURE is set.
+    SESSION_COOKIE_NAME = "__Host-doom_session"
     SESSION_COOKIE_HTTPONLY = True          # JavaScript cannot read it (T-03)
     SESSION_COOKIE_SECURE = True            # never sent over plaintext (T-03)
     SESSION_COOKIE_SAMESITE = "Lax"         # cross-site POSTs drop the cookie
@@ -180,4 +228,7 @@ class TestConfig(Config):
     TESTING = True
     WTF_CSRF_ENABLED = False        # forms are exercised directly
     SESSION_COOKIE_SECURE = False   # the test client speaks plain HTTP
+    # A "__Host-" cookie is only valid alongside Secure, so the prefix comes off
+    # with it rather than asserting a combination no browser would accept.
+    SESSION_COOKIE_NAME = "doom_session"
     RATELIMIT_ENABLED = False

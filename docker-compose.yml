@@ -8,7 +8,7 @@ services:
   # host over a LAN IP is not one.  TLS is a functional requirement here.
   # ---------------------------------------------------------------------------
   caddy:
-    image: caddy:2.8.4-alpine
+    image: caddy:2.11.4-alpine
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
@@ -16,6 +16,11 @@ services:
     environment:
       DOOM_DOMAIN: ${DOOM_DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      # The plaintext listener redirects to https://host:HTTPS_PORT.  Caddy's
+      # automatic redirect targets the bare site address, which on the
+      # unprivileged default ports sent visitors to :443 where nothing
+      # listens.
+      HTTPS_PORT: ${HTTPS_PORT:-443}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -25,6 +30,34 @@ services:
         condition: service_healthy
     networks:
       - edge
+    # --- container hardening (T-34) ---
+    # The same posture as `web`, and it matters more here: this is the one
+    # process that parses bytes straight off the network.  Until an audit
+    # checked, it ran as root with Docker's full default capability set on a
+    # writable filesystem - the strongest starting position in the stack, on
+    # the most exposed process.
+    #
+    # The image chmods /data/caddy and /config/caddy to 1777, so a non-root
+    # Caddy can still write its internal CA and autosaved config into the
+    # named volumes.  A caddy_data volume created by an OLDER root Caddy has
+    # root-owned 0700 directories inside it; wipe it once (`make clean`, or
+    # `docker volume rm doom_caddy_data`) and let this one recreate the CA.
+    #
+    # cap_drop ALL, then exactly one back.  The image setcaps the caddy binary
+    # with cap_net_bind_service=+ep, and the kernel refuses to exec a file
+    # whose capabilities lie outside the bounding set ("operation not
+    # permitted" on every restart), so it cannot be dropped entirely.  It is
+    # also the one capability a port-80/443 listener legitimately needs.
+    # Verify: CapEff in /proc/1/status is 0000000000000400 - bit 10, that
+    # capability, and nothing else.
+    user: "10002:10002"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     security_opt:
       - no-new-privileges:true
 
@@ -34,6 +67,9 @@ services:
   web:
     build:
       context: ./app
+      # Named, because the Dockerfile's last stage is `test` and an unnamed
+      # build would ship the test suite.
+      target: runtime
     restart: unless-stopped
     # ASVS 6.4.1 — secrets arrive as read-only files, not environment
     # variables. An env var is inherited by every child process, shows up in
@@ -92,10 +128,46 @@ services:
       start_period: 20s
 
   # ---------------------------------------------------------------------------
+  # test - the `test` build stage: runtime image plus the suite and pytest.
+  # Behind a profile so `make up` and `make build` never touch it; `make test`
+  # names it explicitly.  Runs against the separate doom_test database as the
+  # ADMIN role (the suite needs CREATE for db.create_all()), never against the
+  # real one, and holds no secret files - the tests set their own SECRET_KEY.
+  # ---------------------------------------------------------------------------
+  test:
+    profiles: ["test"]
+    build:
+      context: ./app
+      target: test
+    image: doom-web-test
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_ADMIN_USER:-doom_admin}:${POSTGRES_PASSWORD}@db:5432/doom_test
+      REDIS_URL: redis://:${REDIS_PASSWORD}@cache:6379/9
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://test.invalid}
+    networks:
+      - internal
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      # The suite exercises uploads.  Before this service existed, `make test`
+      # ran inside `web` and wrote its fixtures into the REAL uploads volume;
+      # an ephemeral tmpfs is the right place for them.
+      - /var/lib/doom/uploads:size=64m,uid=10001,gid=10001
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # ---------------------------------------------------------------------------
   # db - postgres.  No published port; internal network only.
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:16.4-alpine
+    image: postgres:18.6-alpine
     restart: unless-stopped
     secrets:
       - doom_postgres_password
@@ -103,19 +175,30 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-doom}
       POSTGRES_USER: ${POSTGRES_ADMIN_USER:-doom_admin}
-      # The official image supports _FILE for exactly this reason.
+      # The official image supports _FILE for POSTGRES_PASSWORD, POSTGRES_USER,
+      # POSTGRES_DB and POSTGRES_INITDB_ARGS.  Those four, and no others - there
+      # is no generic *_FILE handling.
       POSTGRES_PASSWORD_FILE: /run/secrets/doom_postgres_password
       APP_DB_USER: ${APP_DB_USER:-doom_app}
+      # Which is why this one is read by db/init/01-roles.sh itself.  It was not,
+      # once, and the application role was silently never created.
       APP_DB_PASSWORD_FILE: /run/secrets/doom_app_db_password
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
       - ./db/init:/docker-entrypoint-initdb.d:ro
     networks:
       - internal
     security_opt:
       - no-new-privileges:true
+    # -h 127.0.0.1 is load-bearing.  Without a host, pg_isready checks the unix
+    # socket - which the *temporary* server started during initialisation also
+    # answers on, since that one runs with listen_addresses=''.  So a database
+    # whose init scripts were still running, or had just failed, reported healthy,
+    # `web` was released to start against it, and a failed bootstrap looked like a
+    # successful one.  Over TCP the check can only pass once the real server is up,
+    # which is the only thing `web` can use anyway.
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-doom_admin} -d ${POSTGRES_DB:-doom}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_ADMIN_USER:-doom_admin} -d ${POSTGRES_DB:-doom}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -127,7 +210,7 @@ services:
   # defence in depth costs one flag here.
   # ---------------------------------------------------------------------------
   cache:
-    image: redis:7.4.1-alpine
+    image: redis:8.10.1-alpine
     restart: unless-stopped
     # requirepass lives in a mounted config file, not on the command line.
     # A command-line password is visible to anything that can read `ps` inside

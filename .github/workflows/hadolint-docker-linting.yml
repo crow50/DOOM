@@ -1,0 +1,32 @@
+name: Hadolint Docker Linting
+
+# There is exactly one Dockerfile and the job hard-codes its path below, so the
+# trigger names it too rather than globbing for it. The push and pull_request
+# filters are now symmetric: previously push fired only on a Dockerfile change
+# while pull_request fired on every PR to main and nothing else, so a PR
+# targeting a release branch was linted differently from one targeting main.
+on:
+  push:
+    paths:
+      - 'app/Dockerfile'
+      - '.github/workflows/hadolint-docker-linting.yml'
+  pull_request:
+    paths:
+      - 'app/Dockerfile'
+      - '.github/workflows/hadolint-docker-linting.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+      - uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf  # v3.1.0
+        with:
+          dockerfile: app/Dockerfile
