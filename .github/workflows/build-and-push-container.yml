@@ -1,19 +1,22 @@
 name: Build and Push Docker Image
 
-# 'app/**', not '**/app': the latter matches a path component named "app" and
-# never fired on a change under app/.  This workflow had zero runs.
-#
 # workflow_dispatch is here so a failed publish can be retried without an empty
 # commit - this is the only workflow whose output is an artifact someone else
 # consumes, so "just push again" is the expensive way to recover.
+#
+# The `paths` filter this trigger used to carry is deliberately gone. A push
+# filter applies to tag pushes as well as branch pushes, so with `paths` in
+# place, tagging a release on a commit that happened to touch only docs/ would
+# match nothing and publish no image - a release that silently does not exist.
+# Rebuilding main on a docs-only commit is the cheaper mistake, and the gha
+# cache makes it nearly free.
 on:
   workflow_dispatch: {}
   push:
-    paths:
-      - 'app/**'
-      - '.github/workflows/build-and-push-container.yml'
     branches:
       - main
+    tags:
+      - 'v*.*.*'
 
 # Publishing is not cancel-in-progress: two pushes landing close together should
 # both produce their sha tag rather than one silently losing its image.
@@ -50,15 +53,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # A tag must not claim a version the code does not report. __version__ in
+      # app/doom/__init__.py is what the container logs at startup; the git tag
+      # is what people pull. If those two disagree, the image lies about itself
+      # and no scanner would ever catch it. Checked before the build so a
+      # mistyped tag costs seconds, not a published image.
+      - name: Verify the tag matches __version__
+        if: github.ref_type == 'tag'
+        run: make verify-version TAG=${{ github.ref_name }}
+
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051  # v5.10.0
         with:
           images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          # latest=auto moves :latest onto a semver tag build, and only that.
+          # It used to follow main, which meant `docker pull ...:latest` gave
+          # you whatever landed on the default branch an hour ago. For a
+          # self-hosted application that people deploy, :latest should mean the
+          # newest deliberate release; main is still available as :main.
+          flavor: |
+            latest=auto
           tags: |
-            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
             type=ref,event=branch
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-,enable=${{ github.ref_type == 'branch' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
