@@ -241,6 +241,24 @@ Renovate maintains these: `helpers:pinGitHubActionDigests` bumps the SHA and
 rewrites the comment together, so the two cannot drift apart. Do not "tidy" a
 pin back to a tag.
 
+**Renovate batches its pull requests.** It opens them on Monday mornings (New
+York time), and an individual update waits until the release is three days old,
+so a yanked or compromised release has time to be pulled first. Non-major action
+bumps arrive as one pull request. `anchore/sbom-action` and `anchore/scan-action`
+always arrive together, majors included: syft writes the SBOM that grype reads,
+and a newer syft can emit a CycloneDX version an older grype rejects as "sbom
+format not recognized". Bumping the first alone turned the SBOM scan red once.
+
+Python pins move through one weekly lock-file-maintenance pull request, which
+deletes each lockfile and recompiles it from its `.in` file; it takes whatever is
+current, so the three-day wait does not apply to it. That depends on Renovate's
+`pip-compile` manager reading the command out of each lockfile's header and
+accepting every option in it. It does not accept `--no-index`, and skips any file
+whose header carries it. The plain `pip_requirements` manager is switched off so
+that the two do not update the same file twice, which means a skipped lockfile
+gets no Python updates at all. Regenerate a lockfile with exactly the command its
+header shows.
+
 **Base images are version-pinned but not digest-pinned.** `python:3.14.7-slim`,
 `postgres:18.6-alpine`, `redis:8.10.1-alpine` and `caddy:2.11.4-alpine` are
 reproducible to a tag, not to a digest, so a re-pushed tag would go unnoticed.

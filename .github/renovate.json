@@ -4,13 +4,42 @@
     "config:recommended",
     "helpers:pinGitHubActionDigests"
   ],
+  "timezone": "America/New_York",
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "3 days",
   "pip-compile": {
     "managerFilePatterns": [
       "/^app/requirements\\.txt$/",
       "/^app/requirements-dev\\.txt$/"
     ]
   },
+  "pip_requirements": {
+    "enabled": false
+  },
   "lockFileMaintenance": {
     "enabled": true
-  }
+  },
+  "packageRules": [
+    {
+      "description": "One PR for every non-major action bump; setup-python's python-version and trivy-action's version input are 'uses-with' and stay separate",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "groupName": "github-actions (non-major)"
+    },
+    {
+      "description": "The docker/* actions moved to their node24 majors together",
+      "matchManagers": ["github-actions"],
+      "matchDepTypes": ["action"],
+      "matchPackageNames": ["docker/**"],
+      "matchUpdateTypes": ["major"],
+      "groupName": "docker actions (major)"
+    },
+    {
+      "description": "syft (sbom-action) writes the SBOM that grype (scan-action) reads; a newer syft can emit a CycloneDX version an older grype rejects, so they always move in one PR, majors included",
+      "matchPackageNames": ["anchore/sbom-action", "anchore/scan-action"],
+      "groupName": "anchore sbom + scan actions",
+      "separateMajorMinor": false
+    }
+  ]
 }
