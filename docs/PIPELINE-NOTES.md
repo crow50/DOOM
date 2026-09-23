@@ -89,6 +89,60 @@ the secret scan is the last check that should depend on where a branch is headed
 
 ---
 
+## Releasing
+
+Images publish to `ghcr.io/crow50/doom-organizer` from
+[`build-and-push-container.yml`](../.github/workflows/build-and-push-container.yml).
+
+| Tag | What it is |
+|---|---|
+| `:0.1.0` | An exact release, from a `v0.1.0` git tag |
+| `:0.1` | The newest patch of that minor line |
+| `:latest` | The newest **release** - not the newest commit |
+| `:main` | The current default branch |
+| `:main-<sha>` | One specific commit on main |
+
+To cut a release: bump `__version__` in `app/doom/__init__.py`, commit, then tag
+`v<that version>` and push the tag.
+
+### The tag and `__version__` must agree
+
+`make verify-version` compares the two and the publish workflow runs it, before
+the build, on every tag push. A container tagged `v0.2.0` that logs `0.1.0` at
+startup is lying about itself in the one field an operator would use to work out
+what they are running, and nothing else in this pipeline would notice - it is not
+a vulnerability, so no scanner looks for it, and both files are individually
+valid. This is the same reasoning as `tools/check_docs.py`: two places state the
+same fact, so something has to fail when they disagree.
+
+The check is also the reason the version bump is a *commit* and not part of the
+tagging step. The tag points at a commit; `__version__` has to already be right
+in that commit.
+
+### Why `:latest` follows releases rather than main
+
+It used to follow the default branch, which meant `docker pull ...:latest` gave
+you whatever merged most recently. For something people self-host, `:latest`
+should mean the newest deliberate release. Main has not gone away - it is `:main`.
+
+### Why there is no `:0` tag
+
+`type=semver,pattern={{major}}` is deliberately absent while the version is
+`0.x`. Under SemVer, major version zero carries no compatibility promise
+whatsoever, so a `:0` tag spanning `0.1.0` through `0.9.0` would advertise a
+stability that the versioning scheme explicitly disclaims. Add it at `1.0.0`,
+where it starts to mean something.
+
+### Why the publish trigger has no `paths` filter
+
+A `paths` filter on a `push` trigger applies to tag pushes too. With one in
+place, tagging a release on a commit that touched only `docs/` would match
+nothing and publish no image - a release that silently does not exist. Rebuilding
+main on a docs-only commit is the cheaper mistake, and the `type=gha` cache makes
+it nearly free.
+
+---
+
 ## Not shipped
 
 One item, real, and recorded as a gap in

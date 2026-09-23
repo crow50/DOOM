@@ -367,6 +367,32 @@ lint: ## Template safety grep - fails if user data could bypass autoescaping
 	@echo "  clean: no autoescape bypasses"
 	@python3 tools/check_docs.py
 
+.PHONY: verify-version
+verify-version: ## Check a release tag agrees with __version__ (TAG=v1.2.3, or HEAD's tag)
+	@code=$$(grep -oE '^__version__ = "[^"]+"' app/doom/__init__.py | cut -d'"' -f2); \
+	if [ -z "$$code" ]; then \
+		echo "FAIL: no __version__ found in app/doom/__init__.py"; exit 1; \
+	fi; \
+	if ! echo "$$code" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$'; then \
+		echo "FAIL: __version__ '$$code' is not a bare semantic version (1.2.3)"; exit 1; \
+	fi; \
+	tag="$(TAG)"; \
+	if [ -z "$$tag" ]; then \
+		tag=$$(git describe --exact-match --tags HEAD 2>/dev/null || true); \
+	fi; \
+	if [ -z "$$tag" ]; then \
+		echo "  note: HEAD carries no release tag; __version__ is $$code"; \
+		exit 0; \
+	fi; \
+	if [ "$$tag" != "v$$code" ]; then \
+		echo "FAIL: tag $$tag disagrees with __version__ $$code."; \
+		echo "      A container tagged $$tag would report $$code at startup."; \
+		echo "      Either retag as v$$code, or bump __version__ in"; \
+		echo "      app/doom/__init__.py to $${tag#v} and commit before tagging."; \
+		exit 1; \
+	fi; \
+	echo "  clean: tag $$tag matches __version__ $$code"
+
 .PHONY: passwords-corpus
 passwords-corpus: ## Regenerate the breach corpus in security/data/
 	@python3 tools/build_password_corpus.py
