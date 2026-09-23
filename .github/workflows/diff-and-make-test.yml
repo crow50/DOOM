@@ -1,11 +1,17 @@
 name: Lint, Compile, and Test
-on: 
+
+on:
   push:
   pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Nothing here writes to the repository, comments on a pull request or uploads a
+# SARIF file, so the token gets the one scope the checkout needs.
+permissions:
+  contents: read
 
 jobs:
   lint-and-compile:

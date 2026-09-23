@@ -1,5 +1,8 @@
 name: SBOM Generation and Vulnerability Scan
 
+# The repository-root 'Dockerfile' and '.dockerignore' filters are gone: neither
+# file has existed at the root since the build context moved under app/, and
+# app/Dockerfile and app/.dockerignore are both matched by 'app/**' already.
 on:
   workflow_dispatch: {}
   push:
@@ -7,15 +10,13 @@ on:
       - 'app/**'
       - 'caddy/**'
       - 'db/**'
-      - 'Dockerfile'
-      - '.dockerignore'
+      - '.github/workflows/sbom-scanning.yml'
   pull_request:
     paths:
       - 'app/**'
       - 'caddy/**'
       - 'db/**'
-      - 'Dockerfile'
-      - '.dockerignore'
+      - '.github/workflows/sbom-scanning.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -24,6 +25,8 @@ concurrency:
 jobs:
   sbom-scan:
     runs-on: ubuntu-latest
+    # A build, an SBOM and a scan; the default six-hour ceiling is not a timeout.
+    timeout-minutes: 20
 
     # Set permissions for the job to allow uploading SARIF reports
     permissions:

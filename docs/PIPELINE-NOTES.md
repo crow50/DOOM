@@ -18,7 +18,7 @@ So this is now a record of what runs, and a much shorter list of what does not.
 | **bandit** | Weak hashing, `shell=True`, `eval`, hardcoded credentials | [`bandit-python-scanning.yml`](../.github/workflows/bandit-python-scanning.yml) | push and PR touching `app/`; **gates** on medium+ severity/confidence over `app/doom`, uploads full SARIF |
 | **pip-audit** | Known CVEs in pinned dependencies | [`pip-audit.yml`](../.github/workflows/pip-audit.yml) | push and PR touching the lockfile; **gates** |
 | **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | every push and PR; **gates** (`--error`) |
-| **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | Dockerfile changes, PR |
+| **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | push and PR touching `app/Dockerfile` |
 | **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR |
 | **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc.; **gates** on HIGH+ unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
@@ -58,6 +58,34 @@ cited as evidence that dependencies were scanned. Both now use `app/**` (and
 
 The lesson is not about globs. A control cited as evidence has to run where the
 claim is checked, and nothing in the pipeline was verifying that.
+
+The same class of bug outlived that fix in a quieter form. `trivy` and the SBOM
+scan filtered on a repository-root `Dockerfile` and `.dockerignore` long after
+the build context moved under `app/` and took both files with it. Nothing broke,
+because `app/**` was also listed and covered them — but two of the five paths
+guarding each scan could never match anything. A path filter naming a file that
+does not exist is indistinguishable, from the outside, from one that works.
+
+### Every workflow now declares a timeout and its token scope
+
+Two bits of hygiene that were applied to one workflow each and never to the rest:
+
+- **`timeout-minutes` on every job.** The default is six hours. `diff-and-make-test.yml`
+  had been given a bound after a hung step burned an afternoon of runner time;
+  the other seven workflows had not, and a hung `docker build` in the Trivy or
+  SBOM job would have done exactly the same thing.
+- **A least-privilege `permissions:` block on every workflow.** The scans that
+  upload SARIF declared what they needed; the five that did not declare anything
+  inherited the repository default token, which is broader than a checkout and a
+  `pip install` require. Each workflow now names its scopes — `contents: read`
+  for most, plus `security-events: write` where a SARIF file is uploaded,
+  `pull-requests: write` for gitleaks' PR summary, and `packages: write` for the
+  publish.
+
+A `pull_request: branches: [main]` filter was also removed from `trivy`,
+`hadolint` and `gitleaks`, finishing a change made to `sbom-scanning.yml`
+alone: a pull request targeting any branch but `main` skipped those scans, and
+the secret scan is the last check that should depend on where a branch is headed.
 
 ---
 

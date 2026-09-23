@@ -1,4 +1,4 @@
-name: Pip Audit 
+name: Pip Audit
 
 # Recorded as the evidence for ASVS 14.2.1, so it has to run where that claim is
 # checked.  The first trigger was push-to-main only, filtered on '**/app' -- a
@@ -19,9 +19,16 @@ on:
       - 'app/requirements*.in'
       - '.github/workflows/pip-audit.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pip_audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
       - uses: pypa/gh-action-pip-audit@v1.1.0

@@ -1,22 +1,26 @@
 name: Trivy Container Scan
 
+# 'Dockerfile' and '.dockerignore' used to be listed here as repository-root
+# paths. Neither has lived at the root since the build context moved under app/,
+# so both filters named a file that cannot change - and the files that replaced
+# them, app/Dockerfile and app/.dockerignore, are already covered by 'app/**'.
+#
+# The pull_request branch filter is gone for the reason recorded in
+# sbom-scanning.yml: a pull request targeting anything other than main skipped
+# the image scan entirely.
 on:
   push:
     paths:
       - 'app/**'
       - 'caddy/**'
       - 'db/**'
-      - 'Dockerfile'
-      - '.dockerignore'
+      - '.github/workflows/trivy-image-scanning.yaml'
   pull_request:
     paths:
       - 'app/**'
       - 'caddy/**'
       - 'db/**'
-      - 'Dockerfile'
-      - '.dockerignore'
-    branches:
-      - main
+      - '.github/workflows/trivy-image-scanning.yaml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,6 +29,8 @@ concurrency:
 jobs:
   trivy-scan:
     runs-on: ubuntu-latest
+    # A build plus two scans; the default six-hour ceiling is not a timeout.
+    timeout-minutes: 20
 
     # Set permissions for the job to allow uploading SARIF reports
     permissions:
