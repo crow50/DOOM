@@ -68,9 +68,12 @@ jobs:
         # accepted for this image (see PIPELINE-NOTES.md) don't also redden
         # this job. grype's SARIF output carries every severity regardless of
         # fail-build, so one step covers both the gate and the Security tab.
+        # Bump this together with sbom-action above: a newer syft writes a newer
+        # CycloneDX spec (1.7 from syft 1.51), and an older grype rejects it as
+        # "sbom format not recognized", leaving an empty SARIF behind.
       - name: Scan SBOM with grype
         id: grype
-        uses: anchore/scan-action@1638637db639e0ade3258b51db49a9a137574c3e  # v6.5.1
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
           sbom: sbom.cyclonedx.json
           fail-build: true
