@@ -15,7 +15,6 @@ services:
       - "${HTTPS_PORT:-443}:443"
     environment:
       DOOM_DOMAIN: ${DOOM_DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
       # The plaintext listener redirects to https://host:HTTPS_PORT.  Caddy's
       # automatic redirect targets the bare site address, which on the
       # unprivileged default ports sent visitors to :443 where nothing
@@ -23,6 +22,12 @@ services:
       HTTPS_PORT: ${HTTPS_PORT:-443}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Optional operator TLS settings - an ACME contact address, or the
+      # staging CA while a first certificate is being sorted out. Empty by
+      # default, and the Caddyfile imports it with a glob, so empty is not an
+      # error. This replaces an ACME_EMAIL environment variable that compose
+      # passed in and the Caddyfile never read.
+      - ./caddy/conf.d:/etc/caddy/conf.d:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

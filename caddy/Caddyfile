@@ -9,13 +9,31 @@
 	# that need it through `make trust-cert`.
 	skip_install_trust
 
-	# Deploying against a real public domain? Add your ACME contact here:
+	# Operator TLS settings, if there are any.
+	#
+	# A glob that matches nothing is not an error, so this is how an optional
+	# block is spelled in a Caddyfile - there are no conditionals. Anything an
+	# operator drops in caddy/conf.d/*.caddy is merged into these global
+	# options.
+	#
+	# The obvious alternative does not work, and the failure is a parse error
+	# at boot rather than a no-op: `email {$ACME_EMAIL}` with the variable
+	# unset expands to a bare `email` with no argument. That is why the
+	# ACME_EMAIL variable that compose used to pass in here did nothing at all
+	# - it was read by no one. The two things an operator actually wants to
+	# set when moving to a public domain are in caddy/conf.d/README.md:
 	#
 	#     email you@example.com
+	#     acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 	#
-	# It is left out by default because DOOM_DOMAIN=localhost is served by
-	# Caddy's internal CA, which needs no ACME account - and an empty `email`
-	# directive is a parse error rather than a no-op.
+	# The second is the one that saves a weekend. Let's Encrypt rate-limits
+	# failed validations, and a misconfigured first attempt burns that budget
+	# while you are still working out why. Point at staging until a
+	# certificate is issued, then remove the line.
+	#
+	# None of this is needed for DOOM_DOMAIN=localhost, which Caddy serves
+	# from its internal CA without an ACME account at all.
+	import /etc/caddy/conf.d/*.caddy
 
 	# HTTP/1.1 and HTTP/2 only.  With h3 on, every response carried
 	# `alt-svc: h3=":443"` - a UDP port compose never publishes, and the wrong

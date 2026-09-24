@@ -2995,9 +2995,10 @@
       "level": 1,
       "requirement": "Verify that external facing services use publicly trusted TLS certificates.",
       "status": "Compensating",
-      "rationale": "Not met literally, and no code change can close it. The reviewed deployment serves DOOM_DOMAIN=localhost, for which no public CA can issue: Caddy presents a certificate from its own internal CA. The compensating control is that the CA is distributed to the devices that need it out of band by `make trust-cert` rather than being clicked through, and the service is published on a private network with no public name. The mechanism for the real thing is present and automatic - setting DOOM_DOMAIN to a public name and an ACME contact makes Caddy obtain a publicly trusted certificate - so this is a property of a deployment that does not exist yet rather than a missing capability. Recorded as a finding, not accepted: no exception is approved.",
+      "rationale": "Not met literally, and the reason is the deployment rather than a missing capability. Caddy issues from Let's Encrypt automatically for any publicly resolvable DOOM_DOMAIN - verified in the adapted config, where a public name produces an ACME issuer and `localhost` produces no TLS automation policy at all - but no public CA can issue for `localhost`, so the reviewed deployment is served by Caddy's internal CA. The compensating control is that the CA reaches the devices that need it out of band through `make trust-cert` rather than being clicked through, on a private network with no public name. What would close it is a public deployment, and caddy/conf.d/README.md records what that costs: an inbound path for the ACME challenge on port 80 or 443, and a hostname published to Certificate Transparency logs. Recorded as a finding, not accepted: no exception is approved.",
       "evidence": [
         "caddy/Caddyfile",
+        "caddy/conf.d/README.md",
         "docs/security/HOSTED-READINESS.md",
         "docs/security/evidence/proxy-edge-headers.txt"
       ],
