@@ -1,7 +1,7 @@
 {
-  "captured_at": "2026-09-24T14:17:41.028495Z",
+  "captured_at": "2026-09-24T14:21:02.838235Z",
   "deployment_scope": "local self-hosting; non-local hosting is future state",
-  "source_revision": "pending code commit; source_hashes bind this candidate tree",
+  "source_revision": "3e5b7832ab0aeee5707c9c7c97df72a54a1ee8d3",
   "candidate_digest": "sha256:6815974017d362112a0cb53339327eceed1b361a61b0fecadcadb279722b9e44",
   "candidate_digest_kind": "Docker image/config SHA256 for the local ARM64 candidate; not a registry manifest digest",
   "candidate_image": "doom-review-zlib:local",

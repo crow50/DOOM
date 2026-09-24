@@ -20,6 +20,9 @@ deployment defect. See the separate [readiness assessment](HOSTED-READINESS.md).
 - Updated development after Renovate: `aff50f28e3c979fe543f2d5882e691fa928aeaac`. The scanner actions
   and Renovate configuration changed; dependency versions did not. Candidate
   builds, tests and scans were refreshed after integrating these commits.
+- Security candidate with the Alpine/zlib CI fix: `3e5b7832ab0aeee5707c9c7c97df72a54a1ee8d3`.
+  Its source inventory and local ARM64 artifact are recorded separately from
+  the published release; AMD64 CI is pending.
 - The release tag resolves to the initial development commit (`git rev-parse 'v0.1.0^{commit}'`).
   The candidate adds the changes in this branch; it is not the published release.
 - Published release: `ghcr.io/crow50/doom-organizer:0.1.0`, manifest-list digest
