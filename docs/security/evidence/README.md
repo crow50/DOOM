@@ -29,7 +29,7 @@ vulnerability database; that is a new observation with its own ID, not a
 correction of an old one. See [README.md](../README.md) for how to reproduce
 each class of evidence.
 
-74 files, 6.8 MB.
+75 files, 6.8 MB.
 
 | File | Size | Cited by |
 |---|---:|---|
@@ -73,7 +73,8 @@ each class of evidence.
 | `pip-audit.json` | 2.3 KB | check `dependency-scan`, finding dependabot:1, finding dependabot:10 (+25 more) |
 | `pixels-before.txt` | 2.0 KB | finding REV-006 |
 | `proxy-before.txt` | 2.2 KB | finding REV-005 |
-| `proxy-edge-headers.txt` | 2.7 KB | ASVS 5.0.0 11.2.3, ASVS 5.0.0 11.3.1, ASVS 5.0.0 11.3.2 (+11 more) |
+| `proxy-client-ip.txt` | 1.8 KB | ASVS 5.0.0 15.3.4, ASVS 5.0.0 4.1.3, docs/security/POLICIES.md |
+| `proxy-edge-headers.txt` | 2.7 KB | ASVS 5.0.0 11.2.3, ASVS 5.0.0 11.3.1, ASVS 5.0.0 11.3.2 (+9 more) |
 | `proxy-final.json` | 2.1 KB | check `deployment` |
 | `proxy-headers.txt` | 908 B | ASVS 4.0.3 3.4.4, ASVS 5.0.0 3.3.1, ASVS 5.0.0 3.3.2 (+2 more) |
 | `proxy-restart-502.txt` | 179 B | finding REV-010 |

@@ -6,6 +6,16 @@ certs/
 *.key
 *.crt
 
+# caddy/certs is where an operator mounts a certificate this deployment did
+# not issue. The rules above already ignore it and everything in it, which is
+# correct - a private key must never be committed. These two lines re-admit
+# the directory's README only, so the instructions live next to the place they
+# describe. A key dropped in beside it is still ignored, by *.pem / *.key
+# above, which is why the re-admission is one named file and not a pattern.
+!caddy/certs/
+caddy/certs/*
+!caddy/certs/README.md
+
 # Uploaded user content (T-27)
 uploads/
 backups/

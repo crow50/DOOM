@@ -924,8 +924,9 @@
       "level": 2,
       "requirement": "Verify that any HTTP header field used by the application and set by an intermediary layer, such as a load balancer, a web proxy, or a backend-for-frontend service, cannot be overridden by the end-user. Example headers might include X-Real-IP, X-Forwarded-*, or X-User-ID.",
       "status": "Met",
-      "rationale": "Two halves of one control, and both are required. Caddy sets X-Forwarded-For to the real peer address with header_up rather than appending to whatever arrived, so a client cannot seed the chain; ProxyFix is configured with x_for=1, which takes the last entry - the one Caddy wrote - rather than trusting more hops than exist. A test drives the configured middleware with a forged three-entry chain and asserts the real peer wins. X-Forwarded-Port is trusted at zero hops because Caddy does not overwrite it, which was a finding in this review.",
+      "rationale": "Two halves of one control, and both are required. Caddy sets X-Forwarded-For to a value it chooses with header_up rather than appending to whatever arrived, so a client cannot seed the chain; ProxyFix is configured with x_for=1, which takes the last entry - the one Caddy wrote - rather than trusting more hops than exist. The value Caddy forwards is {client_ip}, which with no trusted_proxies declared - the shipped default - is the direct peer, so a forged header is ignored; declaring an operator's own upstream proxy trusted makes it resolve the real client out of that proxy's chain instead. Both behaviours are recorded in evidence/proxy-client-ip.txt. X-Forwarded-Port is trusted at zero hops because Caddy does not overwrite it, which was a finding in this review.",
       "evidence": [
+        "docs/security/evidence/proxy-client-ip.txt",
         "app/tests/test_asvs_l2_closure.py",
         "app/tests/test_security_review.py",
         "caddy/Caddyfile",
@@ -2995,14 +2996,14 @@
       "level": 1,
       "requirement": "Verify that external facing services use publicly trusted TLS certificates.",
       "status": "Compensating",
-      "rationale": "Not met literally, and the reason is the deployment rather than a missing capability. Caddy issues from Let's Encrypt automatically for any publicly resolvable DOOM_DOMAIN - verified in the adapted config, where a public name produces an ACME issuer and `localhost` produces no TLS automation policy at all - but no public CA can issue for `localhost`, so the reviewed deployment is served by Caddy's internal CA. The compensating control is that the CA reaches the devices that need it out of band through `make trust-cert` rather than being clicked through, on a private network with no public name. What would close it is a public deployment, and caddy/conf.d/README.md records what that costs: an inbound path for the ACME challenge on port 80 or 443, and a hostname published to Certificate Transparency logs. Recorded as a finding, not accepted: no exception is approved.",
+      "rationale": "Not met literally, and the reason is the deployment rather than a missing capability. The reviewed deployment serves DOOM_DOMAIN=localhost, for which no public CA can issue, so Caddy presents its own internal CA; the compensating control is that the CA reaches the devices that need it out of band through `make trust-cert` rather than being clicked through, on a private network with no public name. Three routes to a publicly trusted certificate are supported and documented in caddy/conf.d/README.md, none of which needs a custom image: an existing reverse proxy terminating TLS in front of this stack, a certificate this deployment did not issue mounted and named with `tls`, or Caddy's own ACME, which engages automatically for any publicly resolvable DOOM_DOMAIN. `make verify-cert` guards the second, where nothing renews the file automatically. Recorded as a finding, not accepted: no exception is approved, and no such deployment has been assessed.",
       "evidence": [
         "caddy/Caddyfile",
         "caddy/conf.d/README.md",
-        "docs/security/HOSTED-READINESS.md",
-        "docs/security/evidence/proxy-edge-headers.txt"
+        "Makefile",
+        "docs/security/HOSTED-READINESS.md"
       ],
-      "verification": "On the first non-local deployment, set DOOM_DOMAIN and the ACME email, then confirm the served chain terminates in a publicly trusted root from a client with no custom CA installed. Re-run the release gate with --deployment non-local.",
+      "verification": "On the first non-local deployment, confirm the served chain terminates in a publicly trusted root from a client with no custom CA installed, and re-run the release gate with --deployment non-local. Where the certificate comes from a file, `make verify-cert` must also pass - it compares the file on disk against what is actually being served.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": [
@@ -3606,9 +3607,10 @@
       "level": 2,
       "requirement": "Verify that all proxying and middleware components transfer the user's original IP address correctly using trusted data fields that cannot be manipulated by the end user, and the application and web server use this correct value for logging and security decisions such as rate limiting, taking into account that even the original IP address may not be reliable due to dynamic IPs, VPNs, or corporate firewalls.",
       "status": "Met",
-      "rationale": "Caddy overwrites X-Forwarded-For with the real peer address rather than appending to whatever arrived, and ProxyFix trusts exactly one hop, so the address the application logs and rate-limits on is the one the proxy wrote. A test drives the configured middleware with a forged three-entry chain and asserts the real peer wins. The requirement's caveat is respected in the design rather than ignored: the address is used for rate limiting and for the audit trail, and never as an authorization input, precisely because a shared NAT or a VPN makes it an unreliable identity.",
+      "rationale": "Caddy pins X-Forwarded-For to {client_ip} rather than appending to what arrived, and ProxyFix trusts exactly one hop, so the address the application logs and rate-limits on is the one the proxy wrote. With no trusted proxy declared that is the direct peer and a forged chain is ignored, which a test drives through the configured middleware; when a homelab puts its own Traefik or Caddy in front and declares it trusted, the real client survives the extra hop instead of collapsing every visitor into one rate-limit bucket. The requirement's caveat is respected in the design rather than ignored: the address is used for rate limiting and the audit trail, never as an authorization input, precisely because a shared NAT or a VPN makes it an unreliable identity.",
       "evidence": [
         "app/tests/test_asvs_l2_closure.py",
+        "docs/security/evidence/proxy-client-ip.txt",
         "caddy/Caddyfile",
         "app/doom/__init__.py"
       ],

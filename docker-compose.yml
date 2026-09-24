@@ -28,6 +28,10 @@ services:
       # error. This replaces an ACME_EMAIL environment variable that compose
       # passed in and the Caddyfile never read.
       - ./caddy/conf.d:/etc/caddy/conf.d:ro
+      # Certificates this deployment did not issue. Empty by default; a
+      # homelab that already runs a certificate manager mounts its wildcard
+      # here, or replaces this line with the volume that manager writes to.
+      - ./caddy/certs:/etc/caddy/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:

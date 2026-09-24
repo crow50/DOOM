@@ -61,6 +61,12 @@ Demo account: `demo`. `make seed` generates its password and prints it once -
 there is no default credential to forget to change (ASVS 5.0.0-6.3.2). It
 refuses to run against a database that already holds other accounts.
 
+Serving this on a real domain, or behind the reverse proxy that already holds
+your certificates? `caddy/conf.d/README.md` covers the three ways to get a
+publicly trusted certificate without rebuilding the image, and
+`make verify-cert` checks that the one you are serving is the one you think
+you are.
+
 > **Set `PUBLIC_BASE_URL` in `.env` before printing labels.** It is encoded
 > into every QR code and NFC tag, and a label printed against the wrong
 > address is permanently useless.

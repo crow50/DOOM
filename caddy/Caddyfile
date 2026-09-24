@@ -157,15 +157,34 @@ http://{$DOOM_DOMAIN:localhost} {
 	# directive for it would bypass every ownership check in the application
 	# (T-24).  Files are only ever served through an authenticated handler.
 
+	# Site-scoped operator settings: a `tls` line naming a certificate this
+	# deployment did not issue itself, most often a wildcard from whatever
+	# already manages certificates on the network. Empty by default, glob
+	# import, so empty is not an error. See caddy/conf.d/README.md.
+	import /etc/caddy/conf.d/site/*.caddy
+
 	reverse_proxy web:8000 {
 		# OVERWRITE, never append (T-07).
 		#
 		# Caddy's default is to append to any inbound X-Forwarded-For.  That
 		# would let a client seed the chain with a forged address and, paired
 		# with ProxyFix trusting one hop, hand every attacker a fresh
-		# rate-limit bucket.  Pinning the header to the real peer address is
-		# what makes per-IP limiting mean anything.
-		header_up X-Forwarded-For {remote_host}
+		# rate-limit bucket.  Pinning the header to one value we chose is what
+		# makes per-IP limiting mean anything.
+		#
+		# {client_ip}, not {remote_host}, and the two are the same value until
+		# an operator says otherwise. With no `trusted_proxies` configured -
+		# the default - {client_ip} IS the direct peer and a forged
+		# X-Forwarded-For is ignored exactly as before. Declaring an upstream
+		# proxy trusted, which a homelab running Traefik or its own Caddy in
+		# front of this needs to do, makes {client_ip} resolve the real client
+		# out of the chain that proxy wrote.
+		#
+		# Without this, putting any reverse proxy in front collapses every
+		# visitor into one rate-limit bucket and writes the proxy's address
+		# into every audit row - a failure that looks like nothing until the
+		# day it matters.
+		header_up X-Forwarded-For {client_ip}
 		header_up X-Forwarded-Proto {scheme}
 
 		# {hostport}, NOT {host}: the bare {host} placeholder drops the port.

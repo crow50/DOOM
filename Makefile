@@ -398,6 +398,61 @@ passwords-corpus: ## Regenerate the breach corpus in security/data/
 	@python3 tools/build_password_corpus.py
 
 ## ------------------------------------------------------------------- certs
+.PHONY: verify-cert
+verify-cert: ## Check the served certificate, and that a renewed file was picked up
+	@set -e; \
+	command -v openssl >/dev/null 2>&1 \
+		|| { echo "SKIP: openssl is not on this host, so the served certificate cannot be read"; exit 0; }; \
+	host=$${DOOM_DOMAIN:-localhost}; port=$${HTTPS_PORT:-443}; \
+	echo "checking the certificate served on 127.0.0.1:$$port for $$host..."; \
+	served=$$(openssl s_client -connect 127.0.0.1:$$port -servername $$host </dev/null 2>/dev/null \
+		| openssl x509 2>/dev/null); \
+	test -n "$$served" \
+		|| { echo "FAIL: nothing answered TLS on 127.0.0.1:$$port - is the stack up?"; exit 1; }; \
+	printf '%s\n' "$$served" | openssl x509 -noout -subject -issuer -enddate | sed 's/^/  /'; \
+	\
+	configured=$$(cat caddy/conf.d/site/*.caddy 2>/dev/null \
+		| sed -n 's/^[[:space:]]*tls[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' | head -1); \
+	\
+	if [ -z "$$configured" ]; then \
+		if printf '%s\n' "$$served" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then \
+			echo "  ok: Caddy is managing this certificate itself, and it is valid"; \
+			echo "      A short expiry here is normal and not a finding: Caddy's"; \
+			echo "      internal CA issues 12-hour leaves and renews them itself."; \
+			exit 0; \
+		fi; \
+		echo "FAIL: the served certificate has expired and Caddy manages it, so"; \
+		echo "      renewal is broken rather than merely due. Check the caddy logs."; \
+		exit 1; \
+	fi; \
+	\
+	if printf '%s\n' "$$served" | openssl x509 -noout -checkend $$((21*86400)) >/dev/null 2>&1; then \
+		echo "  ok: more than 21 days of validity left"; \
+	else \
+		echo "FAIL: this certificate comes from a file, so nothing here renews it,"; \
+		echo "      and it expires within 21 days (or already has)."; exit 1; \
+	fi; \
+	\
+	onhost=caddy/certs/$${configured##*/}; \
+	test -f "$$onhost" \
+		|| { echo "FAIL: $$configured is configured but $$onhost does not exist"; exit 1; }; \
+	disk=$$(openssl x509 -noout -fingerprint -sha256 -in "$$onhost" 2>/dev/null | cut -d= -f2); \
+	wire=$$(printf '%s\n' "$$served" | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2); \
+	if [ "$$disk" = "$$wire" ]; then \
+		echo "  ok: the file on disk is the certificate being served"; \
+	else \
+		echo "FAIL: $$onhost has been replaced but Caddy is still serving the old"; \
+		echo "      certificate. Caddy reads a 'tls <file>' certificate once, at"; \
+		echo "      config load, and does not watch the file - so a renewal in"; \
+		echo "      place takes effect only on restart:"; \
+		echo; \
+		echo "          docker compose restart caddy"; \
+		echo; \
+		echo "      Hook that onto your renewal (acme.sh --reloadcmd, certbot"; \
+		echo "      --deploy-hook) so this cannot happen again."; \
+		exit 1; \
+	fi
+
 .PHONY: trust-cert
 trust-cert: ## Export Caddy's root CA for installing on a demo phone
 	@mkdir -p certs

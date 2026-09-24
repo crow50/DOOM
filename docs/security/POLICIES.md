@@ -200,6 +200,14 @@ variables") so they do not appear
 in `docker inspect` or in any child process's `/proc/<pid>/environ`;
 `make verify-secrets` checks that property rather than assuming it.
 
+A mounted certificate is the one key in this table that nothing here renews.
+Caddy reads a `tls <file>` certificate once, at config load, and does not watch
+the file, so a renewal in place keeps serving the old certificate until the
+container restarts — and then keeps serving it past expiry. `make verify-cert`
+compares the file on disk against what is actually on the wire and fails when
+they differ, which turns that from something an operator has to remember into
+something they can check.
+
 **Operator** — custody of the host directory holding those files, the schedule
 on which they are rotated, and destruction of superseded copies are deployment
 obligations. A managed vault would satisfy `v5.0.0-13.3.1` more completely
@@ -275,11 +283,22 @@ applicable.
 | From | To | Protocol | Authenticated by | When |
 |---|---|---|---|---|
 | Browser | Caddy | HTTPS | — | every request |
+| An operator's own reverse proxy | Caddy | HTTPS | — | only in the topology where something else terminates public TLS |
 | Caddy | `web:8000` | HTTP over an internal-only Docker network | — | every request |
 | `web` | `db:5432` | PostgreSQL | restricted role + file-mounted password | every request |
 | `web` | `cache:6379` | Redis | file-mounted password | rate-limit checks |
 | `web` | a barcode provider | HTTPS | none (public API) | **only** when `BARCODE_LOOKUP_PROVIDER` is set |
 | Caddy | an ACME directory | HTTPS | ACME account key | **only** when `DOOM_DOMAIN` is a public name |
+
+The second row is optional and operator-chosen: a homelab that already runs
+Traefik or its own Caddy as the thing holding certificates can put it in front
+of this stack. That topology needs the upstream declared in `trusted_proxies`,
+or every visitor collapses into one per-IP rate-limit bucket and every audit
+row records the proxy's address — a failure that is invisible until it
+matters. `caddy/conf.d/README.md` covers it, along with the two other routes
+to a publicly trusted certificate, and `evidence/proxy-client-ip.txt` records
+that declaring a proxy is what changes the behaviour and that the default
+ignores a forged chain.
 
 There is no telemetry, no analytics, no error-reporting service, no CDN, no
 webfont and no third-party script. A page this application serves makes
@@ -476,7 +495,7 @@ and the reason this section is short.
 | Share handles | 128-bit random (`token_urlsafe(16)`) | naming an entry in one visitor's signed session | confers nothing on its own |
 | Attachment digests | SHA-256 | content addressing, per-owner deduplication | not an integrity guarantee against an attacker with database write access |
 | Audit row hashes | SHA-256 chain | tamper *evidence* | not proof — see COMPLIANCE.md on why evident is not the same as provable |
-| TLS certificates | Caddy-managed; internal CA locally, ACME for a public name | transport to the browser | not used for internal service authentication, which is unencrypted — see `v5.0.0-12.3.1` |
+| TLS certificates | Caddy-managed by default — internal CA locally, ACME for a public name — or a certificate the operator mounts and names with `tls` | transport to the browser | not used for internal service authentication, which is unencrypted — see `v5.0.0-12.3.1` |
 
 All of it comes from `hashlib`, `hmac`, `secrets` and `argon2-cffi`, which is
 to say from OpenSSL and from the Argon2 reference implementation. Nothing
