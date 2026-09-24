@@ -12,26 +12,33 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /build
 
-RUN apk add --no-cache build-base ca-certificates curl
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
+RUN apk add --no-cache \
+    build-base=0.5-r3 \
+    ca-certificates=20260909-r0 \
+    curl=8.22.0-r0
 
 # Alpine 3.23 currently ships zlib 1.3.2-r0, which contains the
 # CVE-2026-85091 non-blocking gzwrite overflow. Build the upstream fix at an
 # immutable commit and verify the downloaded source before compiling it.
 # The exact runtime image is then checked below to ensure Python loads this
 # patched shared library instead of the APK's original copy.
-RUN set -eux; \
-    curl --fail --location --silent --show-error \
+RUN curl --fail --location --silent --show-error \
       "https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz" \
-      --output /tmp/zlib.tar.gz; \
-    echo "${ZLIB_SOURCE_SHA256}  /tmp/zlib.tar.gz" | sha256sum -c -; \
-    mkdir -p /build/zlib; \
-    tar -xzf /tmp/zlib.tar.gz --strip-components=1 -C /build/zlib; \
-    cd /build/zlib; \
-    ./configure --prefix=/opt/zlib --shared; \
-    make -j"$(nproc)"; \
-    make test; \
-    make install; \
-    rm -rf /tmp/zlib.tar.gz /build/zlib
+      --output /tmp/zlib.tar.gz \
+ && echo "${ZLIB_SOURCE_SHA256}  /tmp/zlib.tar.gz" | sha256sum -c - \
+ && mkdir -p /build/zlib \
+ && tar -xzf /tmp/zlib.tar.gz --strip-components=1 -C /build/zlib
+
+WORKDIR /build/zlib
+RUN ./configure --prefix=/opt/zlib --shared \
+ && make -j"$(nproc)" \
+ && make test \
+ && make install
+
+WORKDIR /build
+RUN rm -f /tmp/zlib.tar.gz && rm -rf /build/zlib
 
 COPY requirements.txt requirements-dev.txt ./
 RUN python -m venv --upgrade-deps /opt/venv \
@@ -66,7 +73,7 @@ ENV PYTHONUNBUFFERED=1 \
 # the language and distro tag current while the package manager takes security
 # updates from that same stable branch.
 RUN apk upgrade --no-cache \
- && apk add --no-cache file \
+ && apk add --no-cache file=5.46-r2 \
  && addgroup -S -g 10001 doom \
  && adduser -S -u 10001 -G doom -H -D -s /sbin/nologin doom
 
