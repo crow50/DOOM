@@ -142,6 +142,17 @@ walk for twenty minutes between scans; a timeout they trip over repeatedly is
 one they work around, by never signing out on a device that never locks. The
 absolute 12-hour cap bounds the damage either way.
 
+**Against NIST SP 800-63B.** AAL1 asks for a 30-day absolute limit and a
+12-hour inactivity limit; AAL2 asks for 12 hours absolute and 30 minutes idle.
+The absolute lifetime here is 12 hours, which meets AAL2. The idle timeout is
+60 minutes, which does not, and the deviation is deliberate for the reason
+above: this is a physical-inventory tool used while walking around a building,
+the data is a map to property rather than to money or health records, and the
+alternative to a workable timeout is a user who never signs out. The controls
+that carry the difference are the 12-hour absolute cap, per-device revocation
+that takes effect on the next request, a concurrent-session limit, and - for
+accounts that enable it - a second factor on every new sign-in.
+
 **Why eviction rather than refusal.** Refusing the eleventh sign-in locks
 someone out of the device in their hand because of a session they forgot on a
 machine they no longer own, with an operator as the only way back. Every
@@ -154,12 +165,20 @@ cache, cookies and storage.
 
 ## 6. Cryptographic policy and key lifecycle — v5.0.0-11.1.1, v5.0.0-11.4.1
 
-**Algorithms in use.** Argon2id (t=3, 64 MiB, p=4) for passwords and share
-PINs; HMAC-SHA256 for the session cookie, the CSRF serializer and the share
-PIN approval; SHA-256 for content addressing and the audit hash chain;
-`secrets` (the OS CSPRNG) for every token, code and salt. No SHA-1, MD5 or
-SHA-224 is reachable from the application package, and a test walks the AST to
-keep it that way rather than trusting a grep over prose.
+**Algorithms in use.** Argon2id (t=3, 64 MiB, p=4) for passwords, share PINs
+and recovery codes; HMAC-SHA256 for the session cookie, the CSRF serializer and
+the share PIN approval; SHA-256 for content addressing and the audit hash
+chain; `secrets` (the OS CSPRNG) for every token, code and salt. Every
+primitive provides at least 128 bits of security.
+
+**The one exception, and why it is one.** `security/totp.py` uses HMAC-SHA1,
+because RFC 6238 fixes it as the default TOTP construction and authenticator
+applications implement that and only that — a SHA-256 variant would be a second
+factor nobody could enrol. NIST SP 800-131A Rev. 2 still permits HMAC-SHA1; it
+is SHA-1 *signatures* that are withdrawn, and this is a MAC over a 160-bit
+secret with a 30-second validity. The exception is confined to that one module
+and a test asserts "SHA-1 appears there and nowhere else" rather than exempting
+the file, so a second use anywhere in the package fails the suite.
 
 Flask and Flask-WTF both default to HMAC-SHA1; `security/sessions.py` raises
 both to SHA-256 and explains why there is no accept-either fallback.
@@ -248,3 +267,227 @@ synchronisation of the host clock, and shipping to a separate system for
 alerting (`v5.0.0-16.4.3`) are deployment obligations that no code in this
 repository can discharge. They are recorded as unmet rather than as not
 applicable.
+
+## 9. Communication needs and the outbound allowlist — v5.0.0-13.1.1, v5.0.0-13.2.4, v5.0.0-13.2.5
+
+**Every connection this application makes, in full.**
+
+| From | To | Protocol | Authenticated by | When |
+|---|---|---|---|---|
+| Browser | Caddy | HTTPS | — | every request |
+| Caddy | `web:8000` | HTTP over an internal-only Docker network | — | every request |
+| `web` | `db:5432` | PostgreSQL | restricted role + file-mounted password | every request |
+| `web` | `cache:6379` | Redis | file-mounted password | rate-limit checks |
+| `web` | a barcode provider | HTTPS | none (public API) | **only** when `BARCODE_LOOKUP_PROVIDER` is set |
+| Caddy | an ACME directory | HTTPS | ACME account key | **only** when `DOOM_DOMAIN` is a public name |
+
+There is no telemetry, no analytics, no error-reporting service, no CDN, no
+webfont and no third-party script. A page this application serves makes
+requests to its own origin and nowhere else, which is what `connect-src 'self'`
+in the CSP states and what the absence of any external `<script>` or `<link>`
+in the templates enforces.
+
+**The user-supplied-destination case**, which the requirement asks about
+specifically: there is exactly one, the barcode lookup, and the user does not
+supply a destination. They supply a *barcode*. The provider is named by an
+operator-set configuration value that selects an entry in a dict in code
+(`validation.BARCODE_PROVIDERS`), the scheme and host come from that entry, and
+redirects are refused. A request cannot be steered by anything a user types.
+
+**The server-level allowlist is a deny-all.** The application container is on
+two Docker networks, both `internal: true` — `proxy`, which Caddy bridges to
+reach it, and `internal`, which carries the database and the cache. It has no
+route off the host. An SSRF in the application therefore has nowhere to go,
+which is worth more than the validation in `security/lookup.py` because it
+holds even when that validation is wrong.
+
+Enabling `BARCODE_LOOKUP_PROVIDER` requires adding the `edge` network back to
+the `web` service in `docker-compose.yml`. That is deliberately a change an
+operator has to make and a reviewer can see, rather than a capability that is
+always present and merely unused. Until DNS rebinding is closed in the lookup
+path — address validation and connection perform separate resolutions — the
+recommendation in the release assessment stands: leave it unset.
+
+## 10. Upload rules — v5.0.0-5.1.1
+
+| | |
+|---|---|
+| Permitted content types | `image/jpeg`, `image/png`, `image/webp`, `application/pdf`, `text/plain`, `text/markdown` |
+| Expected extensions | per type, in `validation.UPLOAD_EXTENSIONS_FOR_TYPE` |
+| Maximum size, per file | 10 MB (`UPLOAD_MAX_BYTES`), rejected by Caddy at 12 MB before Python sees it |
+| Maximum decoded size | 50,000,000 pixels (`MAX_IMAGE_PIXELS`), checked before decoding |
+| Files per request | 10 |
+| Per-account ceiling | 2 GB and 5,000 files |
+| Archives | not accepted, so there is no unpacked size to bound |
+
+**How a file is made safe.** Type is decided by libmagic from the bytes, never
+from the filename or the browser's `Content-Type`. The submitted extension must
+then agree with the sniffed type. Images are fully decoded and re-encoded into
+a new container, which destroys polyglots and strips EXIF — including the GPS
+coordinates that would otherwise publish the address of the building a photo of
+a shelf was taken in. Stored names are generated UUIDs; the submitted name is
+kept for display only and never joined to a path.
+
+**What happens when a malicious file is detected.** There is no malware
+scanner, and that is an open gap recorded as `v5.0.0-5.4.3`, not a decision.
+What exists instead: SVG and archives are refused outright as types; anything
+that is not an image is served with `Content-Disposition: attachment`,
+`Content-Security-Policy: default-src 'none'; sandbox` and `nosniff`, so a
+document cannot execute in this origin; downloads are owner-authorised only, so
+a malicious file one account uploads is not reachable by another; and a
+rejected upload is audited with the reason. A PDF containing an exploit for the
+reader on the owner's own machine would be stored and served back to that owner
+unchanged. That is the residual risk, and it is why the row is Not met rather
+than compensated.
+
+## 11. Data classification — v5.0.0-14.1.1, v5.0.0-14.1.2, v5.0.0-14.2.4
+
+| Level | Data | Handling requirements |
+|---|---|---|
+| **Secret** | passwords, share PINs, recovery codes, TOTP secrets, `SECRET_KEY`, database and Redis passwords | never stored in the clear (Argon2id for the first three); never logged, in any form, hashed or otherwise; never in a URL; never in a response body; secrets read from mode-0400 files, not the environment |
+| **Credential** | session cookies, CSRF tokens, share tokens, share handles | transmitted only in `Set-Cookie` or a request body; redacted from every log by key, by path and by shape; never in a URL or query string; `HttpOnly`, `Secure`, `SameSite=Lax`, `__Host-` prefix |
+| **Personal** | username, display name, email, timezone, source IP, user agent, activity history | `Cache-Control: no-store` on every authenticated response; visible only to the account itself; exportable by the owner; email never used for delivery; user agent truncated to 200 characters so it is a device label and not a fingerprint |
+| **Inventory** | item and location names, descriptions, notes, quantities, photos, documents, physical addresses | owner-scoped by a `WHERE` clause; the ancestor chain — which *is* the physical address — is omitted from every shared view; image metadata stripped on upload |
+| **Shared-by-choice** | the reduced view behind a share link | exactly the fields in `security/serializers.py` and no others; `noindex` on every response and in `robots.txt`; rate limited; revocable and rotatable by the owner |
+| **Public** | the landing page, static assets, `robots.txt` | no requirements |
+
+Two notes on things that look encoded and are not encrypted. A share token is
+random rather than derived, so there is nothing in it to decode. The audit
+chain's row hashes are SHA-256 over the row's content and are integrity values,
+not confidentiality ones — they are published on the account page on purpose,
+so a user can check their own history has not been rewritten.
+
+**Retention.** Inventory and personal data live until the owner deletes them or
+the account is deleted, which cascades. Audit rows are append-only and are never
+deleted by the application — including by the account they describe, because a
+history a user can edit is not a history. There is no automatic expiry; an
+operator who needs one owns that decision and the compliance regime that
+motivates it.
+
+**Regulatory scope.** A self-hosted single-tenant inventory holding the
+operator's own property records. No payment data, no health data, no data about
+third parties beyond an optional email address the account holder supplies
+about themselves. Where GDPR applies, the operator is the controller; access,
+export and erasure are served by the account page, the CSV export and account
+deletion respectively.
+
+## 12. Logging inventory — v5.0.0-16.1.1, v5.0.0-16.2.3
+
+| Layer | Events | Format | Destination | Retention | Access |
+|---|---|---|---|---|---|
+| Application | auth outcomes, lockouts, access denials, share misses, uploads, config and factor changes, unexpected errors | JSON, one object per line, UTC timestamps | stdout → Docker log driver | host log driver's policy | host operator |
+| Application | every mutation and every security-relevant event | `audit_log` table, hash-chained | PostgreSQL | unbounded; never deleted | the acting account (own rows), operator (all) |
+| gunicorn | access log, with share paths scrubbed | JSON via `security/gunicorn_logging.py` | stdout | as above | host operator |
+| Caddy | access log, TLS errors | JSON | stdout | as above | host operator |
+| PostgreSQL / Redis | engine logs | text | stdout | as above | host operator |
+
+Nothing is written to a file inside any container: the application's filesystem
+is read-only apart from the uploads volume and a 64 MB tmpfs. Nothing is
+broadcast anywhere else — there is no log shipper configured, which is the open
+gap at `v5.0.0-16.4.3`.
+
+**Correlation.** Every request carries a correlation id, which appears in each
+log line for that request and on the error page the user sees, so a report of
+"I got an error at 14:20" resolves to exact lines without the user having to be
+shown a stack trace.
+
+## 13. Business logic limits and consistency — v5.0.0-2.1.2, v5.0.0-2.1.3, v5.0.0-2.3.2
+
+**Per-user limits:** 2 GB and 5,000 attachments; 10 concurrent sessions; 10
+files per upload request; location nesting to 12 levels; quantity between 0 and
+1,000,000; the rate limits in section 2.
+
+**Global limits:** a shared location listing is capped at 500 contents; search
+terms at 100 characters; the request body at 10 MB.
+
+**Combined-item consistency**, which is what `2.1.2` and `2.2.3` ask to see
+documented. The rules that relate one field to another:
+
+- an attachment belongs to exactly one parent — an item or a location, never
+  both and never neither. Enforced by a `num_nonnulls` CHECK in the database,
+  not only in code, because a bug in the application should not be able to
+  produce a row that violates it;
+- a location's `depth` must equal its parent's depth plus one, and a location
+  cannot be its own ancestor;
+- an item's location, if set, must belong to the same owner as the item;
+- a checkout must be open before it can be returned, and a returned checkout
+  cannot be returned twice;
+- a quantity adjustment is computed by the database from the current value
+  rather than submitted by the client, so two concurrent adjustments cannot
+  both write the same result (D-18);
+- a share PIN may exist only on a node that is shared.
+
+There is no address or postcode validation of the kind the requirement's
+example describes, because the one address field is free text describing a
+building the owner already knows how to find; validating it against a postal
+database would reject correct rural addresses and buy nothing.
+
+## 14. Resource-demanding functionality — v5.0.0-15.1.3, v5.0.0-15.2.2
+
+Three things here cost materially more than a page view, and each is bounded:
+
+| Operation | Cost | Bound |
+|---|---|---|
+| Password and recovery-code verification | 64 MiB and ~50 ms of Argon2id, per attempt | rate limits and lockout; `PASSWORD_MAX` caps input; gunicorn concurrency is pinned in compose so workers × threads × 64 MiB fits the container's memory limit |
+| Image decode and re-encode | proportional to pixel count | `MAX_IMAGE_PIXELS` checked before decoding; 10 MB body cap; upload rate limit |
+| Activity CSV export | proportional to history length | owner-scoped, streamed, and bounded by the same per-user rate limit as other reads |
+
+Nothing here is asynchronous and nothing is queued, because nothing takes long
+enough to need it — the longest operation is a single image re-encode. The
+defence against a slow response is therefore a bound on the input rather than a
+job queue, which is the right shape while that stays true. Recovery-code
+verification is the one place the cost is deliberately *not* minimised: it
+checks every unspent code even after a match, so a rejection's duration does
+not reveal where in the list a near-miss sat.
+
+## 15. Authentication pathways — v5.0.0-6.1.3, v5.0.0-6.3.4
+
+There is exactly one way to obtain an authenticated session:
+
+1. `POST /login` with a username and password, verified with Argon2id;
+2. if the account has a confirmed second factor, `POST /login/verify` with a
+   TOTP code or a single-use recovery code.
+
+No other pathway exists. There is no SSO, no OAuth, no API key, no bearer
+token, no "remember me" cookie, no magic link, no email-based reset (D-12), and
+no administrative bypass — operator recovery is `flask set-password`, run
+against the container by somebody who already has the host, and it is subject
+to the same password policy as any other change.
+
+Share links are not an authentication pathway and do not produce a session:
+they carry a capability to one read-only view of one node, and every route
+behind them is unauthenticated by design.
+
+Strength is therefore consistent by construction rather than by enforcement:
+there is only one path, so there is no weaker one to fall back to. The
+second-factor step cannot be skipped by starting anywhere else, because there
+is nowhere else to start — which is the property `6.3.4` is really asking about
+and the reason this section is short.
+
+## 16. Cryptographic inventory — v5.0.0-11.1.2
+
+| Item | Algorithm / size | Where it may be used | Where it must not |
+|---|---|---|---|
+| `SECRET_KEY` | 256-bit random | signing the session cookie and the CSRF token; keying the share-PIN approval MAC | never as an encryption key, never shared between deployments |
+| Password hashes | Argon2id, 64 MiB / t=3 / p=4, 32-byte output, 16-byte salt | verifying passwords, share PINs, recovery codes | not a KDF for any other key |
+| Session / CSRF MAC | HMAC-SHA256 | integrity of self-contained tokens | not for storing anything |
+| TOTP secrets | 160-bit random, HMAC-SHA1 per RFC 6238 | second-factor verification only | nothing else; see section 6 |
+| Share tokens | 256-bit random (`token_urlsafe(32)`) | addressing a shared node | not an account credential |
+| Share handles | 128-bit random (`token_urlsafe(16)`) | naming an entry in one visitor's signed session | confers nothing on its own |
+| Attachment digests | SHA-256 | content addressing, per-owner deduplication | not an integrity guarantee against an attacker with database write access |
+| Audit row hashes | SHA-256 chain | tamper *evidence* | not proof — see COMPLIANCE.md on why evident is not the same as provable |
+| TLS certificates | Caddy-managed; internal CA locally, ACME for a public name | transport to the browser | not used for internal service authentication, which is unencrypted — see `v5.0.0-12.3.1` |
+
+All of it comes from `hashlib`, `hmac`, `secrets` and `argon2-cffi`, which is
+to say from OpenSSL and from the Argon2 reference implementation. Nothing
+cryptographic in this repository is hand-rolled except the TOTP arithmetic in
+section 6, which is thirty lines of standard-library primitives pinned to the
+RFC's published vectors.
+
+**Agility.** Every algorithm choice is a named constant or a single class
+attribute in one module: password parameters in `security/passwords.py`, the
+signing digest in `security/sessions.py`, the TOTP construction in
+`security/totp.py`. Password hashes carry their own parameters, so raising the
+cost re-hashes each account silently at its owner's next sign-in. Raising the
+signing digest invalidates every issued cookie, which is why it changes the
+salt too. There is no encrypted data at rest to re-encrypt.

@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 
 import pytest
 from conftest import login
@@ -233,3 +234,205 @@ class TestLogMessageSanitisation:
         """A log nobody can read is replaced by a log nobody redacts."""
         payload = self._emit("upload_stored kind=photo bytes=20481")
         assert payload["message"] == "upload_stored kind=photo bytes=20481"
+
+
+# ---------------------------------------------------------------------------
+# V13.4.2 / V13.4.3 / V13.4.4 / V13.4.5 - what production must not expose
+# ---------------------------------------------------------------------------
+
+class TestProductionSurface:
+    def test_debug_is_not_a_toggle(self, app):
+        """V13.4.2 - the Werkzeug debugger is a remote shell."""
+        from doom.config import Config, ConfigError
+
+        assert app.config["DEBUG"] is False
+        assert app.jinja_env.auto_reload is False or app.config["TESTING"]
+
+        import os
+        for variable in ("FLASK_DEBUG", "DEBUG"):
+            os.environ[variable] = "1"
+            try:
+                with pytest.raises(ConfigError):
+                    Config.verify_runtime()
+            finally:
+                os.environ.pop(variable, None)
+
+    def test_no_route_lists_a_directory(self, app, client, alice):
+        """V13.4.3 - there is no file_server at all, at either layer."""
+        login(client, "alice")
+        for path in ("/files/", "/static/", "/static/css/", "/uploads/"):
+            assert client.get(path).status_code in (404, 405), path
+
+    def test_trace_is_not_answered(self, client):
+        """V13.4.4 - a TRACE echo reflects headers a script cannot read."""
+        response = client.open("/", method="TRACE")
+        assert response.status_code in (405, 501)
+
+    def test_the_health_probe_says_nothing_it_does_not_have_to(self, client):
+        """V13.4.5 - a monitoring endpoint is an unauthenticated reader."""
+        response = client.get("/healthz")
+        assert response.status_code == 200
+        assert response.data.strip() == b"ok"
+
+        lowered = response.data.lower()
+        for leak in (b"postgres", b"redis", b"version", b"python", b"flask"):
+            assert leak not in lowered
+
+    def test_no_documentation_or_introspection_endpoint_is_registered(self, app):
+        """V13.4.5, V4.3.2 - nothing to enumerate the API with."""
+        paths = {rule.rule for rule in app.url_map.iter_rules()}
+        for probe in ("/graphql", "/openapi.json", "/swagger", "/docs",
+                      "/redoc", "/metrics", "/debug", "/console"):
+            assert probe not in paths
+
+
+# ---------------------------------------------------------------------------
+# V15.3.3 / V15.3.7 / V4.1.3 / V15.3.4 - request handling
+# ---------------------------------------------------------------------------
+
+class TestRequestHandling:
+    def test_a_posted_field_that_is_not_on_the_form_binds_to_nothing(
+        self, client, alice
+    ):
+        """V15.3.3 - mass assignment, and the reason nothing uses **request.form."""
+        login(client, "alice")
+        before = alice.session_version
+
+        client.post("/account/", data={
+            "display_name": "Sam", "email": "", "timezone": "UTC",
+            # None of these are fields on ProfileForm.
+            "is_active": "false", "session_version": "9999",
+            "password_hash": "x", "id": "00000000-0000-0000-0000-000000000000",
+            "totp_secret": "AAAA",
+        }, follow_redirects=True)
+
+        db.session.refresh(alice)
+        assert alice.is_active is True
+        assert alice.session_version == before
+        assert alice.totp_secret is None
+        assert alice.display_name == "Sam"
+
+    def test_a_repeated_parameter_does_not_change_which_value_is_used(
+        self, client, alice
+    ):
+        """V15.3.7 - parameter pollution.
+
+        Werkzeug's MultiDict returns the first value for a repeated key, and
+        WTForms reads through it, so the answer does not depend on where in
+        the request the duplicate sits.
+        """
+        login(client, "alice")
+        response = client.post(
+            "/account/?display_name=from-query",
+            data={"display_name": ["first", "second"], "email": "",
+                  "timezone": "UTC"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        db.session.refresh(alice)
+        # The body wins over the query string, and the first body value wins
+        # over the second. Neither answer depends on ordering by accident.
+        assert alice.display_name == "first"
+
+    def test_a_client_cannot_forge_the_address_used_for_rate_limiting(self, app):
+        """V4.1.3 and V15.3.4 - the two halves of one control.
+
+        ProxyFix trusts exactly one hop, which is the value Caddy writes; the
+        Caddyfile overwrites rather than appends. Trusting more hops than
+        exist would let a client prepend an address and mint itself a fresh
+        rate-limit bucket per request.
+        """
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        from werkzeug.test import Client
+        from werkzeug.wrappers import Response
+
+        configured = app.wsgi_app
+        assert isinstance(configured, ProxyFix)
+        assert configured.x_for == 1
+        assert configured.x_port == 0
+
+        def echo(environ, start_response):
+            return Response(environ.get("REMOTE_ADDR", ""))(environ, start_response)
+
+        middleware = ProxyFix(echo, x_for=configured.x_for,
+                              x_proto=configured.x_proto,
+                              x_host=configured.x_host, x_port=configured.x_port)
+        # A forged chain, with the real peer appended last by the proxy.
+        response = Client(middleware).get("/", headers={
+            "X-Forwarded-For": "9.9.9.9, 8.8.8.8, 203.0.113.7",
+        })
+        assert response.text == "203.0.113.7"
+
+
+# ---------------------------------------------------------------------------
+# V16.5.1 / V16.5.2 / V16.5.3 - failing safely
+# ---------------------------------------------------------------------------
+
+class TestFailureBehaviour:
+    def test_an_unexpected_error_returns_a_correlation_id_and_nothing_else(self):
+        """V16.5.1 - no stack trace, no query, no key.
+
+        Built on its own application rather than the session one: a route has
+        to be registered before the first request, and the suite's app has
+        served several thousand by now. PROPAGATE_EXCEPTIONS is turned off so
+        the handler runs instead of the exception escaping to pytest - which
+        is what TESTING would otherwise cause, and is the opposite of the
+        behaviour under test.
+        """
+        from doom import create_app
+        from doom.config import TestConfig
+
+        class ErrorConfig(TestConfig):
+            PROPAGATE_EXCEPTIONS = False
+
+        failing = create_app(ErrorConfig)
+
+        @failing.route("/__boom")
+        def boom():
+            raise RuntimeError("secret-internal-detail sk-live-canary")
+
+        response = failing.test_client().get("/__boom")
+
+        assert response.status_code == 500
+        body = response.data.lower()
+        for leak in (b"secret-internal-detail", b"sk-live-canary", b"traceback",
+                     b"runtimeerror", b"/srv/doom", b"select "):
+            assert leak not in body
+
+        # A correlation id, so the report is precise without the page being.
+        assert re.search(rb"[0-9a-f]{12}", response.data)
+
+    def test_an_external_lookup_failure_degrades_rather_than_breaks(
+        self, client, alice, app, monkeypatch
+    ):
+        """V16.5.2 - the one external dependency, when it is not there."""
+        from doom.security.lookup import LookupUnavailable
+
+        def unreachable(*args):
+            raise LookupUnavailable("connection refused to 10.0.0.1:443")
+
+        monkeypatch.setattr("doom.blueprints.items.lookup_barcode", unreachable)
+        monkeypatch.setitem(app.config, "BARCODE_LOOKUP_PROVIDER", "openfoodfacts")
+        login(client, "alice")
+
+        response = client.get("/items/barcode/4006381333931")
+        assert response.status_code == 200
+        assert response.json["source"] == "none"
+        assert b"10.0.0.1" not in response.data
+
+        # And the rest of the application is unaffected.
+        assert client.get("/items/").status_code == 200
+
+    def test_validation_failure_does_not_fall_through_to_the_write(
+        self, client, alice, alice_bin
+    ):
+        """V16.5.3 - no fail-open: a refused form writes nothing."""
+        from doom.models import Item
+
+        login(client, "alice")
+        before = db.session.query(Item).count()
+
+        client.post("/items/new", data={
+            "name": "", "quantity": "-5", "location_id": str(alice_bin.id),
+        })
+        assert db.session.query(Item).count() == before
