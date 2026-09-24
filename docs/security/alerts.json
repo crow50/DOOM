@@ -6469,6 +6469,7 @@
       "evidence": [
         "app/doom/security/logging.py",
         "app/tests/test_security_review.py",
+        "docs/security/evidence/referrer-before.txt",
         "docs/security/evidence/tests-candidate.txt"
       ],
       "exception": null,
@@ -6488,6 +6489,7 @@
       "evidence": [
         "app/doom/__init__.py",
         "app/tests/test_security_review.py",
+        "docs/security/evidence/proxy-before.txt",
         "docs/security/evidence/tests-candidate.txt"
       ],
       "exception": null,
@@ -6507,6 +6509,7 @@
       "evidence": [
         "app/doom/security/uploads.py",
         "app/tests/test_security_review.py",
+        "docs/security/evidence/pixels-before.txt",
         "docs/security/evidence/tests-candidate.txt"
       ],
       "exception": null,
@@ -6576,6 +6579,7 @@
       "verification": "Implement finding-specific acceptance tests in REMEDIATION.md and retest the candidate.",
       "evidence": [
         "caddy/Caddyfile",
+        "docs/security/evidence/proxy-restart-502.txt",
         "docs/security/RELEASE-ASSESSMENT.md"
       ],
       "exception": null

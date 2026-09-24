@@ -26,6 +26,33 @@ class AssessmentTests(unittest.TestCase):
     def test_repository_evidence_is_consistent(self):
         self.assertEqual([], assessment.validate())
 
+    def test_an_evidence_file_nobody_cites_is_rejected(self):
+        """An orphan is not harmless: it looks like something rests on it."""
+        orphan = assessment.ROOT / assessment.BASE / 'evidence' / 'orphan-probe.log'
+        orphan.write_text('nothing points at this\n')
+        try:
+            errors = assessment.validate()
+        finally:
+            orphan.unlink()
+        self.assertTrue(
+            any('orphan-probe.log' in e and 'nothing cites' in e for e in errors),
+            errors[:5],
+        )
+
+    def test_citing_an_evidence_file_from_prose_is_enough(self):
+        """A document that argues from a file cites it as surely as a row does."""
+        cited = assessment.unreferenced_evidence(
+            {f'{assessment.BASE}/evidence/candidate-sbom.json'}
+        )
+        self.assertNotIn('evidence/candidate-sbom.json', cited)
+
+    def test_a_raw_export_needs_no_citation(self):
+        """The validator reads these itself; nothing argues from them."""
+        self.assertEqual([], [
+            name for name in assessment.RAW_EXPORTS
+            if name in assessment.unreferenced_evidence(set())
+        ])
+
     def test_missing_control_is_rejected(self):
         errors = self.mutate('asvs-5.0.0.json', lambda d: d['requirements'].pop(0))
         self.assertTrue(any('missing' in e for e in errors))

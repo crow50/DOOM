@@ -23,6 +23,14 @@ Public self-hosting and hosted service controls are readiness targets, not claim
 about an existing deployment. The absence of a public host is not a present
 deployment defect. See the separate [readiness assessment](HOSTED-READINESS.md).
 
+- Every revision this assessment names is resolved once in
+  [revisions.json](evidence/revisions.json), so a commit quoted in prose can be
+  checked against the object it came from rather than retyped.
+  The repository's own security settings at the time of the export — which
+  scanners are enabled, and which are not — are in
+  [repository-security-settings.json](evidence/repository-security-settings.json);
+  an empty secret-scanning result means less than it looks when non-provider
+  patterns are off, which that file records.
 - Release `v0.1.0` commit: `7076c6b24b4aa9f0395d2db1b1bb33f95c4ee152`.
   Annotated tag object: `1d9240df907b9fd9820fd5cd476515f6338beec3`.
 - Initial development: `7076c6b24b4aa9f0395d2db1b1bb33f95c4ee152`.

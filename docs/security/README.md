@@ -2,7 +2,11 @@
 
 Start with the [assessment](RELEASE-ASSESSMENT.md), [generated status summary](SUMMARY.md),
 [alert register](alerts.json), [v4 ledger](asvs-4.0.3.json) and
-[v5 ledger](asvs-5.0.0.json). Current execution scope is local self-hosting;
+[v5 ledger](asvs-5.0.0.json). The documented policies several requirements ask
+for by name are in [POLICIES.md](POLICIES.md), and
+[evidence/README.md](evidence/README.md) lists every retained artifact with
+what cites it - the validator fails on a file in that directory that nothing
+points at, so the manifest cannot quietly go stale. Current execution scope is local self-hosting;
 non-local hosting is future state. The ledgers account for requirements without
 claiming that unassessed requirements have passed.
 

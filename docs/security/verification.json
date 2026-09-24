@@ -3815,38 +3815,38 @@
       96
     ],
     "tools/security_assessment.py": [
-      223,
-      196,
-      182,
-      57,
-      233,
-      41,
-      237,
-      242,
-      126,
-      31,
-      25,
-      52,
-      74,
-      21,
-      104,
-      40,
-      204,
-      141,
-      95,
-      250,
+      112,
       254,
-      187,
-      184,
-      68,
+      99,
+      108,
+      95,
+      168,
+      172,
+      254,
+      35,
+      27,
+      248,
+      53,
+      20,
+      109,
       102,
-      130,
+      136,
+      190,
+      209,
+      15,
       238,
-      94,
-      238,
-      52,
-      235,
-      83
+      151,
+      155,
+      128,
+      83,
+      212,
+      229,
+      13,
+      23,
+      29,
+      189,
+      83,
+      245
     ],
     "tools/build_password_corpus.py": [
       15,
@@ -4155,38 +4155,38 @@
       129
     ],
     "tools/tests/test_security_assessment.py": [
+      79,
+      187,
+      159,
+      8,
+      52,
+      217,
+      104,
+      4,
+      68,
+      141,
+      100,
+      79,
       251,
-      28,
-      98,
-      101,
-      5,
-      115,
-      190,
-      98,
+      116,
+      235,
       171,
-      189,
-      99,
-      47,
-      200,
-      127,
-      39,
-      245,
-      112,
-      193,
-      12,
+      37,
+      188,
+      118,
+      234,
+      212,
+      125,
+      44,
+      67,
+      101,
+      107,
+      102,
+      100,
+      109,
+      215,
       203,
-      231,
-      43,
-      251,
-      41,
-      121,
-      164,
-      142,
-      123,
-      173,
-      140,
-      249,
-      223
+      190
     ],
     ".github/renovate.json": [
       9,
@@ -4671,7 +4671,10 @@
       "status": "rerun required: source changed after this run",
       "evidence": [
         "docs/security/evidence/tests-l2-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "docs/security/evidence/tests-candidate.txt",
+        "docs/security/evidence/final-container-review.log",
+        "docs/security/evidence/migrations-final.txt",
+        "docs/security/evidence/test-count-final.txt"
       ],
       "note": "453 tests pass on the review host against real PostgreSQL 16 (evidence/tests-l2-candidate.txt). The containerised run that this check requires - image build, suite inside the image, restricted database role, secret and proxy probes - predates this source and must be repeated with tools/run_security_review.py."
     },
@@ -4679,21 +4682,27 @@
       "name": "documentation",
       "status": "passed",
       "evidence": [
-        "docs/security/evidence/docs-check.log"
+        "docs/security/evidence/docs-check.log",
+        "docs/security/evidence/tool-tests.log",
+        "docs/security/evidence/make-lint.log",
+        "docs/security/evidence/workflow-syntax.log"
       ]
     },
     {
       "name": "dependency-scan",
       "status": "rerun required: source changed after this run",
       "evidence": [
-        "docs/security/evidence/pip-audit.json"
+        "docs/security/evidence/pip-audit.json",
+        "docs/security/evidence/pip-audit-final.log"
       ]
     },
     {
       "name": "bandit",
       "status": "rerun required: source changed after this run",
       "evidence": [
-        "docs/security/evidence/bandit-candidate.json"
+        "docs/security/evidence/bandit-candidate.json",
+        "docs/security/evidence/bandit-final.log",
+        "docs/security/evidence/bandit-gate.log"
       ]
     },
     {
@@ -4708,7 +4717,8 @@
       "name": "semgrep",
       "status": "rerun required: source changed after this run",
       "evidence": [
-        "docs/security/evidence/semgrep.json"
+        "docs/security/evidence/semgrep.json",
+        "docs/security/evidence/semgrep-final.log"
       ]
     },
     {
@@ -4723,7 +4733,8 @@
       "status": "rerun required: source changed after this run",
       "evidence": [
         "docs/security/evidence/gitleaks-candidate.json",
-        "docs/security/evidence/gitleaks-history.json"
+        "docs/security/evidence/gitleaks-history.json",
+        "docs/security/evidence/gitleaks-history.log"
       ]
     },
     {
@@ -4731,7 +4742,10 @@
       "status": "findings require review",
       "evidence": [
         "docs/security/evidence/release-trivy.json",
-        "docs/security/evidence/release-grype.json"
+        "docs/security/evidence/release-grype.json",
+        "docs/security/evidence/release-sbom.json",
+        "docs/security/evidence/trivy-db.json",
+        "docs/security/evidence/release-gate.log"
       ]
     },
     {
@@ -4743,7 +4757,9 @@
         "docs/security/evidence/candidate-grype.json",
         "docs/security/evidence/candidate-grype-unfiltered.json",
         "docs/security/evidence/candidate-zlib-scan-metadata.json",
-        "docs/security/evidence/candidate-image-amd64-ci.json"
+        "docs/security/evidence/candidate-image-amd64-ci.json",
+        "docs/security/evidence/candidate-grype-db-status.json",
+        "docs/security/evidence/candidate-trivy-db-metadata.json"
       ]
     },
     {
@@ -4759,7 +4775,8 @@
       "evidence": [
         "docs/security/evidence/runner-final.json",
         "docs/security/evidence/deployment-final.json",
-        "docs/security/evidence/proxy-final.json"
+        "docs/security/evidence/proxy-final.json",
+        "docs/security/evidence/deployment-inspect.json"
       ]
     },
     {

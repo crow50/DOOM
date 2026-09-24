@@ -16,6 +16,25 @@ ROOT = Path(__file__).resolve().parents[1]
 BASE = Path("docs/security")
 STATUSES = ("Met", "Partial", "Compensating", "Not met", "N/A", "Not assessed")
 DISPOSITIONS = {"confirmed", "false positive", "duplicate", "resolved/stale", "unresolved"}
+#: Evidence files that nothing cites because a *tool* reads them rather than a
+#: human argument. Everything else under docs/security/evidence must be cited
+#: by a ledger row, a finding, an exception or a verification check - see
+#: `unreferenced_evidence`.
+RAW_EXPORTS = {
+    "evidence/code-scanning-pages.json",
+    "evidence/dependabot-pages.json",
+    "evidence/secret-scanning-pages.json",
+    "evidence/source-availability.json",
+    "evidence/candidate-image.json",
+    "evidence/updated-main/code-scanning-pages.json",
+    "evidence/updated-main/dependabot-pages.json",
+    "evidence/updated-main/secret-scanning-pages.json",
+    "evidence/updated-main/source-availability.json",
+    "evidence/updated-main/analyses-pages.json",
+    "evidence/updated-main/latest-main-analyses.json",
+    "evidence/README.md",
+}
+
 REQUIRED_CHECKS = {
     "container-suite", "documentation", "dependency-scan", "bandit", "semgrep",
     "codeql-candidate", "secret-scan", "release-image-scan", "candidate-image-scan",
@@ -56,6 +75,31 @@ def source_hashes(root=ROOT):
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
 
 
+def unreferenced_evidence(cited, root=ROOT):
+    """Evidence files that support nothing.
+
+    An orphan is not harmless. A reviewer who finds a log in this directory
+    reasonably assumes some claim rests on it, and a directory that accumulates
+    outputs nobody cites makes the set that *is* load-bearing harder to see -
+    which is the opposite of what an evidence directory is for. Anything kept
+    here has to be pointed at by a ledger row, a finding, an exception or a
+    verification check, or be one of the raw exports above that a tool reads.
+
+    Deleting an orphan is the usual fix; citing it from the claim it supports
+    is the other one, and is right more often than it looks.
+    """
+    directory = root / BASE / 'evidence'
+    if not directory.is_dir():
+        return []
+    present = {
+        str(path.relative_to(root / BASE)) for path in directory.rglob('*')
+        if path.is_file()
+    }
+    return sorted(present - RAW_EXPORTS - {
+        ref.removeprefix(f'{BASE}/') for ref in cited
+    })
+
+
 def validate(root=ROOT, release=False, deployment='local', publish=False):
     release = release or publish
     errors = []
@@ -85,6 +129,8 @@ def validate(root=ROOT, release=False, deployment='local', publish=False):
                 f"standard changed: {entry['path']}")
     all_ids = set()
     control_findings = []
+    #: Every evidence path anything points at, so orphans can be spotted below.
+    cited = set()
     for version in ("4.0.3", "5.0.0"):
         official = universe(version, root)
         ledger = read(BASE / f"asvs-{version}.json", root)
@@ -104,6 +150,7 @@ def validate(root=ROOT, release=False, deployment='local', publish=False):
                 require(row["requirement"] == official[rid]["requirement"], f"{rid}: modified requirement text")
             if row["level"] == 3:
                 require(bool(row.get("selection_reason")), f"{rid}: L3 needs threat justification")
+            cited.update(ref.partition(":")[0] for ref in row.get("evidence", []))
             evidence(row.get("evidence", []), rid)
             if row["status"] in ("Partial", "Compensating", "Not met"):
                 require(bool(row.get('finding_ids')), f"{rid}: gap has no risk-review finding")
@@ -148,6 +195,7 @@ def validate(root=ROOT, release=False, deployment='local', publish=False):
     for eid, exception in exceptions.items():
         require(bool(exception.get("owner")) and bool(exception.get("reassessment_trigger")), f"{eid}: missing owner/trigger")
         require(bool(exception.get("approved_by")) and bool(exception.get("approval_evidence")), f"{eid}: acceptance not approved")
+        cited.update(ref.partition(":")[0] for ref in exception.get("approval_evidence", []))
         evidence(exception.get("approval_evidence", []), eid)
         try:
             require(dt.date.fromisoformat(exception["expires"]) > dt.datetime.now(dt.timezone.utc).date(), f"{eid}: expired exception")
@@ -162,6 +210,7 @@ def validate(root=ROOT, release=False, deployment='local', publish=False):
         for key in ('affected_versions', 'impact', 'rationale', 'remediation', 'verification', 'group', 'exploitability', 'residual_risk'):
             require(bool(a.get(key)), f"{aid}: missing {key}")
         require(a['residual_risk'] in ('critical', 'high', 'medium', 'low', 'none', 'unknown'), f"{aid}: invalid residual risk")
+        cited.update(ref.partition(":")[0] for ref in a.get('evidence', []))
         evidence(a.get('evidence', []), aid)
         if a['disposition'] == 'duplicate':
             require(a.get('duplicate_of') in ids and a.get('duplicate_of') != aid, f"{aid}: invalid duplicate reference")
@@ -174,6 +223,20 @@ def validate(root=ROOT, release=False, deployment='local', publish=False):
                 require(a.get('exception') in exceptions, f"{aid}: residual risk not accepted")
             if a.get('blocking_exposure') and a['residual_risk'] != 'none':
                 require(False, f"{aid}: demonstrated blocking exposure")
+    for check in read(BASE / 'verification.json', root)['checks']:
+        cited.update(ref.partition(":")[0] for ref in check.get('evidence', []))
+
+    # A file a document argues from is cited as surely as one a ledger row
+    # points at, so prose counts. Matching on the path as written means a link
+    # in RELEASE-ASSESSMENT.md and a row in the ledger reach the same file.
+    for path in (root / "docs").rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        for match in re.findall(r"(?:docs/security/)?evidence/[A-Za-z0-9_./-]+", text):
+            cited.add(str(BASE / match[match.index("evidence/"):]).rstrip(".,)"))
+
+    for orphan in unreferenced_evidence(cited, root):
+        require(False, f'{orphan}: evidence file that nothing cites')
+
     availability = read(BASE / 'evidence/source-availability.json', root)
     if release:
         for name, source in availability.items():
