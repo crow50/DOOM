@@ -57,6 +57,41 @@ jobs:
       - name: Build Docker image
         run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
 
+      # Store the exact image config digest and platform next to the scan
+      # workflow run so the tag does not stand in for artifact identity.
+      - name: Record candidate image identity
+        run: docker image inspect doom-organizer:${{ github.sha }} > candidate-image-inspect.json
+
+      - name: Upload candidate image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: doom-organizer-image-${{ github.sha }}
+          path: candidate-image-inspect.json
+          if-no-files-found: error
+
+      - name: Generate runtime SBOM for exact-PURL VEX
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
+        with:
+          image: doom-organizer:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cyclonedx.json
+          upload-artifact: false
+
+      # The package inventory remains at Alpine zlib 1.3.2-r0, but the image
+      # ships the verified upstream-patched library. The generated statement
+      # is bound to the exact PURL from this image's SBOM and fails closed on
+      # any distro/version change.
+      - name: Generate exact-PURL VEX for patched runtime zlib
+        run: python3 tools/generate_runtime_vex.py sbom.cyclonedx.json --output runtime-zlib.vex.json
+
+      - name: Configure Trivy to consume the exact-PURL VEX
+        run: |
+          cat > trivy-vex.yaml <<'EOF'
+          vulnerability:
+            vex:
+              - ./runtime-zlib.vex.json
+          EOF
+
         # Scanning the Docker image with Trivy
         # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found
       - name: Run Trivy scan
@@ -68,6 +103,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: 'false'
           severity: 'CRITICAL,HIGH'
+          trivy-config: trivy-vex.yaml
 
         # Generating SARIF report with Trivy
       - name: Run Trivy and generate SARIF report
@@ -81,6 +117,7 @@ jobs:
           ignore-unfixed: 'false'
           exit-code: '0'
           skip-setup-trivy: 'true' # Reuse Trivy binary from the action's cache to speed up setup
+          trivy-config: trivy-vex.yaml
 
         # Uploading SARIF report to GitHub Security tab
       - name: Upload Trivy scan results to GitHub Security tab

@@ -1,4 +1,4 @@
-# Release security assessment — 2026-09-23
+# Release security assessment — 2026-09-24
 
 **Release recommendation: blocked. No ASVS level is claimed.** This review fixes
 reproduced defects and accounts for the exported alerts and required controls;
@@ -37,6 +37,50 @@ The original checkout and its deployment data were not used for tests. Local
 Compose project `doomreview-20260923` used fresh secrets and named volumes with
 only loopback ports 18480/18443. The reusable runner makes a disposable source
 copy and unique images, project names and volumes, and cleans its own project.
+
+## CI failure and candidate recheck — 2026-09-24
+
+The failed checks on `5cb52c9` had two independent causes. The Lint, Compile,
+and Test run [36001808021](https://github.com/crow50/DOOM/actions/runs/36001808021)
+failed `test_grouped_candidate_hashes_still_verify`: the recorded source digest
+for `app/tests/test_security_review.py` did not match the updated file. Commit
+`2af8b5a` refreshed the manifest, and run
+[36002613739](https://github.com/crow50/DOOM/actions/runs/36002613739) passed.
+The Trivy and Grype failures were image findings, not test failures. The old
+Debian 13.7 candidate produced 44 Trivy HIGH findings and 49 Grype HIGH matches
+across 12 distinct high-severity CVEs. Grype's report retained 156 total
+matches. Debian's stable package metadata had no available fixes for several
+reported packages; the per-alert register keeps these separate from false
+positives and deployment mitigations.
+
+The current local candidate replaces the Debian slim base with the supported
+Python 3.14.7 Alpine 3.23 image, pinned to multi-architecture manifest digest
+`sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d`.
+It builds zlib from immutable upstream commit
+[`df84af25`](https://github.com/madler/zlib/commit/df84af25dc1942490e1d1c899a07619152a46148).
+The source archive SHA-256 is pinned in [app/Dockerfile](../../app/Dockerfile).
+The builder runs the upstream zlib tests; the runtime asserts that Python maps
+the uniquely versioned patched library. Candidate evidence records the exact
+ARM64 image ID, SBOM, scanner/database versions and timestamps, VEX statement,
+and local Compose results. This is local ARM64 evidence; the pushed branch's
+AMD64 CI rebuild remains necessary before the candidate can be treated as
+verified across architectures. The review Docker host has no AMD64 binfmt
+emulator, so its local cross-architecture build stops with `/bin/sh: exec format
+error` before running Dockerfile steps. That is an execution-environment limit;
+the native AMD64 GitHub runner is the required verification path.
+
+Against the exact candidate SBOM, Grype 0.118.0 without VEX still exits 2 at the
+HIGH threshold and reports ten matches. With VEX, it exits 0: the one HIGH
+`CVE-2026-85091` match is retained in `ignoredMatches` as `fixed` for only the
+exact Alpine zlib package PURL; eight MEDIUM and one LOW matches remain active
+and are separately unresolved in the alert register. This is a verified
+backport, not a broad ignore-unfixed or CVE suppression. Trivy 0.70.0 reports
+no vulnerability matches for this ARM64 candidate with the current database;
+that result does not supersede Grype's findings. The isolated Compose security
+runner passed all 305 application tests, database-role, secret, proxy,
+container-hardening and loopback-port checks, then removed its disposable
+project. The published release remains a separate Debian image with its own
+open findings.
 
 ## Findings and evidence
 
@@ -104,37 +148,44 @@ restricted application role and migrated database.
 
 ## Dependency risk and scan behavior
 
-Trivy reports 156 package findings in each of the initial release and candidate
-scans, including 44 high, 53 medium, 57 low and two unknown. These are not 156
-independent exploits: several binary packages inherit the same source-package
-advisory. Both identities remain in the register. The initial CI Grype report
-only showed four findings; the new full scan includes unfixed OS findings as
-well. Reported severity and residual exploitability are separate fields.
+The published release and the initial Debian candidate each had 156 Trivy
+package findings, including 44 high, 53 medium, 57 low and two unknown. Those
+historical reports are preserved as distinct artifacts; the original
+candidate's Debian image evidence is under `evidence/candidate-debian-pre-alpine-*`.
+They are not the current Alpine candidate scan. Several binary packages inherit
+the same source-package advisory, so these are not 156 independent exploits.
+Reported severity and residual exploitability are separate fields.
 
-The high util-linux findings require local privileged mount/cgroup operations;
+The published release and historical Debian candidate have high util-linux
+findings requiring local privileged mount/cgroup operations;
 [Debian's tracker](https://security-tracker.debian.org/tracker/CVE-2026-76642)
 identifies the affected source package and currently unpatched stable version.
-The candidate runs as UID 10001 with no capabilities, no-new-privileges, and no
-configured fstab mounts. Those are real mitigations, not false-positive evidence
-or approved risk acceptance. A changed deployment invalidates that reasoning.
+Those Debian images run as UID 10001 with no capabilities,
+no-new-privileges, and no configured fstab mounts. Those are real mitigations,
+not false-positive evidence or approved risk acceptance. The current Alpine
+candidate's SBOM does not include util-linux; that does not change the published
+release's finding or disposition.
 
-Other high findings include
+Other high findings in those Debian artifacts include
 [infocmp processing](https://security-tracker.debian.org/tracker/CVE-2025-69720),
 [systemd-homed](https://security-tracker.debian.org/tracker/CVE-2026-16742), and
 [Perl Archive::Tar](https://security-tracker.debian.org/tracker/CVE-2026-9538).
-The latter two components are absent at the inspected runtime paths, while
-infocmp is present. The application does not invoke these utilities. These
-observations narrow reachability but do not resolve the entire source-package
-advisory set. [Reachability evidence](evidence/runtime-reachability.txt) is scoped
-to the rebuilt candidate; final ratings still require complete advisory review.
+The latter two components were absent at the inspected Debian runtime paths,
+while infocmp was present. The application does not invoke these utilities.
+These observations narrow reachability but do not resolve the entire
+source-package advisory set. [Reachability evidence](evidence/runtime-reachability.txt)
+is scoped to the pre-Alpine Debian candidate and must not be applied to the
+published release or the current Alpine candidate without fresh evidence.
 
-Trivy and Grype gates now include unfixed vulnerabilities. Trivy's report
-includes unknown severity. Scanner failure/skipping appears in the CI summary;
-Semgrep strict mode makes scan errors fail. Tag publication now runs the release
-assessment preflight. Lower residual risks require a separately approved owner,
-expiry, evidence and reassessment trigger in `exceptions.json`. No blanket
-"unfixed Debian" exception is valid. Scanner gates remain conservative HIGH+
-gates until a narrowly scoped reviewed exception mechanism is justified.
+Trivy and Grype gates include unfixed vulnerabilities. Trivy's report includes
+unknown severity. Scanner failure/skipping appears in the CI summary; Semgrep
+strict mode makes scan errors fail. The high zlib match is addressed in the
+current candidate by an upstream-patched runtime library and an exact-PURL VEX
+statement. The statement must be removed when Alpine ships the package fix or
+reassessed if its build, PURL or runtime changes. The published release's
+zlib finding remains open. Tag publication runs the release assessment
+preflight. Lower residual risks require an approved owner, expiry, evidence and
+reassessment trigger in `exceptions.json`; none is accepted here.
 
 ## ASVS interpretation
 
@@ -173,9 +224,10 @@ verification and changed candidate source hashes.
 - Final exploitability/residual-risk review of every dependency finding,
   including new full Grype findings and ambiguous/stale Python matches.
 - Candidate CodeQL analysis and execution of the published AMD64 release suite.
-- Semgrep returned no findings but exited 3 under strict mode due to Jinja
-  template parsing errors. The retained JSON includes these errors and skipped
-  paths. This is a partial source scan, not a clean pass.
+- The earlier Semgrep Jinja parser failure was addressed by limiting strict
+  Semgrep to supported source formats and adding template compilation and
+  autoescape regression checks. The latest recorded Semgrep run on `2af8b5a`
+  passed; the current source changes still require the branch's post-push run.
 - Every `Not assessed` control needs full requirement evidence before any ASVS
   level claim. Known gaps prevent L1/L2 claims even if scanner findings close.
 - DNS rebinding remains possible in opt-in lookup because address validation and

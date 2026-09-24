@@ -1,0 +1,26 @@
+CREATE DATABASE
+CREATE EXTENSION
+docker compose -p doomreview-7840cf1dea06 -f docker-compose.yml -f review.yml --profile test build --quiet test
+ Image doomreview-7840cf1dea06-test Building 
+ Image doomreview-7840cf1dea06-test Built 
+docker compose -p doomreview-7840cf1dea06 -f docker-compose.yml -f review.yml --profile test run --rm test python -m pytest -p no:cacheprovider -q
+ Container doomreview-7840cf1dea06-db-1 Running 
+ Container doomreview-7840cf1dea06-cache-1 Running 
+ Container doomreview-7840cf1dea06-db-1 Waiting 
+ Container doomreview-7840cf1dea06-cache-1 Waiting 
+ Container doomreview-7840cf1dea06-cache-1 Healthy 
+ Container doomreview-7840cf1dea06-db-1 Healthy 
+ Container doomreview-7840cf1dea06-test-run-79cc8f6723c2 Creating 
+ Container doomreview-7840cf1dea06-test-run-79cc8f6723c2 Created 
+........................................................................ [ 23%]
+........................................................................ [ 47%]
+........................................................................ [ 71%]
+........................................................................ [ 94%]
+................                                                         [100%]
+=============================== warnings summary ===============================
+tests/test_security_review.py::test_image_pixel_limit_is_a_hard_limit
+  /opt/venv/lib/python3.14/site-packages/PIL/Image.py:3578: DecompressionBombWarning: Image size (110 pixels) exceeds limit of 100 pixels, could be decompression bomb DOS attack.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+304 passed, 1 warning in 52.29s

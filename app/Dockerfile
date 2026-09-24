@@ -2,17 +2,36 @@
 # Build stage - compilers and headers live here and never reach the runtime
 # image, so the shipped container has a much smaller attack surface.
 # ---------------------------------------------------------------------------
-FROM python:3.14.7-slim AS builder
+FROM python:3.14.7-alpine3.23@sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d AS builder
+
+ARG ZLIB_COMMIT=df84af25dc1942490e1d1c899a07619152a46148
+ARG ZLIB_SOURCE_SHA256=03a76732cfaa124c58b67600699d935d081604385c03aa282f81a101b7536161
 
 ENV PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /build
 
-# hadolint ignore=DL3008
-RUN apt-get update \
- && apt-get install -y --no-install-recommends build-essential \
- && rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache build-base ca-certificates curl
+
+# Alpine 3.23 currently ships zlib 1.3.2-r0, which contains the
+# CVE-2026-85091 non-blocking gzwrite overflow. Build the upstream fix at an
+# immutable commit and verify the downloaded source before compiling it.
+# The exact runtime image is then checked below to ensure Python loads this
+# patched shared library instead of the APK's original copy.
+RUN set -eux; \
+    curl --fail --location --silent --show-error \
+      "https://github.com/madler/zlib/archive/${ZLIB_COMMIT}.tar.gz" \
+      --output /tmp/zlib.tar.gz; \
+    echo "${ZLIB_SOURCE_SHA256}  /tmp/zlib.tar.gz" | sha256sum -c -; \
+    mkdir -p /build/zlib; \
+    tar -xzf /tmp/zlib.tar.gz --strip-components=1 -C /build/zlib; \
+    cd /build/zlib; \
+    ./configure --prefix=/opt/zlib --shared; \
+    make -j"$(nproc)"; \
+    make test; \
+    make install; \
+    rm -rf /tmp/zlib.tar.gz /build/zlib
 
 COPY requirements.txt requirements-dev.txt ./
 RUN python -m venv --upgrade-deps /opt/venv \
@@ -34,43 +53,33 @@ RUN cp -a /opt/venv /opt/venv-test \
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM python:3.14.7-slim AS runtime
+FROM python:3.14.7-alpine3.23@sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    LD_LIBRARY_PATH="/usr/local/lib"
 
-# libmagic1 backs python-magic, which identifies uploads by their content
+# The file package provides libmagic, which identifies uploads by their content
 # rather than their filename (T-12).
-#
-# `apt-get upgrade` is the load-bearing line, and hadolint's DL3005 argues
-# against it on reproducibility grounds: it builds a different image on Tuesday
-# than it did on Monday.  That is true, and it is the wrong trade here.  A
-# pinned base tag freezes the OS packages at whatever shipped the day
-# `python:3.14.7-slim` was last rebuilt, while Debian publishes security updates
-# continuously in between - a scan of this image found twelve fixed CVEs in
-# gzip, pcre2, sqlite3 and perl, three of them CRITICAL, none introduced by
-# anything in this repository and every one already patched in
-# trixie-security.  An image that cannot pick those up is reproducibly
-# vulnerable.
-#
-# The reproducible alternative - pinning `gzip=1.13-1+deb13u1` and its
-# neighbours - is worse than it looks: Debian's archive carries only the
-# current version of each package, so an exact pin stops resolving the moment
-# it is superseded and the build breaks on the day the next fix lands.
-# Upgrading pins the *policy* instead - this image ships the current security
-# state of the Debian release its base image names - and Renovate keeps the
-# base tag itself moving.  D-39.
-#
-# hadolint ignore=DL3005,DL3008
-RUN apt-get update \
- && apt-get upgrade -y \
- && apt-get install -y --no-install-recommends libmagic1 \
- && rm -rf /var/lib/apt/lists/* \
- && groupadd --gid 10001 doom \
- && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin doom
+# Upgrade the pinned Alpine branch before installing libmagic. Renovate keeps
+# the language and distro tag current while the package manager takes security
+# updates from that same stable branch.
+RUN apk upgrade --no-cache \
+ && apk add --no-cache file \
+ && addgroup -S -g 10001 doom \
+ && adduser -S -u 10001 -G doom -H -D -s /sbin/nologin doom
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/zlib/lib/libz.so.1.3.2.1-motley /usr/local/lib/libz.so.1.3.2.1-motley
+
+# Override the unpatched APK library for every process in this image. Verify
+# the dynamic loader maps the upstream-built shared object into Python before
+# this image can be scanned or shipped. The package inventory remains intact;
+# the narrow VEX statement used by both image gates is generated from this
+# build's SBOM and only covers its exact zlib package PURL.
+RUN ln -s libz.so.1.3.2.1-motley /usr/local/lib/libz.so.1 \
+ && python -c 'import zlib; maps = open("/proc/self/maps", encoding="utf-8").read(); assert "/usr/local/lib/libz.so.1.3.2.1-motley" in maps, maps; assert zlib.ZLIB_RUNTIME_VERSION == "1.3.2.1-motley", zlib.ZLIB_RUNTIME_VERSION; print("patched zlib loaded:", zlib.ZLIB_RUNTIME_VERSION)'
 
 # pip is a build-time tool; nothing in the runtime image ever installs anything.
 # Removing it removes its *vendored* dependency tree with it, which is where every

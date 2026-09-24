@@ -1,0 +1,66 @@
+{
+  "Id": "sha256:3f1400e131179e9793018a92a3fc7550be2026a2bb8ec330cffec29546b55e75",
+  "RepoTags": [
+    "doomreview-7840cf1dea06-web:latest"
+  ],
+  "RepoDigests": [],
+  "Comment": "buildkit.dockerfile.v0",
+  "Created": "2026-09-23T19:01:21.758940745-04:00",
+  "Config": {
+    "User": "10001:10001",
+    "ExposedPorts": {
+      "8000/tcp": {}
+    },
+    "Env": [
+      "PATH=/opt/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      "PYTHON_VERSION=3.14.7",
+      "PYTHON_SHA256=3b48dac8fb59f62eaa67ac83c1eb12bda1b7a08406dd286e252c11a66be27f81",
+      "PYTHONUNBUFFERED=1",
+      "PYTHONDONTWRITEBYTECODE=1"
+    ],
+    "Cmd": [
+      "sh",
+      "-c",
+      "exec gunicorn       --bind 0.0.0.0:8000       --workers ${GUNICORN_WORKERS:-2}       --threads ${GUNICORN_THREADS:-4}       --worker-tmp-dir /tmp       --access-logfile -       --error-logfile -       --logger-class doom.security.gunicorn_logging.JsonAccessLogger       --forwarded-allow-ips '*'       --no-control-socket       wsgi:app"
+    ],
+    "WorkingDir": "/srv/doom",
+    "Labels": {
+      "com.docker.compose.project": "doomreview-7840cf1dea06",
+      "com.docker.compose.service": "web",
+      "com.docker.compose.version": "5.5.1"
+    },
+    "ArgsEscaped": true
+  },
+  "Architecture": "arm64",
+  "Os": "linux",
+  "Size": 276539874,
+  "GraphDriver": {
+    "Data": {
+      "LowerDir": "/var/lib/docker/overlay2/ufdmfnx9bam2zac9zmge1wd5n/diff:/var/lib/docker/overlay2/u750ey93m5jae324jfs5mbp1v/diff:/var/lib/docker/overlay2/jo6mf41x339xb8d9zjpv1o0by/diff:/var/lib/docker/overlay2/fz1muyitvalqv50w82cz996n1/diff:/var/lib/docker/overlay2/vzr7atppufrcq00yza0semwzo/diff:/var/lib/docker/overlay2/ety0zgosw18vqupa6set96fmv/diff:/var/lib/docker/overlay2/in1t927mkuf0i50wkwdomhhkn/diff:/var/lib/docker/overlay2/ac09773a478b67e637098a041a9acb7be3cb546812916a64ebce0b5d9e9ea006/diff:/var/lib/docker/overlay2/134e757bdc8e8c2ec34c3cd6381db4383fd6b1b77a1a3a285ae3fc81bb534435/diff:/var/lib/docker/overlay2/a1f4c6dd358b33a56730648a6ee1cfeb5d187527e44305e0a43c150087c2eabf/diff:/var/lib/docker/overlay2/d18bcc8b7c15f143bf301f629196474f3ba43e49bf06cc1f6ed4fcfab4049851/diff",
+      "MergedDir": "/var/lib/docker/overlay2/op9nvbuhckjy1geguuhpvpdhm/merged",
+      "UpperDir": "/var/lib/docker/overlay2/op9nvbuhckjy1geguuhpvpdhm/diff",
+      "WorkDir": "/var/lib/docker/overlay2/op9nvbuhckjy1geguuhpvpdhm/work"
+    },
+    "Name": "overlay2"
+  },
+  "RootFS": {
+    "Type": "layers",
+    "Layers": [
+      "sha256:8227a1264c7ff2f8bd125b585e62c1cec77dd2099c985c33e08d34292d06144f",
+      "sha256:3ae3733f0130d835448c741b94a04f39a8c55fddd55c85d457729b204e18ade2",
+      "sha256:ba4dc87ae961a45479cf7d2f73acae20042eb144683c1a4ded348f2c9266e79a",
+      "sha256:1c18876254fe38c7184f23ae3c7715a678f6e407e447717178e25e23205ff639",
+      "sha256:6ca873c432eecce8264c2c57ca2d99e196211d1e1613111ebbb69d51066b8a71",
+      "sha256:817f94ebe16cd8b42592f14472bc29c4dd0ab5867a225d6a11e21afd6180d9a8",
+      "sha256:57aac31168b09558a5d2385ca6d86197f65cca429cccdc8e3ab062844a2d9035",
+      "sha256:30d3c2a00ba7ea728beceb1bd02db595e55960da350c1b65d35e1b02ef5972bf",
+      "sha256:6fbb24a7bbd33160e4bafb08399b7fd675a614151af2240873a2e59e87cef84a",
+      "sha256:ba2415aff44cd12d814c5b504fb082549bc7c7b22eea656e715e789722d246c9",
+      "sha256:75df7bfe06b4f34af8f32af09685c4c9c8b102a130fd2dc0c28ada983d10bff6",
+      "sha256:9d420526fea190a4d6151991e75d764219423cafb431146ed07e62d944e66e1e"
+    ]
+  },
+  "Metadata": {
+    "LastTagTime": "2026-09-23T19:01:22.628333811-04:00"
+  }
+}
