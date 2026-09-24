@@ -15,7 +15,10 @@
         {# A child is a link only if it was separately shared. The parent's
            token never confers access to a child (T-36). #}
         {% if entry.share_token %}
-          <a href="{{ url_for('share.view', token=entry.share_token) }}">{{ entry.name }}</a>
+          {# The child's own code travels in the fragment, exactly as it does
+             on a printed label: everything after '#' stays in the browser and
+             is never sent to the server (ASVS 14.2.1). #}
+          <a href="{{ url_for('share.unlock') }}#{{ entry.share_token }}">{{ entry.name }}</a>
         {% else %}
           <span>{{ entry.name }}</span>
         {% endif %}

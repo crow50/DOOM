@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from conftest import audit, login
+from conftest import audit, login, open_share
 from doom.extensions import db
 from doom.models import Checkout, Location, Movement, new_share_token
 from doom.timeline import item_timeline, location_timeline
@@ -131,7 +131,7 @@ class TestRendered:
         alice_bin.share_token = new_share_token()
         db.session.commit()
 
-        response = client.get(f"/t/{alice_bin.share_token}")
+        response = open_share(client, alice_bin.share_token)
         assert response.status_code == 200
         assert b"renamed-marker" not in response.data
         assert b"History" not in response.data

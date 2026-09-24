@@ -12,6 +12,7 @@ from .config import Config, ConfigError
 from .extensions import csrf, db, limiter, login_manager, migrate
 from .security import headers as security_headers
 from .security import logging as structured_logging
+from .security import sessions as secure_sessions
 
 __version__ = "0.1.0"
 
@@ -28,6 +29,11 @@ def create_app(config_object: type[Config] = Config) -> Flask:
         raise ConfigError("DEBUG must remain off; refusing to start.")
 
     _apply_proxy_fix(app)
+
+    # Before the extensions: Flask-WTF reads the itsdangerous default when it
+    # first builds a CSRF serializer, and the login manager reads the session
+    # interface on the first request.
+    secure_sessions.init_app(app)
 
     structured_logging.init_app(app)
     _init_extensions(app)

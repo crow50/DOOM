@@ -53,9 +53,15 @@ def share_url(node) -> str:
     (T-14). Deriving it from the inbound Host header would let an attacker
     poison generated links, and - far more likely in practice - would bake
     "localhost" into a sheet of physical labels that then has to be reprinted.
+
+    The token goes in the **fragment**, after the '#'. Browsers never put a
+    fragment on the wire, so scanning this label sends the server nothing but
+    ``GET /t/`` - no capability in the request line, none in the access log,
+    none in Referer if the page is later clicked away from (ASVS 14.2.1). The
+    unlock page reads it out of the fragment and posts it in a body.
     """
     base = current_app.config["PUBLIC_BASE_URL"].rstrip("/")
-    return f"{base}/t/{node.share_token}"
+    return f"{base}/t/#{node.share_token}"
 
 
 def qr_data_uri(payload: str) -> str:

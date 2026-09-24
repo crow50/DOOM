@@ -1,6 +1,6 @@
 """Regressions found during the release/ASVS 5 security review."""
 import pytest
-from conftest import login, sync
+from conftest import login, open_share, sync
 from doom.extensions import db
 from doom.models import new_share_token
 from doom.security.passwords import hash_share_pin
@@ -26,7 +26,8 @@ def test_share_approval_revoked_when_credentials_change(client, alice_item, chan
     alice_item.share_pin_hash = hash_share_pin("123456")
     db.session.commit()
     token = alice_item.share_token
-    response = client.post(f"/t/{token}", data={"pin": "123456"})
+    handle = client.post("/t/", data={"token": token}).headers["Location"]
+    response = client.post(handle, data={"pin": "123456"})
     assert b"Cordless drill" in response.data
     sync()
     if change == "pin":
@@ -34,7 +35,7 @@ def test_share_approval_revoked_when_credentials_change(client, alice_item, chan
     else:
         alice_item.share_token = new_share_token()
     db.session.commit()
-    response = client.get(f"/t/{alice_item.share_token}")
+    response = open_share(client, alice_item.share_token)
     assert b"Cordless drill" not in response.data
     assert b'name="pin"' in response.data
 

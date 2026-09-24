@@ -246,6 +246,32 @@ ALLOWED_DOC_TYPES = {
 
 ALLOWED_UPLOAD_TYPES = {**ALLOWED_IMAGE_TYPES, **ALLOWED_DOC_TYPES}
 
+#: Which submitted filename extensions may accompany each accepted content type.
+#:
+#: The stored file's extension is generated from the sniffed type and never
+#: from this table - see ``security/uploads.py``.  This is the separate check
+#: ASVS 5.0.0-5.2.2 asks for: that the extension the *client* put on the file
+#: agrees with what the bytes actually are.  A ``report.pdf`` that is really a
+#: JPEG is not dangerous here, but it is a lie about the file, and the cheapest
+#: place to notice a caller that lies is before the bytes are stored.
+#:
+#: Markdown is the reason ``text/plain`` accepts ``.md``: libmagic cannot
+#: distinguish Markdown from any other plain text, so it reports ``text/plain``
+#: for both and a strict one-extension-per-type table would reject every
+#: ``.md`` upload the allowlist above deliberately permits.
+UPLOAD_EXTENSIONS_FOR_TYPE = {
+    "image/jpeg": {".jpg", ".jpeg", ".jpe"},
+    "image/png": {".png"},
+    "image/webp": {".webp"},
+    "application/pdf": {".pdf"},
+    "text/plain": {".txt", ".text", ".md", ".markdown"},
+    "text/markdown": {".md", ".markdown", ".txt"},
+}
+
+#: Longest extension this will consider.  Past this it is not an extension,
+#: it is the tail of a filename with a dot in it.
+UPLOAD_EXTENSION_MAX = 10
+
 #: Deliberately absent, with reasons - see docs/DECISIONS.md:
 #:
 #:   image/svg+xml  SVG is an XSS vector.  It is a document format that can

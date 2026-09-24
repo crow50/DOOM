@@ -57,7 +57,9 @@ make seed      # optional: a demo account and a small site
 Then open **https://localhost:8443** - the certificate is self-signed by
 Caddy's internal CA, so expect a browser warning on first visit.
 
-Demo account: `demo` / `correct-horse-battery-staple`
+Demo account: `demo`. `make seed` generates its password and prints it once -
+there is no default credential to forget to change (ASVS 5.0.0-6.3.2). It
+refuses to run against a database that already holds other accounts.
 
 > **Set `PUBLIC_BASE_URL` in `.env` before printing labels.** It is encoded
 > into every QR code and NFC tag, and a label printed against the wrong

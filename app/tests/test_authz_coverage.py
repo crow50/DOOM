@@ -102,6 +102,15 @@ SCOPING: dict[str, str] = {
 
     # The token is the credential (T-36). Unauthenticated by design, and the
     # response is built from a reduced dict with no owner in it.
+    #
+    # The credential no longer travels in the URL: unlock() serves the page a
+    # scanned label lands on, open_share() takes the code out of the POST body
+    # and files it in the visitor's signed session, and view() addresses that
+    # entry by a handle which is worth nothing without the cookie holding it
+    # (ASVS 14.2.1). Each still resolves the token on the request, so none of
+    # them reaches a row that is not marked shared.
+    "share.unlock": CAPABILITY,
+    "share.open_share": CAPABILITY,
     "share.view": CAPABILITY,
 }
 

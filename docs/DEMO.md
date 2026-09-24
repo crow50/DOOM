@@ -11,7 +11,9 @@ start; commands are copy-pasteable.
 make init && make up && make upgrade && make seed
 ```
 
-Demo account: `demo` / `correct-horse-battery-staple`
+Demo account: `demo`. `make seed` prints its generated password once - copy it
+out of that output before clearing the terminal. `flask set-password demo`
+issues a new one if it is lost.
 
 **Set `PUBLIC_BASE_URL` before printing any labels.** It is baked into every QR
 code and NFC tag. A label printed against `localhost` is permanently useless.

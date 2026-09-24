@@ -425,6 +425,37 @@ class SharePinForm(FlaskForm):
     submit = SubmitField("Unlock")
 
 
+class ShareTokenForm(FlaskForm):
+    """Carries a share code from the page's URL fragment into the request body.
+
+    The code is a capability - holding it is the whole of the authorisation -
+    so ASVS 5.0.0-14.2.1 does not let it travel in the URL, where it would be
+    kept in browser history, sent in Referer to anything the page links to,
+    and written to every access log between here and the client.  A fragment
+    is never transmitted at all, and this form is what moves the value the
+    fragment carried into the POST body.
+
+    ``Regexp`` rather than ``Length``: a wrong-shaped value is not a lookup
+    that misses, it is a value that was never issued by this application, and
+    it should be refused without a database round trip or an audit row.
+    """
+
+    #: A text field, not a hidden one, and that is the no-JavaScript story:
+    #: the same input the script fills from the fragment is the one a visitor
+    #: types the printed code into when the script never runs.
+    token = StringField(
+        "Share code",
+        validators=[InputRequired(), Regexp(f"^{v.SHARE_TOKEN_PATTERN}$")],
+        render_kw={
+            "autocomplete": "off",
+            "autocapitalize": "off",
+            "autocorrect": "off",
+            "spellcheck": "false",
+        },
+    )
+    submit = SubmitField("Open")
+
+
 class RevokeSessionForm(FlaskForm):
     """End a session, having re-entered the password.
 

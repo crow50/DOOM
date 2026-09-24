@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import login
+from conftest import login, open_share
 from doom import validation as v
 from doom.extensions import db
 from doom.models import Item, Location, new_share_token
@@ -86,7 +86,7 @@ class TestAddress:
         db.session.add(site)
         db.session.commit()
 
-        response = client.get(f"/t/{site.share_token}")
+        response = open_share(client, site.share_token)
         assert response.status_code == 200
         assert b"Elm Street" not in response.data
         assert b"Springfield" not in response.data

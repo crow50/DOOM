@@ -281,7 +281,26 @@ def logout():
     logout_user()
     session.clear()
     flash("Signed out.", "info")
-    return redirect(url_for("main.index"))
+
+    response = redirect(url_for("main.index"))
+
+    # ASVS 14.3.1 - tell the browser to drop what it cached for this origin,
+    # not just the cookie. Dropping the cookie ends the *session*; it leaves
+    # the rendered inventory sitting in the back/forward cache, in localStorage
+    # and in the HTTP cache of whatever machine this was. On a shared computer
+    # that is the whole disclosure.
+    #
+    # "executionContexts" is deliberately not requested. It reloads every open
+    # tab on this origin, and browsers disagree about whether that happens
+    # before or after the redirect completes, which has produced reload loops.
+    # The three categories below are the durable state; the volatile DOM goes
+    # with the navigation that follows.
+    #
+    # Browsers honour this header only over HTTPS, which production is and the
+    # test client is not - so the assertion that it is present is a header
+    # test, and the isolated container review is what shows it taking effect.
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+    return response
 
 
 @bp.route("/account/password", methods=["GET", "POST"])

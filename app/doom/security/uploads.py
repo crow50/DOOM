@@ -79,6 +79,54 @@ def _safe_original_name(raw: str | None) -> str:
     return name[:255] or "file"
 
 
+def submitted_extension(name: str) -> str:
+    """The lowercased extension the client put on the file, or "".
+
+    Read from the sanitised display name rather than the raw one, so a
+    ``photo.jpg\x00.sh`` style value has already lost its control characters
+    before its last dot is located.
+    """
+    _, dot, extension = name.rpartition(".")
+    if not dot or not extension or len(extension) > v.UPLOAD_EXTENSION_MAX:
+        return ""
+    return f".{extension.lower()}"
+
+
+def _require_extension_matches_content(original_name: str, content_type: str) -> None:
+    """Reject a file whose extension disagrees with its bytes (ASVS 5.2.2).
+
+    This check does not decide what the file *is* - the sniff above already
+    did that, and the stored name is generated from the sniffed type, so a
+    wrong extension could not reach the filesystem even if this function did
+    not exist.  What it adds is the requirement's other half: that the
+    extension presented with the file agrees with its content.
+
+    The value of that is not really in the storage path. It is that a caller
+    which hands over ``invoice.pdf`` containing a JPEG is either confused or
+    probing, and both are worth refusing at the door rather than silently
+    storing under a corrected name. It also keeps the name shown in the UI
+    honest about the bytes behind it: a download offered as ``notes.txt``
+    that a viewer then opens as a PDF is a small lie the application would
+    otherwise be telling on the uploader's behalf.
+    """
+    extension = submitted_extension(original_name)
+    accepted = v.UPLOAD_EXTENSIONS_FOR_TYPE.get(content_type, frozenset())
+
+    if not extension:
+        raise UploadRejected(
+            f"{original_name} has no file extension. Add the extension that "
+            f"matches the file's format and try again."
+        )
+
+    if extension not in accepted:
+        expected = ", ".join(sorted(accepted))
+        raise UploadRejected(
+            f"{original_name} is a {content_type} file, so its extension "
+            f"should be one of: {expected}. Rename it to match its actual "
+            f"format and try again."
+        )
+
+
 def _sniff(data: bytes) -> str:
     """Identify content by its bytes."""
     try:
@@ -229,6 +277,9 @@ def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None) -> Sto
             f"Photos may be JPEG, PNG or WebP; documents may be PDF, "
             f"plain text or Markdown."
         )
+
+    # The bytes are an accepted type; the name must agree with them (5.2.2).
+    _require_extension_matches_content(original_name, content_type)
 
     is_image = content_type in v.ALLOWED_IMAGE_TYPES
     thumbnail_name: str | None = None

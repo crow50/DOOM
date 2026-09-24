@@ -196,6 +196,23 @@ def login(client, username: str, password: str = "a-long-enough-passphrase"):
         follow_redirects=False,
     )
 
+def open_share(client, token: str, **kwargs):
+    """Open a shared label the way a scanned QR code does.
+
+    The code travels in the URL fragment, which the browser keeps to itself,
+    so the request that reaches the server is a POST carrying the code in its
+    body (ASVS 5.0.0-14.2.1). ``follow_redirects`` is on by default because
+    the interesting response is the share page at the end of the 303, not the
+    303 itself - which keeps these assertions reading the way they did when
+    the token was a path segment.
+
+    A miss still surfaces as the 404 it always was: the redirect is only
+    issued once the token has resolved.
+    """
+    kwargs.setdefault("follow_redirects", True)
+    return client.post("/t/", data={"token": token}, **kwargs)
+
+
 def pytest_collection_modifyitems(session, config, items):
     """Fail collection if docs/COMPLIANCE.md publishes the wrong test count.
 
