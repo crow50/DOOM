@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-09-24T14:33:16.445092Z",
+  "captured_at": "2026-09-24T14:47:41.424811Z",
   "deployment_scope": "local self-hosting; non-local hosting is future state",
   "source_revision": "7f187a8c5524fd96f018d749067e28f6879c2755",
   "candidate_digest": "sha256:6815974017d362112a0cb53339327eceed1b361a61b0fecadcadb279722b9e44",
@@ -4253,8 +4253,16 @@
       ]
     },
     {
+      "name": "dockerfile-lint",
+      "status": "passed",
+      "evidence": [
+        "app/Dockerfile",
+        "docs/security/RELEASE-ASSESSMENT.md"
+      ]
+    },
+    {
       "name": "semgrep",
-      "status": "pending current branch CI",
+      "status": "passed",
       "evidence": [
         "docs/security/evidence/semgrep.json"
       ]
@@ -4290,7 +4298,8 @@
         "docs/security/evidence/candidate-trivy-high-gate.json",
         "docs/security/evidence/candidate-grype.json",
         "docs/security/evidence/candidate-grype-unfiltered.json",
-        "docs/security/evidence/candidate-zlib-scan-metadata.json"
+        "docs/security/evidence/candidate-zlib-scan-metadata.json",
+        "docs/security/evidence/candidate-image-amd64-ci.json"
       ]
     },
     {
@@ -4335,6 +4344,82 @@
       "evidence": [
         "docs/security/evidence/candidate-amd64-preflight.txt"
       ]
+    },
+    {
+      "name": "candidate-amd64-ci",
+      "status": "passed",
+      "scope": "local candidate build in hosted CI",
+      "evidence": [
+        "docs/security/evidence/candidate-image-amd64-ci.json",
+        "docs/security/RELEASE-ASSESSMENT.md"
+      ]
     }
-  ]
+  ],
+  "branch_ci": {
+    "revision": "a8dadfcfe1ff6d64dde59fe5c5f38fe78c915bf5",
+    "workflows": [
+      {
+        "name": "Lint, Compile, and Test",
+        "run_id": "36013720296",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720296"
+      },
+      {
+        "name": "Hadolint Docker Linting",
+        "run_id": "36013720063",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720063"
+      },
+      {
+        "name": "Trivy Container Scan",
+        "run_id": "36013720073",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720073"
+      },
+      {
+        "name": "SBOM Generation and Vulnerability Scan",
+        "run_id": "36013720084",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720084"
+      },
+      {
+        "name": "Semgrep",
+        "run_id": "36013720025",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720025"
+      },
+      {
+        "name": "Bandit Python Security Scanning",
+        "run_id": "36013719986",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013719986"
+      },
+      {
+        "name": "Gitleaks Scan",
+        "run_id": "36013720099",
+        "status": "success",
+        "url": "https://github.com/crow50/DOOM/actions/runs/36013720099"
+      }
+    ],
+    "candidate_image": {
+      "artifact": "docs/security/evidence/candidate-image-amd64-ci.json",
+      "config_digest": "sha256:f4536696d08a0652d56a4e872cc0729b35f703cb5bf8c7d051039f866c26f270",
+      "platform": "linux/amd64",
+      "created_at": "2026-09-24T14:34:57.150915245Z"
+    },
+    "trivy": {
+      "version": "0.70.0",
+      "severity_gate": "CRITICAL,HIGH passed",
+      "scan_summary_at": "2026-09-24T14:35:18Z"
+    },
+    "grype": {
+      "version": "0.118.0",
+      "severity_cutoff": "high",
+      "matches": 10,
+      "vex_ignored_as_fixed": 1,
+      "remaining_visible_matches": 9,
+      "database_schema": "v6.1.9",
+      "database_built_at": "2026-09-24T06:31:52Z"
+    }
+  }
 }

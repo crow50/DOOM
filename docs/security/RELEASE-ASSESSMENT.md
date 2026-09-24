@@ -20,17 +20,19 @@ deployment defect. See the separate [readiness assessment](HOSTED-READINESS.md).
 - Updated development after Renovate: `aff50f28e3c979fe543f2d5882e691fa928aeaac`. The scanner actions
   and Renovate configuration changed; dependency versions did not. Candidate
   builds, tests and scans were refreshed after integrating these commits.
-- Security candidate with the Alpine/zlib CI fix: `3e5b7832ab0aeee5707c9c7c97df72a54a1ee8d3`.
-  Its source inventory and local ARM64 artifact are recorded separately from
-  the published release; AMD64 CI is pending.
+- Security candidate code with the Alpine/zlib and Hadolint fixes:
+  `7f187a8c5524fd96f018d749067e28f6879c2755`. Final CI evidence is recorded
+  on `a8dadfcfe1ff6d64dde59fe5c5f38fe78c915bf5`; its local ARM64 and native
+  AMD64 image identities are recorded separately from the published release.
 - The release tag resolves to the initial development commit (`git rev-parse 'v0.1.0^{commit}'`).
   The candidate adds the changes in this branch; it is not the published release.
 - Published release: `ghcr.io/crow50/doom-organizer:0.1.0`, manifest-list digest
   `sha256:99a4b7bde30e88a728bedab57e9e6d1735c1ef5ad65bfef5ad75f60e72474a2c`.
   [Image metadata](evidence/release-image.json) pins its local image/config ID.
-- Published image is AMD64. The review host and rebuilt candidate are ARM64.
-  Release image inspection/scans are static; executable release validation on
-  AMD64 remains required. Candidate execution is not release execution evidence.
+- Published image is AMD64. The review host and local candidate are ARM64; GitHub
+  Actions built and scanned the candidate natively on AMD64. Release image
+  inspection/scans are static; executable validation of the published release
+  on AMD64 remains required. Candidate execution is not release execution evidence.
 - [Candidate metadata](evidence/candidate-image.json), [verification manifest](verification.json)
   and [scanner inventory](evidence/scanners.json) record exact image IDs, source
   hashes, scanner versions and vulnerability database metadata. Local Docker
@@ -65,12 +67,11 @@ The source archive SHA-256 is pinned in [app/Dockerfile](../../app/Dockerfile).
 The builder runs the upstream zlib tests; the runtime asserts that Python maps
 the uniquely versioned patched library. Candidate evidence records the exact
 ARM64 image ID, SBOM, scanner/database versions and timestamps, VEX statement,
-and local Compose results. This is local ARM64 evidence; the pushed branch's
-AMD64 CI rebuild remains necessary before the candidate can be treated as
-verified across architectures. The review Docker host has no AMD64 binfmt
-emulator, so its local cross-architecture build stops with `/bin/sh: exec format
-error` before running Dockerfile steps. That is an execution-environment limit;
-the native AMD64 GitHub runner is the required verification path.
+and local Compose results. The review Docker host has no AMD64 binfmt emulator,
+so its local cross-architecture build stops with `/bin/sh: exec format error`
+before running Dockerfile steps. Native AMD64 verification was completed by
+GitHub Actions on the final branch revision; its immutable image identity is
+preserved in [candidate-image-amd64-ci.json](evidence/candidate-image-amd64-ci.json).
 
 Against the exact candidate SBOM, Grype 0.118.0 without VEX still exits 2 at the
 HIGH threshold and reports ten matches. With VEX, it exits 0: the one HIGH
@@ -84,6 +85,33 @@ runner passed all 305 application tests, database-role, secret, proxy,
 container-hardening and loopback-port checks, then removed its disposable
 project. The published release remains a separate Debian image with its own
 open findings.
+
+The image-fix push `716ae80` exposed one additional CI failure: Hadolint
+reported unpinned Alpine packages (DL3018), a `cd` inside `RUN` (DL3003), and a
+pipeline without explicit `pipefail` (DL4006). Commit `7f187a8` pins the build
+and runtime package versions, uses `WORKDIR` for the zlib source tree, and sets
+Alpine `ash` with `pipefail`. Hadolint 2.12.0 passed locally, and the revised
+Dockerfile rebuilt successfully on ARM64 with the upstream zlib test suite and
+runtime loader assertion passing.
+
+All seven workflows passed on final CI revision `a8dadfc`: [Lint, Compile,
+and Test](https://github.com/crow50/DOOM/actions/runs/36013720296),
+[Hadolint](https://github.com/crow50/DOOM/actions/runs/36013720063),
+[Trivy](https://github.com/crow50/DOOM/actions/runs/36013720073),
+[Grype](https://github.com/crow50/DOOM/actions/runs/36013720084),
+[Semgrep](https://github.com/crow50/DOOM/actions/runs/36013720025),
+[Bandit](https://github.com/crow50/DOOM/actions/runs/36013719986), and
+[Gitleaks](https://github.com/crow50/DOOM/actions/runs/36013720099). The
+container workflow passed all 305 tests, test-count verification, restricted
+database-role checks, and secret checks. Trivy 0.70.0's CRITICAL/HIGH gate
+reported zero vulnerabilities for the Alpine and Python package targets.
+Grype 0.118.0's HIGH gate passed after finding 10 matches across 75 packages;
+one exact-PURL zlib finding is ignored as fixed by the verified runtime
+backport, leaving nine findings visible for review. Its vulnerability database
+was built at `2026-09-24T06:31:52Z` (schema v6.1.9). Passing these gates does
+not remove the lower-severity candidate findings, the published release's
+separate findings, or the unassessed ASVS controls; the release recommendation
+remains blocked and no ASVS level is claimed.
 
 ## Findings and evidence
 
