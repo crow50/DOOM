@@ -28,8 +28,15 @@ jobs:
       # what it finds - a run on this branch reported "Findings: 1 (1 blocking)"
       # followed by "Scan completed successfully" and a green check. A scanner
       # that cannot fail is a log line, not a control (ASVS 1.14.3).
+      # Semgrep's HTML parser treats Jinja blocks as syntax errors. Keep the
+      # strict Semgrep gate on its supported Python, JavaScript and Dockerfile
+      # inputs; the app tests separately compile every Jinja template and
+      # reject disabled autoescape and `|safe` output bypasses.
       - name: Run Semgrep
-        run: semgrep scan --config p/flask --config p/owasp-top-ten --error --strict --json-output semgrep.json app/
+        run: >-
+          semgrep scan --config p/flask --config p/owasp-top-ten --error --strict
+          --include '*.py' --include '*.js' --include 'Dockerfile'
+          --json-output semgrep.json app/
       - name: Preserve findings, parse errors and skipped paths
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4

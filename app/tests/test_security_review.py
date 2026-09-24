@@ -87,3 +87,25 @@ def test_image_pixel_limit_is_a_hard_limit(monkeypatch):
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
     with pytest.raises(UploadRejected):
         _process_image(data.getvalue(), "image/png")
+
+
+def test_jinja_templates_compile_with_autoescape(app):
+    """Semgrep's HTML parser cannot parse Jinja syntax; enforce its key guards here."""
+    from jinja2 import nodes
+
+    names = app.jinja_env.list_templates()
+    assert names
+    for name in names:
+        assert app.jinja_env.autoescape(name), f"autoescape disabled for {name}"
+        source, _, _ = app.jinja_env.loader.get_source(app.jinja_env, name)
+        syntax = app.jinja_env.parse(source)
+        app.jinja_env.compile(source, name=name)
+        unsafe_filters = [node.lineno for node in syntax.find_all(nodes.Filter)
+                          if node.name == "safe"]
+        assert not unsafe_filters, f"unsafe |safe filter in {name}:{unsafe_filters}"
+        for modifier in syntax.find_all(nodes.EvalContextModifier):
+            disabled = [option for option in modifier.options
+                        if option.key == "autoescape"
+                        and isinstance(option.value, nodes.Const)
+                        and option.value.value is False]
+            assert not disabled, f"autoescape disabled inside {name}"
