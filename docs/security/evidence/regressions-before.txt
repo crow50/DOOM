@@ -1,0 +1,166 @@
+ Container doomreview-20260923-db-1 Running 
+ Container doomreview-20260923-cache-1 Running 
+ Container doomreview-20260923-db-1 Waiting 
+ Container doomreview-20260923-cache-1 Waiting 
+ Container doomreview-20260923-cache-1 Healthy 
+ Container doomreview-20260923-db-1 Healthy 
+ Container doomreview-20260923-test-run-f074755a860c Creating 
+ Container doomreview-20260923-test-run-f074755a860c Created 
+FFFFFFFFF                                                                [100%]
+=================================== FAILURES ===================================
+________ test_redirect_rejects_browser_normalization[/\t\\evil.example] ________
+
+target = '/\t\\evil.example'
+
+    @pytest.mark.parametrize("target", ["/\t\\evil.example", "/\n\\evil.example", "/\r\\evil.example", " /items/", "/items/\x00"])
+    def test_redirect_rejects_browser_normalization(target):
+>       assert not is_safe_redirect(target)
+E       AssertionError: assert not True
+E        +  where True = is_safe_redirect('/\t\\evil.example')
+
+tests/test_security_review.py:12: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"ts": "2026-09-23T20:26:44+0000", "level": "INFO", "logger": "doom", "message": "doom_started", "version": "0.1.0", "public_base_url": "https://localhost:18443"}
+________ test_redirect_rejects_browser_normalization[/\n\\evil.example] ________
+
+target = '/\n\\evil.example'
+
+    @pytest.mark.parametrize("target", ["/\t\\evil.example", "/\n\\evil.example", "/\r\\evil.example", " /items/", "/items/\x00"])
+    def test_redirect_rejects_browser_normalization(target):
+>       assert not is_safe_redirect(target)
+E       AssertionError: assert not True
+E        +  where True = is_safe_redirect('/\n\\evil.example')
+
+tests/test_security_review.py:12: AssertionError
+________ test_redirect_rejects_browser_normalization[/\r\\evil.example] ________
+
+target = '/\r\\evil.example'
+
+    @pytest.mark.parametrize("target", ["/\t\\evil.example", "/\n\\evil.example", "/\r\\evil.example", " /items/", "/items/\x00"])
+    def test_redirect_rejects_browser_normalization(target):
+>       assert not is_safe_redirect(target)
+E       AssertionError: assert not True
+E        +  where True = is_safe_redirect('/\r\\evil.example')
+
+tests/test_security_review.py:12: AssertionError
+____________ test_redirect_rejects_browser_normalization[ /items/] _____________
+
+target = ' /items/'
+
+    @pytest.mark.parametrize("target", ["/\t\\evil.example", "/\n\\evil.example", "/\r\\evil.example", " /items/", "/items/\x00"])
+    def test_redirect_rejects_browser_normalization(target):
+>       assert not is_safe_redirect(target)
+E       AssertionError: assert not True
+E        +  where True = is_safe_redirect(' /items/')
+
+tests/test_security_review.py:12: AssertionError
+___________ test_redirect_rejects_browser_normalization[/items/\x00] ___________
+
+target = '/items/\x00'
+
+    @pytest.mark.parametrize("target", ["/\t\\evil.example", "/\n\\evil.example", "/\r\\evil.example", " /items/", "/items/\x00"])
+    def test_redirect_rejects_browser_normalization(target):
+>       assert not is_safe_redirect(target)
+E       AssertionError: assert not True
+E        +  where True = is_safe_redirect('/items/\x00')
+
+tests/test_security_review.py:12: AssertionError
+________________ test_login_rejects_control_backslash_redirect _________________
+
+client = <IsolatedClient <Flask 'doom'>>, alice = <User alice>
+
+    def test_login_rejects_control_backslash_redirect(client, alice):
+        response = client.post("/login", query_string={"next": "/\t\\evil.example"},
+                               data={"username": "alice", "password": "a-long-enough-passphrase"})
+        assert response.status_code == 302
+>       assert response.headers["Location"] == "/locations/"
+E       AssertionError: assert '/%5Cevil.example' == '/locations/'
+E         
+E         - /locations/
+E         + /%5Cevil.example
+
+tests/test_security_review.py:19: AssertionError
+___________ test_share_approval_revoked_when_credentials_change[pin] ___________
+
+client = <IsolatedClient <Flask 'doom'>>, alice_item = <Item Cordless drill>
+change = 'pin'
+
+    @pytest.mark.parametrize("change", ["pin", "token"])
+    def test_share_approval_revoked_when_credentials_change(client, alice_item, change):
+        alice_item.visibility = "shared"
+        alice_item.share_token = new_share_token()
+        alice_item.share_pin_hash = hash_share_pin("123456")
+        db.session.commit()
+        token = alice_item.share_token
+        response = client.post(f"/t/{token}", data={"pin": "123456"})
+        assert b"Cordless drill" in response.data
+        sync()
+        if change == "pin":
+            alice_item.share_pin_hash = hash_share_pin("654321")
+        else:
+            alice_item.share_token = new_share_token()
+        db.session.commit()
+        response = client.get(f"/t/{alice_item.share_token}")
+>       assert b"Cordless drill" not in response.data
+E       assert b'Cordless drill' not in b'<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-w.../section>\n    <p class="muted small centred">Shared read-only from a DOOM inventory.</p>\n  </main>\n</body>\n</html>'
+E        +  where b'<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-w.../section>\n    <p class="muted small centred">Shared read-only from a DOOM inventory.</p>\n  </main>\n</body>\n</html>' = <WrapperTestResponse 618 bytes [200 OK]>.data
+
+tests/test_security_review.py:38: AssertionError
+__________ test_share_approval_revoked_when_credentials_change[token] __________
+
+client = <IsolatedClient <Flask 'doom'>>, alice_item = <Item Cordless drill>
+change = 'token'
+
+    @pytest.mark.parametrize("change", ["pin", "token"])
+    def test_share_approval_revoked_when_credentials_change(client, alice_item, change):
+        alice_item.visibility = "shared"
+        alice_item.share_token = new_share_token()
+        alice_item.share_pin_hash = hash_share_pin("123456")
+        db.session.commit()
+        token = alice_item.share_token
+        response = client.post(f"/t/{token}", data={"pin": "123456"})
+        assert b"Cordless drill" in response.data
+        sync()
+        if change == "pin":
+            alice_item.share_pin_hash = hash_share_pin("654321")
+        else:
+            alice_item.share_token = new_share_token()
+        db.session.commit()
+        response = client.get(f"/t/{alice_item.share_token}")
+>       assert b"Cordless drill" not in response.data
+E       assert b'Cordless drill' not in b'<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-w.../section>\n    <p class="muted small centred">Shared read-only from a DOOM inventory.</p>\n  </main>\n</body>\n</html>'
+E        +  where b'<!doctype html>\n<html lang="en">\n<head>\n  <meta charset="utf-8">\n  <meta name="viewport" content="width=device-w.../section>\n    <p class="muted small centred">Shared read-only from a DOOM inventory.</p>\n  </main>\n</body>\n</html>' = <WrapperTestResponse 618 bytes [200 OK]>.data
+
+tests/test_security_review.py:38: AssertionError
+____________ test_lookup_failure_does_not_disclose_internal_details ____________
+
+client = <IsolatedClient <Flask 'doom'>>, alice = <User alice>
+app = <Flask 'doom'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffff77fed220>
+
+    def test_lookup_failure_does_not_disclose_internal_details(client, alice, app, monkeypatch):
+        from doom.security.lookup import LookupUnavailable
+        def fail(*args):
+            raise LookupUnavailable("internal-host password=canary-secret")
+        monkeypatch.setattr("doom.blueprints.items.lookup_barcode", fail)
+        monkeypatch.setitem(app.config, "BARCODE_LOOKUP_PROVIDER", "openfoodfacts")
+        login(client, "alice")
+        response = client.get("/items/barcode/4006381333931")
+        assert response.status_code == 200
+>       assert b"canary-secret" not in response.data
+E       assert b'canary-secret' not in b'{"note":"internal-host password=canary-secret","source":"none"}\n'
+E        +  where b'{"note":"internal-host password=canary-secret","source":"none"}\n' = <WrapperTestResponse 64 bytes [200 OK]>.data
+
+tests/test_security_review.py:51: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_security_review.py::test_redirect_rejects_browser_normalization[/\t\\evil.example]
+FAILED tests/test_security_review.py::test_redirect_rejects_browser_normalization[/\n\\evil.example]
+FAILED tests/test_security_review.py::test_redirect_rejects_browser_normalization[/\r\\evil.example]
+FAILED tests/test_security_review.py::test_redirect_rejects_browser_normalization[ /items/]
+FAILED tests/test_security_review.py::test_redirect_rejects_browser_normalization[/items/\x00]
+FAILED tests/test_security_review.py::test_login_rejects_control_backslash_redirect
+FAILED tests/test_security_review.py::test_share_approval_revoked_when_credentials_change[pin]
+FAILED tests/test_security_review.py::test_share_approval_revoked_when_credentials_change[token]
+FAILED tests/test_security_review.py::test_lookup_failure_does_not_disclose_internal_details
+9 failed in 3.17s
+

@@ -204,3 +204,7 @@ codes work everywhere and carry the same URL.
 ## Licence
 
 Personal coursework project. Use it however you like.
+
+Current review: [release security assessment](docs/security/RELEASE-ASSESSMENT.md),
+[ASVS status](docs/security/SUMMARY.md), and [hosted readiness](docs/security/HOSTED-READINESS.md).
+No ASVS level or release readiness is implied by scanner success.

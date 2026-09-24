@@ -1,0 +1,53 @@
+{
+  "project": "doomreview-7840cf1dea06",
+  "checks": [
+    {
+      "name": "init",
+      "exit_code": 0
+    },
+    {
+      "name": "start",
+      "exit_code": 0
+    },
+    {
+      "name": "upgrade",
+      "exit_code": 0
+    },
+    {
+      "name": "seed",
+      "exit_code": 0
+    },
+    {
+      "name": "test",
+      "exit_code": 0
+    },
+    {
+      "name": "verify-db-roles",
+      "exit_code": 0
+    },
+    {
+      "name": "verify-secrets",
+      "exit_code": 0
+    },
+    {
+      "name": "verify-test-count",
+      "exit_code": 0
+    },
+    {
+      "name": "proxy",
+      "exit_code": 0
+    },
+    {
+      "name": "images",
+      "exit_code": 0
+    },
+    {
+      "name": "ports",
+      "exit_code": 0
+    },
+    {
+      "name": "cleanup",
+      "exit_code": 0
+    }
+  ]
+}

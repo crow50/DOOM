@@ -1,0 +1,29 @@
+docker compose -p doomreview-20260923 -f docker-compose.yml -f /tmp/doom-review-override.yml run --rm web flask seed
+ Container doomreview-20260923-db-1 Running 
+ Container doomreview-20260923-cache-1 Running 
+ Container doomreview-20260923-cache-1 Waiting 
+ Container doomreview-20260923-db-1 Waiting 
+ Container doomreview-20260923-cache-1 Healthy 
+ Container doomreview-20260923-db-1 Healthy 
+ Container doomreview-20260923-web-run-5eed81f79dd2 Creating 
+ Container doomreview-20260923-web-run-5eed81f79dd2 Created 
+{"ts": "2026-09-23T20:31:38+0000", "level": "INFO", "logger": "doom", "message": "doom_started", "version": "0.1.0", "public_base_url": "https://localhost:8443"}
+Seeded demo account.
+  username: demo
+  password: correct-horse-battery-staple
+checking the application database role...
+  ok: doom_app can connect over TCP
+  ok: citext is installed
+  ok: DML reads are permitted
+  ok: every table grants the verbs the application needs
+  ok: DDL is refused
+  ok: audit_log is append-only for doom_app
+  clean: the two-role split is in place
+checking that secret values stay out of process environments...
+  ok: no secret value in docker inspect
+  ok: no secret value in any process environment (master or workers)
+  ok: only *_FILE paths reach the process; the DSNs are assembled in-process
+  clean: secrets are files, and stay files
+ Image doom-review-test:7076c6b Building 
+ Image doom-review-test:7076c6b Built 
+  clean: docs/COMPLIANCE.md and pytest agree on 303 tests

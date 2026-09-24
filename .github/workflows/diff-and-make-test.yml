@@ -42,6 +42,7 @@ jobs:
       - run: cp app/requirements-dev.txt /tmp/requirements-dev-hashed.txt
       - run: pip-compile --generate-hashes app/requirements-dev.in -o /tmp/requirements-dev-hashed.txt
       - run: diff -I '^#' /tmp/requirements-dev-hashed.txt app/requirements-dev.txt
+      - run: python3 -m unittest discover -s tools/tests -v
       - run: make lint
 
   test:

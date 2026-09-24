@@ -1,0 +1,187 @@
+{
+  "captured_at": "2026-09-24T00:27:30.077441+00:00",
+  "images": {
+    "aquasec/trivy:0.70.0": {
+      "id": "sha256:8e4caf55876ee1a18319b95273cf1df10ae65248e248b2e7f763ab273cc4ece9",
+      "repo_digests": [
+        "aquasec/trivy@sha256:be1190afcb28352bfddc4ddeb71470835d16462af68d310f9f4bca710961a41e"
+      ]
+    },
+    "anchore/grype:latest": {
+      "id": "sha256:7865a37655a208a4893d61c7f13263fe06f88fe7ef1c7ad73c1ea739d5387afd",
+      "repo_digests": [
+        "anchore/grype@sha256:8a93fc48da96bd6ec5981279d099b69de11541dc68fdf222fb9161f8ff284af7"
+      ]
+    },
+    "anchore/syft:latest": {
+      "id": "sha256:1f629a766cb1e2aa807cef4d7798fb193f46ac7622803c27916eb53db1f84311",
+      "repo_digests": [
+        "anchore/syft@sha256:95fe0835e5bebc6f8b1f8acef68d47d63d594ef4c0f25c097ff853b23cbac74c"
+      ]
+    },
+    "semgrep/semgrep:latest": {
+      "id": "sha256:52efc0a462c8a171964164e342e1206c86801ad4e84edca81e43117cce6bc15e",
+      "repo_digests": [
+        "semgrep/semgrep@sha256:acaac22ffc7b7cc5926de0751b223bce0b2491c33d18422fa72f632c78d81198"
+      ]
+    },
+    "zricethezav/gitleaks:v8.30.0": {
+      "id": "sha256:3b64f718a3879cc39032905141522940f92d661b0cc2ddc940c9092a5eeb44e5",
+      "repo_digests": [
+        "zricethezav/gitleaks@sha256:691af3c7c5a48b16f187ce3446d5f194838f91238f27270ed36eef6359a574d9"
+      ]
+    }
+  },
+  "versions": {
+    "trivy": "0.70.0",
+    "grype": "0.118.0",
+    "bandit": "1.9.4",
+    "semgrep": "1.177.0",
+    "gitleaks": "8.30.0",
+    "pip-audit": "2.10.1",
+    "syft_sbom_tools": {
+      "components": [
+        {
+          "type": "application",
+          "author": "anchore",
+          "name": "syft",
+          "version": "1.51.1"
+        }
+      ]
+    }
+  },
+  "exit_codes": {
+    "runner": 0,
+    "save": 0,
+    "trivy": 0,
+    "syft": 0,
+    "grype": 0,
+    "bandit-report": 1,
+    "bandit": 0,
+    "pip-audit": 0,
+    "semgrep": 3,
+    "gitleaks-candidate": 0,
+    "gitleaks-history": 0
+  },
+  "trivy_db": {
+    "Version": 2,
+    "NextUpdate": "2026-09-24T12:53:55.96484865Z",
+    "UpdatedAt": "2026-09-23T12:53:55.964849051Z",
+    "DownloadedAt": "2026-09-23T20:26:24.082640349Z"
+  },
+  "grype_db": {
+    "status": {
+      "schemaVersion": "v6.1.9",
+      "from": "https://grype.anchore.io/databases/v6/vulnerability-db_v6.1.9_2026-09-23T00:31:12Z_1790145099.tar.zst?checksum=sha256%3A93487281c93d3cb3649878932ff9003991b607136b14cb0943b74846bfd611a8",
+      "built": "2026-09-23T06:31:39Z",
+      "path": "/.cache/grype/db/6/vulnerability.db",
+      "valid": true
+    },
+    "providers": {
+      "alma": {
+        "captured": "2026-09-23T00:32:38Z",
+        "input": "xxh64:d351d5bef83efeb3"
+      },
+      "alpine": {
+        "captured": "2026-09-23T00:31:17Z",
+        "input": "xxh64:d9a264a274067459"
+      },
+      "amazon": {
+        "captured": "2026-09-23T00:31:27Z",
+        "input": "xxh64:58ba607038d6562e"
+      },
+      "arch": {
+        "captured": "2026-09-23T00:31:45Z",
+        "input": "xxh64:61ffba5adc84994e"
+      },
+      "bitnami": {
+        "captured": "2026-09-23T00:31:12Z",
+        "input": "xxh64:f070d0eed28928d3"
+      },
+      "chainguard": {
+        "captured": "2026-09-23T00:33:06Z",
+        "input": "xxh64:653de1048046596c"
+      },
+      "chainguard-libraries": {
+        "captured": "2026-09-23T00:31:37Z",
+        "input": "xxh64:1c61ff2bbeb9a42c"
+      },
+      "debian": {
+        "captured": "2026-09-23T00:31:57Z",
+        "input": "xxh64:720533d3dff91b9f"
+      },
+      "echo": {
+        "captured": "2026-09-23T00:31:36Z",
+        "input": "xxh64:ad9981f44194a7a9"
+      },
+      "eol": {
+        "captured": "2026-09-23T00:32:10Z",
+        "input": "xxh64:546a47968f190c06"
+      },
+      "epss": {
+        "captured": "2026-09-23T00:31:31Z",
+        "input": "xxh64:b3ff618a63b3bc77"
+      },
+      "fedora": {
+        "captured": "2026-09-23T00:31:25Z",
+        "input": "xxh64:06b08ae2ce9856c5"
+      },
+      "github": {
+        "captured": "2026-09-23T00:31:41Z",
+        "input": "xxh64:d98e495d353bc4b3"
+      },
+      "govulndb": {
+        "captured": "2026-09-23T00:31:26Z",
+        "input": "xxh64:a661e1cc9e275d09"
+      },
+      "hummingbird": {
+        "captured": "2026-09-23T00:33:45Z",
+        "input": "xxh64:1f48faac2b6754b1"
+      },
+      "kev": {
+        "captured": "2026-09-23T00:31:41Z",
+        "input": "xxh64:7219d8a67fc53cf7"
+      },
+      "mariner": {
+        "captured": "2026-09-23T00:31:44Z",
+        "input": "xxh64:9594145c5a8b0410"
+      },
+      "minimos": {
+        "captured": "2026-09-23T00:32:05Z",
+        "input": "xxh64:d42fb80569d5d3cf"
+      },
+      "nvd": {
+        "captured": "2026-09-23T00:32:12Z",
+        "input": "xxh64:978afb336e2eb4af"
+      },
+      "oracle": {
+        "captured": "2026-09-23T00:31:39Z",
+        "input": "xxh64:da8122990a4b5bba"
+      },
+      "photon": {
+        "captured": "2026-09-23T00:31:24Z",
+        "input": "xxh64:8be4cb848c8e1cbf"
+      },
+      "rhel": {
+        "captured": "2026-09-23T00:32:31Z",
+        "input": "xxh64:57f5c1dedd6e9310"
+      },
+      "secureos": {
+        "captured": "2026-09-23T00:31:51Z",
+        "input": "xxh64:aac68260af2d3aa0"
+      },
+      "sles": {
+        "captured": "2026-09-23T00:31:50Z",
+        "input": "xxh64:f229caf0bd7ae5d3"
+      },
+      "ubuntu": {
+        "captured": "2026-09-23T01:17:51Z",
+        "input": "xxh64:9ccbfcb9ffc6a42d"
+      },
+      "wolfi": {
+        "captured": "2026-09-23T00:32:48Z",
+        "input": "xxh64:6cac52ec2f3361a5"
+      }
+    }
+  }
+}

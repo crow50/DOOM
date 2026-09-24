@@ -1,0 +1,28 @@
+ Container doomreview-20260923-cache-1 Running 
+ Container doomreview-20260923-db-1 Running 
+ Container doomreview-20260923-cache-1 Waiting 
+ Container doomreview-20260923-db-1 Waiting 
+ Container doomreview-20260923-db-1 Healthy 
+ Container doomreview-20260923-cache-1 Healthy 
+ Container doomreview-20260923-test-run-971feb61b800 Creating 
+ Container doomreview-20260923-test-run-971feb61b800 Created 
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______________ test_encoded_share_referrer_does_not_leak_token ________________
+
+    def test_encoded_share_referrer_does_not_leak_token():
+        from doom.security.logging import scrub_url
+        token = "canary-share-credential"
+>       assert token not in scrub_url(f"https://doom.example/%74/{token}")
+E       AssertionError: assert 'canary-share-credential' not in 'https://doo...e-credential'
+E         
+E         'canary-share-credential' is contained here:
+E           https://doom.example/%74/canary-share-credential
+
+tests/test_security_review.py:58: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+{"ts": "2026-09-23T20:28:22+0000", "level": "INFO", "logger": "doom", "message": "doom_started", "version": "0.1.0", "public_base_url": "https://localhost:18443"}
+=========================== short test summary info ============================
+FAILED tests/test_security_review.py::test_encoded_share_referrer_does_not_leak_token
+1 failed in 0.84s
+

@@ -120,6 +120,10 @@ def _process_image(data: bytes, content_type: str) -> tuple[bytes, bytes, str, s
     """
     try:
         with Image.open(io.BytesIO(data)) as img:
+            # Pillow only warns at MAX_IMAGE_PIXELS and raises at twice
+            # that value. Enforce our documented ceiling before decoding.
+            if img.width * img.height > v.MAX_IMAGE_PIXELS:
+                raise UploadRejected("That image is too large to process.")
             img.verify()  # structural check before trusting the decoder
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise UploadRejected("That image could not be read.") from exc

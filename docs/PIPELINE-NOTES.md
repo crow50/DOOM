@@ -1,5 +1,12 @@
 # DevSecOps pipeline
 
+Current release decisions are governed by the
+[security assessment](security/RELEASE-ASSESSMENT.md), not a green scanner count.
+Unfixed findings are now included in both image gates. No blanket OS risk
+acceptance applies. Tag publication runs the evidence release preflight.
+Semgrep strict mode preserves parse errors/skipped paths in an artifact; a
+partial parse is a coverage gap, not a clean source review.
+
 This file used to open "Out of scope for this build — to be wired up separately on
 GitHub" and then describe, as a roadmap, tooling that had already been wired up.
 Seven workflows, Renovate and hash-pinned installs landed in commits that did not
@@ -20,12 +27,12 @@ So this is now a record of what runs, and a much shorter list of what does not.
 | **semgrep** | `p/flask` + `p/owasp-top-ten` over our own code | [`semgrep.yml`](../.github/workflows/semgrep.yml) | every push and PR; **gates** (`--error`) |
 | **hadolint** | Dockerfile smells — root users, unpinned tags | [`hadolint-docker-linting.yml`](../.github/workflows/hadolint-docker-linting.yml) | push and PR touching `app/Dockerfile` |
 | **trivy** | Image and OS-package CVEs; fails on HIGH/CRITICAL, uploads SARIF | [`trivy-image-scanning.yaml`](../.github/workflows/trivy-image-scanning.yaml) | push, PR, and **weekly** |
-| **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc., and **weekly**; **gates** on HIGH+ unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
+| **syft** + **grype** | Third-party library inventory (CycloneDX SBOM), then known CVEs against it | [`sbom-scanning.yml`](../.github/workflows/sbom-scanning.yml) | push and PR touching `app/**` etc., and **weekly**; **gates** on HIGH+, including unfixed, uploads the SBOM as a build artifact and SARIF to the Security tab |
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
 | **Lockfile drift** | A hand-edited `requirements.txt` | [`diff-and-make-test.yml`](../.github/workflows/diff-and-make-test.yml) | every push and PR |
 | **Hash-pinned installs** | A substituted artifact, not merely a wrong version | `app/requirements.txt` — every pin carries `--hash=sha256:` | every build |
 | **`make lint`** | `\|safe` / `Markup(` in templates, and documentation drift | [`Makefile`](../Makefile), [`tools/check_docs.py`](../tools/check_docs.py) | every push and PR |
-| **`make test`** | Every control in the ASVS ledger | `diff-and-make-test.yml` | every push and PR |
+| **`make test`** | Executable application regressions; operator and unassessed controls require separate evidence | `diff-and-make-test.yml` | every push and PR |
 
 The strongest control in that list is the least obvious one: the lockfile check
 recompiles `app/requirements.in` and diffs the result against the committed
@@ -94,6 +101,12 @@ the secret scan is the last check that should depend on where a branch is headed
 Images publish to `ghcr.io/crow50/doom-organizer` from
 [`build-and-push-container.yml`](../.github/workflows/build-and-push-container.yml).
 
+Development branches build images. Release tags promote a previously reviewed
+immutable registry reference after verifying its image/config ID; they do not
+rebuild after approval. The current assessment has no approved registry
+candidate. See [the review procedure](security/README.md) for evidence fields
+and the publication gate.
+
 | Tag | What it is |
 |---|---|
 | `:0.1.0` | An exact release, from a `v0.1.0` git tag |
@@ -102,7 +115,7 @@ Images publish to `ghcr.io/crow50/doom-organizer` from
 | `:main` | The current default branch |
 | `:main-<sha>` | One specific commit on main |
 
-To cut a release: bump `__version__` in `app/doom/__init__.py`, commit, then tag
+After the evidence release gate passes, to cut a release: bump `__version__` in `app/doom/__init__.py`, commit, then tag
 `v<that version>` and push the tag.
 
 ### The tag and `__version__` must agree

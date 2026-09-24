@@ -1,5 +1,12 @@
 # Standards mapping
 
+> Historical ASVS 4 ledger, preserved for traceability. The authoritative current
+> assessment is in [security/SUMMARY.md](security/SUMMARY.md), with version-qualified
+> ledgers and explicit revalidation status. The old universe missed five required
+> controls whose level cells contain text rather than checkmarks: v4.0.3-2.10.1,
+> v4.0.3-2.10.2, v4.0.3-2.10.3, v4.0.3-2.10.4 and v4.0.3-3.3.2.
+> Counts and passes below describe that historical scope, not current certification.
+
 An exhaustive control ledger against **[OWASP ASVS 4.0.3][asvs]** — every Level 1
 and Level 2 requirement in all fourteen chapters, each with a status, evidence you
 can open, and its ASVS-assigned CWE. 253 rows, because that is how many L1/L2
@@ -637,7 +644,7 @@ interface, which is what 8.3.3 asks for and why that row reads Partial.
 Most of this ledger is executable rather than asserted.
 
 ```bash
-make test           # 292 tests pinning the controls above
+make test           # 304 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges

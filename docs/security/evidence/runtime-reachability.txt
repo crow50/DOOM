@@ -1,0 +1,13 @@
+uid=10001(doom) gid=10001(doom) groups=10001(doom)
+CapInh:	0000000000000000
+CapPrm:	0000000000000000
+CapEff:	0000000000000000
+CapBnd:	0000000000000000
+CapAmb:	0000000000000000
+NoNewPrivs:	1
+PRESENT /usr/bin/infocmp
+ABSENT /usr/lib/systemd/systemd-homed
+ABSENT /usr/share/perl/5.40/Archive/Tar.pm
+# UNCONFIGURED FSTAB FOR BASE SYSTEM
+/usr/bin/mount
+/usr/bin/nsenter

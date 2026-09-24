@@ -1,0 +1,10 @@
+{
+  "added_ids": [],
+  "state_changes": {},
+  "current_open": {
+    "Trivy": 156,
+    "Grype": 4,
+    "Bandit": 6,
+    "CodeQL": 4
+  }
+}

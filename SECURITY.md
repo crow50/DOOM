@@ -32,3 +32,7 @@ Out of scope, because they are documented non-goals rather than oversights
 Before reporting, it may be worth checking
 [docs/SECURITY.md](docs/SECURITY.md), which maps each implemented control to
 the threat it answers, and its §4 listing known accepted risks.
+
+Current review: [release security assessment](docs/security/RELEASE-ASSESSMENT.md),
+[ASVS status](docs/security/SUMMARY.md), and [hosted readiness](docs/security/HOSTED-READINESS.md).
+No ASVS level or release readiness is implied by scanner success.

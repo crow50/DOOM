@@ -289,7 +289,7 @@ verify-secrets: ## Prove no secret value is in any process environment or in doc
 	environs=$$($(COMPOSE) exec -T web sh -c 'for p in /proc/[0-9]*; do cat $$p/environ 2>/dev/null; echo; done | tr "\\0" "\\n"'); \
 	for f in app_db_password redis_password secret_key; do \
 		val=$$(cat secrets/$$f); \
-		if docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
+		if docker inspect $$($(COMPOSE) ps -q web) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
 			echo "FAIL: the value of secrets/$$f appears in docker inspect"; exit 1; fi; \
 		if printf '%s' "$$environs" | grep -qF "$$val"; then \
 			echo "FAIL: the value of secrets/$$f is in a process environment inside web"; exit 1; fi; \

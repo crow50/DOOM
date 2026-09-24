@@ -63,11 +63,8 @@ jobs:
           output-file: sbom.cyclonedx.json
           artifact-name: doom-organizer-sbom.cyclonedx.json
 
-        # Scan the SBOM itself, not a second image pull. only-fixed mirrors
-        # Trivy's ignore-unfixed so the ~150 unfixed Debian CVEs already
-        # accepted for this image (see PIPELINE-NOTES.md) don't also redden
-        # this job. grype's SARIF output carries every severity regardless of
-        # fail-build, so one step covers both the gate and the Security tab.
+        # No fix-availability filter: an unavailable patch is still a risk.
+        # Keep every severity visible in SARIF; HIGH+ fails until reviewed.
         # Bump this together with sbom-action above: a newer syft writes a newer
         # CycloneDX spec (1.7 from syft 1.51), and an older grype rejects it as
         # "sbom format not recognized", leaving an empty SARIF behind.
@@ -78,7 +75,7 @@ jobs:
           sbom: sbom.cyclonedx.json
           fail-build: true
           severity-cutoff: high
-          only-fixed: true
+          only-fixed: false
           output-format: sarif
 
       - name: Upload grype scan results to GitHub Security tab
@@ -103,3 +100,10 @@ jobs:
           update-existing: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record scanner outcome
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.grype.outcome }}
+        run: |
+          echo "Scanner gate: $SCAN_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"

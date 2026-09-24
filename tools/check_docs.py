@@ -88,6 +88,8 @@ def ledger_rows() -> dict[str, str]:
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) < 5 or not re.fullmatch(r"\d+\.\d+\.\d+", cells[0]):
             continue
+        if cells[0] in rows:
+            failures.append(f"docs/COMPLIANCE.md: duplicate ledger row {cells[0]}")
         rows[cells[0]] = cells[3].replace("*", "")
     return rows
 
@@ -143,6 +145,10 @@ def collected_test_count() -> int | None:
             cwd=ROOT / "app", capture_output=True, text=True, timeout=180,
         )
     except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode:
+        if "No module named pytest" not in result.stderr:
+            failures.append("pytest collection failed; a failed collection is not a verified test count")
         return None
     match = re.search(r"^(\d+) tests? collected", result.stdout, re.MULTILINE)
     if match:
@@ -225,6 +231,12 @@ def main() -> int:
     check_one_published_count()
     check_exceptions_match_ledger(rows)
     check_cited_ids_exist(rows)
+
+    from security_assessment import validate, render
+    failures.extend(validate())
+    summary = ROOT / "docs/security/SUMMARY.md"
+    if not summary.exists() or summary.read_text() != render():
+        failures.append("Security summary stale: run python3 tools/security_assessment.py --write")
 
     print(f"checking documentation against the code ({len(rows)} ledger rows)...")
     for note in notes:

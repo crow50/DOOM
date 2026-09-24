@@ -60,12 +60,13 @@ jobs:
         # Scanning the Docker image with Trivy
         # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found
       - name: Run Trivy scan
+        id: security_gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           image-ref: doom-organizer:${{ github.sha }}
           format: table
           exit-code: '1'
-          ignore-unfixed: 'true'
+          ignore-unfixed: 'false'
           severity: 'CRITICAL,HIGH'
 
         # Generating SARIF report with Trivy
@@ -76,7 +77,9 @@ jobs:
           image-ref: doom-organizer:${{ github.sha }}
           format: 'sarif'
           output: 'trivy-container-results.sarif'
-          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          ignore-unfixed: 'false'
+          exit-code: '0'
           skip-setup-trivy: 'true' # Reuse Trivy binary from the action's cache to speed up setup
 
         # Uploading SARIF report to GitHub Security tab
@@ -102,3 +105,10 @@ jobs:
           update-existing: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record scanner outcome
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.security_gate.outcome }}
+        run: |
+          echo "Scanner gate: $SCAN_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"

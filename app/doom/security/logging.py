@@ -20,7 +20,7 @@ import logging
 import sys
 import uuid
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from flask import Flask, g, has_request_context, request
 
@@ -76,8 +76,13 @@ def scrub_url(value: str | None) -> str | None:
     if not value:
         return value
 
-    split = urlsplit(value)
-    scrubbed = scrub_path(split.path)
+    try:
+        split = urlsplit(value)
+    except ValueError:
+        return REDACTED
+    # Referer is still URL-encoded, unlike request.path. /%74/<token>
+    # addresses the same Flask route as /t/<token> and needs the same scrub.
+    scrubbed = scrub_path(unquote(split.path))
     if scrubbed == split.path and not split.query:
         return value
 

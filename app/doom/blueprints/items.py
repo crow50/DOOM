@@ -250,7 +250,7 @@ def barcode_lookup(barcode: str):
             action="barcode_lookup_failed", object_type="item",
             detail=f"{provider}: {exc}"[:200], commit=True,
         )
-        return jsonify({"source": "none", "note": str(exc)})
+        return jsonify({"source": "none", "note": "Product lookup is unavailable."})
 
     record_audit(
         action="barcode_lookup", object_type="item",

@@ -1,0 +1,20 @@
+HTTP/2 200 
+content-security-policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'
+content-type: text/html; charset=utf-8
+cross-origin-opener-policy: same-origin
+cross-origin-resource-policy: same-origin
+date: Wed, 23 Sep 2026 20:39:20 GMT
+permissions-policy: accelerometer=(), camera=(self), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()
+referrer-policy: same-origin
+retry-after: 3600
+set-cookie: __Host-doom_session=[redacted session]; Secure; HttpOnly; Path=/; SameSite=Lax
+strict-transport-security: max-age=31536000; includeSubDomains
+vary: Cookie
+via: 1.1 Caddy
+x-content-type-options: nosniff
+x-frame-options: DENY
+x-ratelimit-limit: 600
+x-ratelimit-remaining: 599
+x-ratelimit-reset: 1790199561
+content-length: 1595
+

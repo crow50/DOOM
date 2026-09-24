@@ -1,0 +1,19 @@
+{
+  "code-scanning": {
+    "available": true,
+    "count": 173
+  },
+  "analyses": {
+    "available": true,
+    "count": 210
+  },
+  "dependabot": {
+    "available": true,
+    "count": 27
+  },
+  "secret-scanning": {
+    "available": true,
+    "count": 0
+  },
+  "captured_at": "2026-09-23T23:23:12.789448+00:00"
+}

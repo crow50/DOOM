@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
+import hmac
 
-from flask import Blueprint, Response, abort, render_template, request, session
+from flask import Blueprint, Response, abort, current_app, render_template, request, session
 from sqlalchemy import select
 
 from .. import validation as v
@@ -103,10 +105,25 @@ def _resolve(token: str):
     abort(404)
 
 
+def _pin_approval(node) -> str:
+    """Bind approval to current credentials without exposing the PIN hash.
+
+    Flask sessions are signed, not encrypted. A plain hash of a PIN hash
+    would provide a verifier for guesses; use a server-keyed MAC instead.
+    Changing either credential invalidates previously issued approvals.
+    """
+    key = current_app.secret_key
+    if isinstance(key, str):
+        key = key.encode()
+    message = f"share-pin:{node.id}:{node.share_token}:{node.share_pin_hash}"
+    return hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+
+
 def _pin_required(node) -> bool:
     if not node.share_pin_hash:
         return False
-    return session.get(f"{_PIN_OK}{node.id}") is not True
+    approval = session.get(f"{_PIN_OK}{node.id}")
+    return not (isinstance(approval, str) and hmac.compare_digest(approval, _pin_approval(node)))
 
 
 @bp.route("/<token>", methods=["GET", "POST"])
@@ -124,7 +141,7 @@ def view(token: str):
     if _pin_required(node):
         if form.validate_on_submit():
             if verify_share_pin(node.share_pin_hash, form.pin.data):
-                session[f"{_PIN_OK}{node.id}"] = True
+                session[f"{_PIN_OK}{node.id}"] = _pin_approval(node)
                 record_audit(
                     action="share_pin_accepted",
                     object_type=type(node).__name__.lower(),
