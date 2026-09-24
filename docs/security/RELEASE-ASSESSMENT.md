@@ -6,6 +6,15 @@ it does not certify the remaining unassessed controls or accept residual risks.
 No risk exceptions have been approved. The remaining work is substantive, not a
 requirement to make scanner counts smaller.
 
+**Update, 2026-09-24 — ASVS 5.0 Level 1 and Level 2 are now fully assessed.**
+No row at either level is `Not assessed`; see the section
+[Closing Level 1 and Level 2](#closing-level-1-and-level-2) below for what was
+implemented, what was assessed as already met, and the eleven rows that remain
+open with a finding against each. The release recommendation is unchanged: a
+complete assessment is not a release, the candidate artifact must be rebuilt
+and rescanned against the current source, and the published release's own
+findings are untouched by any of this.
+
 ## Scope and artifacts
 
 The user confirmed that **no public host is defined** and all non-local hosting
@@ -280,3 +289,115 @@ verification and changed candidate source hashes.
 A release recommendation requires blockers closed and retested on the exact
 candidate artifact, fresh scans accounted for, and explicit time-limited
 acceptance of any lower residual risks. No such acceptance is invented here.
+
+## Closing Level 1 and Level 2
+
+A second pass on 2026-09-24 took every ASVS 5.0 Level 1 and Level 2 row from
+`Not assessed` to a status backed by evidence. Where a control was missing it
+was built; where it existed it was verified against the full requirement text
+rather than its summary; where it cannot be satisfied from this repository the
+row says so and carries a finding.
+
+| Scope | Met | Compensating | Not met | N/A | Not assessed |
+|---|---:|---:|---:|---:|---:|
+| 5.0.0 L1 | 58 | 1 | 0 | 11 | 0 |
+| 5.0.0 L2 | 108 | 7 | 4 | 64 | 0 |
+
+### Controls built to close a row
+
+- **14.2.1 — a capability out of the URL.** A share label now encodes
+  `https://host/t/#<code>`. A fragment is never transmitted, so scanning one
+  sends the server `GET /t/` and nothing else; the unlock page moves the code
+  into a POST body and the server redirects to a per-session handle that is
+  worthless without the cookie holding it. Typed entry works without
+  JavaScript.
+- **11.4.1, 9.1.2 — signing raised off SHA-1.** Flask signs the session cookie
+  with HMAC-SHA1 by default and Flask-WTF inherits the same default for the
+  CSRF serializer it builds internally. Both are now SHA-256, with a changed
+  salt so a pre-upgrade cookie cannot be evaluated against the new key at all.
+- **3.4.1, 3.4.4, 3.4.6 — the edge's own header set.** A Caddy-generated 502
+  during a container replacement carried no security headers and still
+  identified the server. `handle_errors` now covers the responses the
+  application never produces. The `?` defaults are written one directive per
+  field because the Caddyfile adapter merges a block into a single `require`
+  matcher, which silently never matches once any one of those headers is
+  present — a block that reads correctly and does nothing.
+- **6.3.3 — a second factor.** TOTP with ten single-use recovery codes,
+  implemented against the RFC 4226 and RFC 6238 published vectors rather than
+  imported. A consumed time step cannot be replayed, a failed code counts
+  toward the password step's lockout, a pending sign-in is not a session, and
+  removing the factor requires both the password and a current code.
+- **7.3.1, 7.1.2 — session limits that exist.** A 60-minute idle timeout that
+  revokes the row rather than refusing the request, and a 10-session cap that
+  evicts the least recently used rather than refusing the new sign-in.
+- **13.2.4, 13.2.5 — the application has no egress.** Caddy now bridges the
+  edge and an internal-only proxy network, so `web` can reach the database and
+  the cache and nothing else. A deny-all where the requirement asks for an
+  allowlist, and it holds even when the SSRF validation in the lookup path is
+  wrong — which matters, because that path's DNS-rebinding defect is not
+  closed.
+- **5.2.2, 5.2.4 — the other halves of two file controls.** The submitted
+  extension must now agree with the sniffed content type, and a file-count
+  quota sits alongside the byte quota, because five thousand one-kilobyte
+  files fit inside the byte ceiling and still cost an inode each.
+- **6.3.2 — no default account.** `flask seed` generated a demo login with a
+  published password. It now generates one, prints it once and refuses to run
+  against a database that already holds other accounts.
+- **14.3.1, 7.4.5, 7.5.1, 6.1.2, 16.2.5** — `Clear-Site-Data` on sign-out; an
+  operator command that terminates sessions for one account or all; the
+  password required before an email change; a documented context-specific word
+  list screened alongside the breach corpus; and log scrubbing extended to
+  free-text messages and exception tracebacks, which the key-based redaction
+  never reached.
+
+`docs/security/POLICIES.md` is new and carries the sixteen documented policies
+the standard asks for by name — validation rules, anti-automation, the
+authorization model, session limits, key lifecycle, remediation deadlines, the
+communication inventory, upload rules, data classification, the logging
+inventory, business-logic limits, resource-demanding functionality, the single
+authentication pathway and the cryptographic inventory.
+
+### What remains open, and why
+
+Eleven rows are not Met. None is an oversight; each carries a finding with an
+exploitability assessment and a residual risk, and none has an approved
+exception.
+
+| Row | Status | Why it cannot close here |
+|---|---|---|
+| 12.2.2 | Compensating | `DOOM_DOMAIN=localhost` — no public CA can issue for it. The ACME path is present and automatic the moment a public name is configured. |
+| 12.3.1, 12.3.3 | Compensating | Caddy→app, app→Postgres and app→Redis are plaintext on internal-only networks. Containment, not encryption. |
+| 12.3.4 | Not met | Recorded separately so that adding internal TLS cannot silently leave consumers trusting any certificate presented. |
+| 13.2.1 | Not met | Backend authentication is static passwords. Certificate or short-lived credentials need 12.3.1 closed first. |
+| 13.3.1 | Compensating | Secrets are file-mounted and access-controlled; managed creation, rotation and destruction are not. |
+| 5.4.3 | Not met | No antivirus. Image re-encoding is not a substitute and is not offered as one. |
+| 6.4.3 | Compensating | No self-service reset by design (D-12); operator-mediated recovery is coarse but does not bypass the second factor. |
+| 1.3.6 | Compensating | DNS rebinding in the opt-in lookup remains open. The network now has no egress, which is why this is Compensating rather than Not met. |
+| 16.2.2 | Compensating | Timestamps are UTC and internally consistent; host time synchronisation is an operator obligation with no evidence. |
+| 16.4.2 | Compensating | `audit_log` is append-only for the application's role and hash-chained; host log-store protection is the operator's. |
+| 16.4.3 | Not met | No off-host log shipping, no alerting, no escalation. |
+
+Six of the eleven are deployment or operator obligations rather than code —
+the certificate, internal TLS and its trust decisions, the secrets manager,
+host time and off-host logging — and they are exactly the set the hosted
+readiness assessment already lists. The other five are work with a shape:
+antivirus in the upload path, certificate-based backend authentication, and
+pinning validated addresses in the lookup transport.
+
+### What this does *not* establish
+
+- **No ASVS level is claimed.** Level 2 has four Not met rows and seven
+  Compensating ones; an L2 claim requires them closed or formally accepted,
+  and no exception has been approved.
+- **The candidate artifact is stale.** This source has not been built,
+  scanned or run in a container since these changes. `verification.json`
+  records every check whose result depends on the source as "rerun required"
+  rather than carrying a passing status forward, because copying one from an
+  older build is not verification. The application suite (453 tests) does pass
+  on the review host against real PostgreSQL, and the migration applies,
+  reverses and reapplies cleanly with no drift from the models.
+- **The ASVS 4.0.3 ledger is unchanged.** It is retained for historical
+  comparison, as recorded above; the migration mappings are context, not
+  equivalences, so a v5 conclusion has not been propagated to a v4 row.
+- **The published release is untouched.** Its Debian image and its open
+  findings are a separate artifact from the candidate this review assessed.

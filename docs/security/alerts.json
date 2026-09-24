@@ -14103,13 +14103,16 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that the application protects against Server-side Request Forgery (SSRF) attacks, by validating untrusted data against an allowlist of protocols, domains, paths and ports and sanitizing potentially dangerous characters before using the data to call another service.",
-      "rationale": "Lookup pins provider, scheme and barcode and refuses redirects, but DNS is resolved again when connecting. Rebinding remains unclosed.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "Two layers, and the outer one is now the load-bearing part. At the application layer the lookup pins the scheme, host and path from a dict in code, refuses redirects, and validates resolved addresses against private ranges - but the DNS name is resolved once for validation and again by the transport when connecting, so a rebinding attack between the two remains open and is not closed by this review. What has changed is the layer beneath: the application container no longer has any route off the host, so a successful SSRF reaches nothing. The feature is also off unless an operator sets BARCODE_LOOKUP_PROVIDER, which requires adding the edge network back and is therefore a reviewable change rather than a default. Recorded as a finding; the rebinding defect is real and unfixed.",
+      "exploitability": "Requires the operator to have enabled BARCODE_LOOKUP_PROVIDER, which also requires restoring the application container's egress route - two deliberate changes. With the feature off, as it ships and as the release assessment recommends, the path is unreachable. With it on, an attacker who controls a DNS answer for the pinned provider host can make the connection resolve to an address the validation rejected, because validation and connection resolve separately. The reachable surface is then whatever the container's network allows, which is why the network change matters more than it looks.",
+      "residual_risk": "medium",
+      "remediation": "Pin validated addresses in the transport with correct TLS hostname verification, then add regression tests for a changing DNS answer, IPv6 and redirect behaviour. Until then, confirm docker-compose keeps `web` off the edge network and BARCODE_LOOKUP_PROVIDER unset.",
+      "verification": "Pin validated addresses in the transport with correct TLS hostname verification, then add regression tests for a changing DNS answer, IPv6 and redirect behaviour. Until then, confirm docker-compose keeps `web` off the edge network and BARCODE_LOOKUP_PROVIDER unset.",
       "evidence": [
-        "app/doom/security/lookup.py"
+        "docker-compose.yml",
+        "app/doom/security/lookup.py",
+        "app/tests/test_lookup.py",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14134,36 +14137,36 @@
     {
       "id": "CONTROL-v5.0.0-3.4.4",
       "group": "v5.0.0-3.4.4",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that all HTTP responses contain an 'X-Content-Type-Options: nosniff' header field. This instructs browsers not to use content sniffing and MIME type guessing for the given response, and to require the response's Content-Type header field value to match the destination resource. For example, the response to a request for a style is only accepted if the response's Content-Type is 'text/css'. This also enables the use of the Cross-Origin Read Blocking (CORB) functionality by the browser.",
-      "rationale": "Application responses carry required headers; a Caddy-generated 502 during restart did not carry the application security header set. Full edge-generated response coverage is unverified.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. Set by the application on every response and again at the edge, including on the responses the application never produces. The gap that made this Partial - a Caddy-generated 502 during a container replacement carrying no security headers at all - is closed by the handle_errors route, and the probe in evidence/proxy-edge-headers.txt records nosniff on a proxied 200, a Caddy 502 and the plaintext redirect. Stored files carry it a third time, set explicitly in the download handler.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run the probe in evidence/proxy-edge-headers.txt with the application container stopped; re-run tests/test_headers.py.",
       "evidence": [
-        "app/doom/security/headers.py",
+        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
-        "docs/security/evidence/proxy-restart-502.txt"
+        "app/doom/security/headers.py"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-3.4.6",
       "group": "v5.0.0-3.4.6",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that the web application uses the frame-ancestors directive of the Content-Security-Policy header field for every HTTP response to ensure that it cannot be embedded by default and that embedding of specific resources is allowed only when necessary. Note that the X-Frame-Options header field, although supported by browsers, is obsolete and may not be relied upon.",
-      "rationale": "Application responses carry required headers; a Caddy-generated 502 during restart did not carry the application security header set. Full edge-generated response coverage is unverified.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. frame-ancestors 'none' in the CSP on every response, with X-Frame-Options: DENY alongside it for browsers that still read it - the requirement notes the latter is obsolete and must not be relied upon, and it is not: the CSP directive is the control. Edge-generated responses now carry the same directive, which is the gap that made this Partial.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run the probe in evidence/proxy-edge-headers.txt; attempt to frame the application and confirm the browser refuses.",
       "evidence": [
+        "docs/security/evidence/proxy-edge-headers.txt",
         "app/doom/security/headers.py",
-        "caddy/Caddyfile",
-        "docs/security/evidence/proxy-restart-502.txt"
+        "app/tests/test_headers.py"
       ],
       "exception": null
     },
@@ -14188,16 +14191,18 @@
     {
       "id": "CONTROL-v5.0.0-5.2.4",
       "group": "v5.0.0-5.2.4",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that a file size quota and maximum number of files per user are enforced to ensure that a single user cannot fill up the storage with too many files, or excessively large files.",
-      "rationale": "Per-owner byte quota exists but no maximum file count and no serialized quota reservation; concurrency needs verification.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. Both ceilings now exist and neither implies the other: 2 GB of bytes and 5,000 files per owner, checked together before anything is written. The file count is what closes the gap that made this Partial - five thousand one-kilobyte files sit well inside the byte quota and still cost an inode, a row and a directory entry each. A test exercises the count ceiling with the byte quota nowhere near exhausted.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestFileCountQuota; set MAX_ATTACHMENTS_PER_OWNER low and confirm the refusal happens inside the byte quota.",
       "evidence": [
-        "app/doom/security/uploads.py"
+        "app/tests/test_asvs_l2_closure.py",
+        "app/doom/security/uploads.py",
+        "app/doom/validation.py"
       ],
       "exception": null
     },
@@ -14207,44 +14212,49 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that files obtained from untrusted sources are scanned by antivirus scanners to prevent serving of known malicious content.",
-      "rationale": "Documents are served without antivirus scanning. Image re-encoding and attachment headers do not satisfy this requirement.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "No antivirus or malware scanning exists. Image re-encoding destroys polyglots and strips metadata, and it is not a substitute: a PDF or a text file is stored exactly as received. The serving controls are real but address a different threat - attachment disposition, a sandbox CSP and nosniff stop a file executing in this origin, and owner-only authorisation means one account's upload is not reachable by another - so what remains is that a malicious document is served back to the owner who uploaded it, unchanged, to open in their own reader. Recorded honestly; no exception is approved, and the absence of a demonstrated cross-account path does not close it.",
+      "exploitability": "Requires the account's own owner to upload a malicious document and later open it in their own reader; there is no cross-account path, because downloads are owner-authorised and per-owner deduplication keeps blobs separate. Serving controls stop it executing in this origin. What remains is a storage-and-return path for malware that the application does not inspect, which is a real gap for a user who treats their inventory as a safe place to keep documents.",
+      "residual_risk": "medium",
+      "remediation": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
+      "verification": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
       "evidence": [
-        "app/doom/security/uploads.py"
+        "docs/security/POLICIES.md",
+        "app/doom/security/uploads.py",
+        "app/doom/blueprints/files.py"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-6.1.2",
       "group": "v5.0.0-6.1.2",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that a list of context-specific words is documented in order to prevent their use in passwords. The list could include permutations of organization names, product names, system identifiers, project codenames, department or role names, and similar.",
-      "rationale": "Policy checks username and common/breached passwords; no documented organization/product-specific word list.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. validation.CONTEXT_WORDS documents the list - doom, inventory, warehouse, organizer, organiser, storage - and POLICIES.md section 3 explains what it is for and how it differs from the breach corpus: a breach list screens what the world has already guessed, this screens what an attacker who knows what they are looking at would try first. The policy also tells operators to extend it with their organisation and site names, and says why the list is code rather than configuration: a change to it is then reviewed and tested.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Read POLICIES.md section 3 against validation.CONTEXT_WORDS; re-run TestContextWordScreen.",
       "evidence": [
-        "app/doom/security/passwords.py"
+        "docs/security/POLICIES.md",
+        "app/doom/validation.py",
+        "app/tests/test_asvs_l2_closure.py"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-6.2.11",
       "group": "v5.0.0-6.2.11",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that the documented list of context specific words is used to prevent easy to guess passwords being created.",
-      "rationale": "Username is screened, but a documented context-specific word list is absent.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. The documented list is applied, case-folded, as a substring test in check_policy, so MyDoomPassphrase is refused as well as doom. It runs at registration and at password change, alongside the username screen and the breach corpus, and a test drives the registration form with a context word to confirm the refusal reaches the user rather than only the helper.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestContextWordScreen, including test_registration_refuses_a_context_word; add a word to CONTEXT_WORDS and confirm a password containing it is refused.",
       "evidence": [
+        "app/tests/test_asvs_l2_closure.py",
         "app/doom/security/passwords.py"
       ],
       "exception": null
@@ -14252,16 +14262,19 @@
     {
       "id": "CONTROL-v5.0.0-6.3.3",
       "group": "v5.0.0-6.3.3",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that either a multi-factor authentication mechanism or a combination of single-factor authentication mechanisms, must be used in order to access the application. For L3, one of the factors must be a hardware-based authentication mechanism which provides compromise and impersonation resistance against phishing attacks while verifying the intent to authenticate by requiring a user-initiated action (such as a button press on a FIDO hardware key or a mobile phone). Relaxing any of the considerations in this requirement requires a fully documented rationale and a comprehensive set of mitigating controls.",
-      "rationale": "Account authentication is password-only. Share PINs are not an independent account factor; no fully documented equivalent mitigating set supports an exception.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. TOTP with single-use recovery codes, enrolled per account. The factor is genuinely required once confirmed: the password step returns a pending marker rather than a session, Flask-Login has no user until the code is verified, and a test asserts the half-finished state cannot reach an authenticated page. A failed code counts toward the same lockout the password step uses, a consumed time step cannot be replayed, and removing the factor needs both the password and a current code. The implementation is pinned to the RFC 4226 and RFC 6238 published vectors. L3's hardware-backed, phishing-resistant factor is not provided and is not claimed.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run tests/test_totp.py and tests/test_mfa.py; enrol an account, confirm the password alone no longer signs in, and confirm a code cannot be used twice.",
       "evidence": [
-        "app/doom/blueprints/auth.py"
+        "app/tests/test_mfa.py",
+        "app/tests/test_totp.py",
+        "app/doom/security/totp.py",
+        "app/doom/security/mfa.py"
       ],
       "exception": null
     },
@@ -14271,28 +14284,33 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that a secure process for resetting a forgotten password is implemented, that does not bypass any enabled multi-factor authentication mechanisms.",
-      "rationale": "No forgotten-password recovery process is implemented. Lack of infrastructure does not make account recovery inapplicable.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "There is no self-service reset, and that is a decision rather than an omission (D-12): a reset flow is an unauthenticated endpoint whose purpose is to hand out account access, it is the most attacked path in web authentication, and this deployment has no mail server to build one on. The process that exists is operator-mediated - `flask set-password`, run against the container by somebody who already holds the host - and it does not bypass the second factor, because it changes only the password and leaves the TOTP enrolment in place. Recorded as a finding because the requirement asks for a secure process and an operator with shell access is a coarse one, not because the absence is accidental. Users who lose an authenticator have ten single-use recovery codes and do not need this path at all.",
+      "exploitability": "Not an attack path but a recovery one: a user who forgets their password needs an operator with shell access. The risk is availability rather than confidentiality, and it is bounded for users who have enrolled a second factor by the ten single-use recovery codes, which cover the case this requirement most often protects. The operator command does not bypass the second factor, so the usual danger of a reset flow - that it becomes the weakest authentication path - does not arise here.",
+      "residual_risk": "low",
+      "remediation": "Confirm `flask set-password` leaves totp_secret and totp_confirmed_at untouched; confirm no unauthenticated route can alter a password. Re-assess if mail infrastructure is ever introduced, at which point a reset flow must be built with the factor enforced.",
+      "verification": "Confirm `flask set-password` leaves totp_secret and totp_confirmed_at untouched; confirm no unauthenticated route can alter a password. Re-assess if mail infrastructure is ever introduced, at which point a reset flow must be built with the factor enforced.",
       "evidence": [
-        "app/doom/blueprints/auth.py"
+        "app/doom/cli.py",
+        "docs/DECISIONS.md",
+        "docs/security/POLICIES.md",
+        "app/tests/test_mfa.py"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-7.1.2",
       "group": "v5.0.0-7.1.2",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that the documentation defines how many concurrent (parallel) sessions are allowed for one account as well as the intended behaviors and actions to be taken when the maximum number of active sessions is reached.",
-      "rationale": "No documented maximum concurrent-session policy.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. POLICIES.md section 5 states the limit (10), the behaviour at the limit (the least recently used session is ended) and why that behaviour rather than refusing the new sign-in: refusing locks somebody out of the device in their hand because of a session they forgot on a machine they no longer own, with an operator as the only way back. The policy is enforced, not just written: a test signs in past the limit and asserts the count holds and that the evicted session is the least recently used one.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Read POLICIES.md section 5; re-run TestConcurrentSessionLimit.",
       "evidence": [
+        "docs/security/POLICIES.md",
+        "app/tests/test_asvs_l2_closure.py",
         "app/doom/blueprints/auth.py"
       ],
       "exception": null
@@ -14300,16 +14318,18 @@
     {
       "id": "CONTROL-v5.0.0-7.3.1",
       "group": "v5.0.0-7.3.1",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that there is an inactivity timeout such that re-authentication is enforced according to risk analysis and documented security decisions.",
-      "rationale": "last_seen_at is recorded but no inactivity expiry is enforced.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. An idle session stops working after SESSION_IDLE_MINUTES and is revoked rather than merely refused, so a copied cookie cannot be retried afterwards. The value and its justification against NIST SP 800-63B are in POLICIES.md section 5. Three tests cover it: an idle session refused, the row actually revoked, and activity inside the window keeping the session alive.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestInactivityTimeout; backdate last_seen_at past the limit and confirm both the refusal and the revocation.",
       "evidence": [
-        "app/doom/blueprints/auth.py"
+        "app/tests/test_asvs_l2_closure.py",
+        "app/doom/blueprints/auth.py",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14351,16 +14371,19 @@
     {
       "id": "CONTROL-v5.0.0-11.1.1",
       "group": "v5.0.0-11.1.1",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that there is a documented policy for management of cryptographic keys and a cryptographic key lifecycle that follows a key management standard such as NIST SP 800-57. This should include ensuring that keys are not overshared (for example, with more than two entities for shared secrets and more than one entity for private keys).",
-      "rationale": "File-mounted secrets and rotation notes exist; complete lifecycle policy and operator custody evidence are absent.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. POLICIES.md section 6 sets out the policy and the lifecycle: what each key is, how it is created, where it is stored, who rotates it, and what rotation does. Oversharing is bounded by construction - each key is held by exactly the two parties that need it, the application and the store it authenticates to - and secrets are read from mode-0400 files rather than the environment, so they do not appear in docker inspect or in any child process's environ, a property make verify-secrets checks rather than assumes. What remains an operator obligation is named as one: custody of the host directory, the rotation schedule and destruction of superseded copies.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Read POLICIES.md section 6 against config._read_secret and the compose secret mounts; run make verify-secrets against a live stack.",
       "evidence": [
-        "docs/SECURITY.md"
+        "docs/security/POLICIES.md",
+        "app/doom/config.py",
+        "docker-compose.yml",
+        "docs/security/evidence/secrets-final.txt"
       ],
       "exception": null
     },
@@ -14370,13 +14393,15 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that an encrypted protocol such as TLS is used for all inbound and outbound connections to and from the application, including monitoring systems, management tools, remote access and SSH, middleware, databases, mainframes, partner systems, or external APIs. The server must not fall back to insecure or unencrypted protocols.",
-      "rationale": "Caddy-to-app HTTP and app-to-Postgres/Redis connections are plaintext on isolated Docker networks.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "Not met literally. Caddy reaches the application over plaintext HTTP, and the application reaches PostgreSQL and Redis over plaintext, on Docker networks that carry nothing else. What has changed since this was assessed is the boundary rather than the encryption: those networks are now all internal, the application container has no route off the host at all, and the only process that touches the outside is Caddy, which terminates TLS. So the plaintext exists inside a boundary that is narrower than it was, and there is no inbound or outbound connection crossing the host unencrypted. That is a mitigation, not the control - an attacker with the Docker host, or a second workload on it, reads this traffic. Recorded as a finding; no exception is approved.",
+      "exploitability": "Requires an attacker to be on the Docker host or in another workload on it - which is to say, to have already crossed a boundary that would give them the database credentials by other means. The traffic never leaves the host: all three internal networks are internal-only, the application container has no egress route, and the only published ports belong to Caddy, which terminates TLS. The exposure is real and the mitigation is containment, not encryption.",
+      "residual_risk": "medium",
+      "remediation": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
+      "verification": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
       "evidence": [
-        "docker-compose.yml"
+        "docker-compose.yml",
+        "docs/security/POLICIES.md",
+        "docs/security/evidence/deployment-final.json"
       ],
       "exception": null
     },
@@ -14386,13 +14411,15 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that TLS or another appropriate transport encryption mechanism used for all connectivity between internal, HTTP-based services within the application, and does not fall back to insecure or unencrypted communications.",
-      "rationale": "Reverse proxy communicates with web:8000 over plaintext HTTP.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "Same subject as 12.3.1 and the same disposition: the reverse proxy reaches web:8000 over plaintext HTTP. The compensating position is the network boundary - that hop is on an internal-only Docker network shared by exactly two containers, no port is published for it, and the application has no route off the host - and the honest statement is that this is containment rather than transport encryption.",
+      "exploitability": "Same position as 12.3.1 and narrower: one hop between two containers on an internal-only network that publishes nothing. An attacker able to observe it is already inside the host.",
+      "residual_risk": "medium",
+      "remediation": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
+      "verification": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
       "evidence": [
-        "caddy/Caddyfile"
+        "docker-compose.yml",
+        "caddy/Caddyfile",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14402,13 +14429,14 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that TLS connections between internal services use trusted certificates. Where internally generated or self-signed certificates are used, the consuming service must be configured to only trust specific internal CAs and specific self-signed certificates.",
-      "rationale": "Internal connections have no TLS certificates to authenticate. Absent TLS does not make this N/A.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "There is no internal TLS, so there are no internal certificates to trust specifically - and the absence of the transport is exactly why this cannot be Compensating: a trust decision cannot be evaluated where no trust decision is made. It is recorded separately from 12.3.1 and 12.3.3 rather than folded into them, because closing those by issuing certificates would leave this one open unless each consuming service is also configured to trust one specific internal CA rather than any certificate presented.",
+      "exploitability": "No exposure of its own today, because there is no internal TLS whose trust could be misplaced. It is recorded separately so that closing 12.3.1 and 12.3.3 by issuing certificates cannot silently leave consumers trusting any certificate presented, which is the failure this requirement exists to prevent.",
+      "residual_risk": "low",
+      "remediation": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
+      "verification": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
       "evidence": [
-        "docker-compose.yml"
+        "docker-compose.yml",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14418,29 +14446,32 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that communications between backend application components that don't support the application's standard user session mechanism, including APIs, middleware, and data layers, are authenticated. Authentication must use individual service accounts, short-term tokens, or certificate-based authentication and not unchanging credentials such as passwords, API keys, or shared accounts with privileged access.",
-      "rationale": "Backend authentication uses static database and Redis passwords.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "Backend authentication uses static, file-mounted passwords for PostgreSQL and Redis. They are strong, generated by make init, held in mode-0400 files rather than the environment, and the database role is restricted - none of which is what this requirement asks for. It asks for individual service accounts with short-term tokens or certificate-based authentication, and unchanging credentials are named as the thing not to use. Recorded as Not met rather than compensated, because the mitigations here reduce exposure of the credential without changing its nature.",
+      "exploitability": "A static credential does not expire, so a copy taken once stays useful until an operator rotates it. Reaching it requires the host: the files are mode 0400, mounted read-only, read once at startup and absent from every process environment, which make verify-secrets checks rather than assumes. The database role the credential opens is the restricted one, which cannot ALTER, DROP, or rewrite audit_log.",
+      "residual_risk": "medium",
+      "remediation": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
+      "verification": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
       "evidence": [
-        "docker-compose.yml"
+        "docker-compose.yml",
+        "app/doom/config.py",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-13.2.5",
       "group": "v5.0.0-13.2.5",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that the web or application server is configured with an allowlist of resources or systems to which the server can send requests or load data or files from.",
-      "rationale": "No server-level outbound destination allowlist; the web container has an edge network route.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. Same control as 13.2.4, read from the server's side: the web container has no egress route, so there is no destination it can send a request to or load a file from beyond the two services on its internal networks. This is the layer the requirement asks for - configured at the infrastructure rather than in the application - and it is what makes an SSRF in the lookup path reach nothing, which matters because the DNS-rebinding defect in that path is not closed.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Inspect docker-compose.yml; attempt an outbound connection from inside the running web container and confirm it is refused at the network layer rather than by application validation.",
       "evidence": [
-        "docker-compose.yml"
+        "docker-compose.yml",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14450,13 +14481,16 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that a secrets management solution, such as a key vault, is used to securely create, store, control access to, and destroy backend secrets. These could include passwords, key material, integrations with databases and third-party systems, keys and seeds for time-based tokens, other internal secrets, and API keys. Secrets must not be included in application source code or included in build artifacts. For an L3 application, this must involve a hardware-backed solution such as an HSM.",
-      "rationale": "Compose mounts secrets with restricted host directory; managed creation, rotation and destruction are operator tasks without verified lifecycle evidence.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "There is no key vault. Secrets are generated by make init, held in a restricted host directory, mounted read-only into the containers and read from files rather than the environment - which covers storage and access control, and make verify-secrets proves the environment half rather than asserting it. What a vault would add is managed creation, rotation and destruction with an audit trail, and those remain operator tasks with no verified lifecycle evidence. The mount point is the seam where a vault would attach. L3's hardware-backed requirement is not met and is not claimed. Recorded as a finding; no exception is approved.",
+      "exploitability": "Exposure is bounded by host access, and the missing half is lifecycle rather than storage: there is no managed rotation, no destruction of superseded copies and no audit trail over who read a secret. A compromise that is never noticed is therefore never remediated on a schedule, which is the property a vault provides and a directory does not.",
+      "residual_risk": "medium",
+      "remediation": "Introduce a secrets manager that issues and rotates these credentials, and record rotation and destruction evidence. Until then, run make verify-secrets and confirm the host directory's permissions.",
+      "verification": "Introduce a secrets manager that issues and rotates these credentials, and record rotation and destruction evidence. Until then, run make verify-secrets and confirm the host directory's permissions.",
       "evidence": [
-        "Makefile"
+        "docker-compose.yml",
+        "app/doom/config.py",
+        "docs/security/evidence/secrets-final.txt",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
@@ -14518,28 +14552,32 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that time sources for all logging components are synchronized, and that timestamps in security event metadata use UTC or include an explicit time zone offset. UTC is recommended to ensure consistency across distributed systems and to prevent confusion during daylight saving time transitions.",
-      "rationale": "Logs carry timestamps, but host time synchronization evidence is required.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "The application's half is met and testable: every timestamp is UTC with an explicit offset, in the log formatter and in the database, so there is no daylight-saving ambiguity to resolve. The half that is not met is that all four containers take their clock from the host kernel, so their timestamps agree with each other by construction but their accuracy is the host's - and no evidence exists that the host runs NTP. That is an operator obligation no code in this repository can discharge, and it is recorded rather than assumed. Container-to-container consistency is the compensating property; absolute accuracy is not established.",
+      "exploitability": "Timestamps are internally consistent and explicitly UTC, so correlation across the stack is sound regardless. The risk is that absolute times drift from an external reference, which matters for correlating this system's record with another's during an investigation. It cannot be exploited; it can make evidence harder to align.",
+      "residual_risk": "low",
+      "remediation": "Confirm the host runs a time synchronisation service and record its status as operator evidence. The application-side property can be re-checked by inspecting any log line's offset.",
+      "verification": "Confirm the host runs a time synchronisation service and record its status as operator evidence. The application-side property can be re-checked by inspecting any log line's offset.",
       "evidence": [
-        "app/doom/security/logging.py"
+        "app/doom/security/logging.py",
+        "docs/security/HOSTED-READINESS.md",
+        "docs/security/POLICIES.md"
       ],
       "exception": null
     },
     {
       "id": "CONTROL-v5.0.0-16.2.5",
       "group": "v5.0.0-16.2.5",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that when logging sensitive data, the application enforces logging based on the data's protection level. For example, it may not be allowed to log certain data, such as credentials or payment details. Other data, such as session tokens, may only be logged by being hashed or masked, either in full or partially.",
-      "rationale": "Structured fields and share paths are redacted; arbitrary message strings and exception text are not comprehensively sanitized.",
+      "rationale": "Closed by the ASVS 5.0 Level 2 review on 2026-09-24. Three mechanisms, because a secret arrives in three shapes and a key-based redaction covers only one. Structured fields are redacted by key name; request paths and Referer URLs are scrubbed after percent-decoding, so /t/<code> and /%74/<code> are both reduced; and free-text messages and exception tracebacks are now scrubbed for share-code-shaped values and for key=value pairs whose key is sensitive - the gap that made this Partial, since a message has no keys and a library's exception text is not ours to choose. A test confirms an ordinary message survives intact, because a log nobody can read is replaced by one nobody redacts.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestLogMessageSanitisation and the redaction tests in tests/test_asvs_l1_gaps.py; raise an exception carrying a share token and confirm the traceback is scrubbed.",
       "evidence": [
+        "app/tests/test_asvs_l2_closure.py",
+        "app/tests/test_asvs_l1_gaps.py",
         "app/doom/security/logging.py"
       ],
       "exception": null
@@ -14550,13 +14588,16 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that logs are protected from unauthorized access and cannot be modified.",
-      "rationale": "Restricted application role cannot mutate audit history; Docker stdout access/retention and operator tamper resistance are unverified.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "The application cannot rewrite its own history: UPDATE and DELETE on audit_log are revoked from the restricted role the runtime uses, so a compromise of the application does not become a compromise of the record, and the hash chain makes any out-of-band modification evident. Those are the two properties that can be established from inside this repository. What cannot is protection of the container's stdout stream on the host, its retention, and access control over it - all of which belong to the operator and have no evidence. Recorded as a finding rather than claimed.",
+      "exploitability": "An attacker who reaches the Docker host can read or discard the stdout stream. They cannot rewrite audit_log through the application - UPDATE and DELETE are revoked from its role - and out-of-band modification of that table is detectable by the hash chain, so the durable record resists the case the stream does not.",
+      "residual_risk": "medium",
+      "remediation": "Run make verify-db-roles and attempt an UPDATE on audit_log as the application role; for the rest, record the host's log store permissions and retention as operator evidence.",
+      "verification": "Run make verify-db-roles and attempt an UPDATE on audit_log as the application role; for the rest, record the host's log store permissions and retention as operator evidence.",
       "evidence": [
-        "app/doom/security/audit.py"
+        "docs/security/evidence/roles-final.txt",
+        "app/doom/cli.py",
+        "docs/security/HOSTED-READINESS.md",
+        "app/tests/test_audit_chain.py"
       ],
       "exception": null
     },
@@ -14566,12 +14607,14 @@
       "disposition": "confirmed",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that logs are securely transmitted to a logically separate system for analysis, detection, alerting, and escalation. The aim is to ensure that if the application is breached, the logs are not compromised.",
-      "rationale": "No off-host log shipping, independent monitoring or escalation service configured.",
-      "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "rationale": "Logs stay on the host that produces them. There is no shipper, no separate analysis system, no alerting and no escalation path, so the property this requirement exists for - that a breach of the application does not also compromise the record of it - does not hold for the stdout stream. The append-only database table and its hash chain are a partial answer for the audit trail specifically and are already credited at 16.4.2; they are not log shipping, and treating them as such would be the kind of substitution this assessment is written to avoid. Recorded honestly; no exception is approved.",
+      "exploitability": "An attacker who compromises the host compromises the only copy of the request and edge logs at the same time, so the record of how they arrived can be removed along with the evidence of what they did. The audit table's hash chain means removal of the application's own record is detectable rather than silent, which narrows the gap without closing it. There is also no alerting, so nothing raises a breach in progress.",
+      "residual_risk": "medium",
+      "remediation": "Configure a log driver or sidecar shipping to a separate system, with alerting on the authentication and access-denial events, and record delivery evidence. This is a deployment obligation and is listed in the hosted-readiness assessment.",
+      "verification": "Configure a log driver or sidecar shipping to a separate system, with alerting on the authentication and access-denial events, and record delivery evidence. This is a deployment obligation and is listed in the hosted-readiness assessment.",
       "evidence": [
+        "docs/security/POLICIES.md",
+        "docs/security/HOSTED-READINESS.md",
         "docker-compose.yml"
       ],
       "exception": null
