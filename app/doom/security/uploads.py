@@ -221,10 +221,22 @@ def check_quota(owner_id, incoming_bytes: int) -> None:
     from ..extensions import db
     from ..models import Attachment
 
-    used = db.session.scalar(
-        select(func.coalesce(func.sum(Attachment.byte_size), 0))
-        .where(Attachment.owner_id == owner_id)
-    ) or 0
+    used, count = db.session.execute(
+        select(
+            func.coalesce(func.sum(Attachment.byte_size), 0),
+            func.count(Attachment.id),
+        ).where(Attachment.owner_id == owner_id)
+    ).one()
+    used = used or 0
+
+    # Two ceilings, because one does not imply the other: five thousand
+    # one-kilobyte files sit well inside the byte quota and still cost an
+    # inode, a row and a directory entry each (ASVS 5.0.0-5.2.4).
+    if count >= v.MAX_ATTACHMENTS_PER_OWNER:
+        raise UploadRejected(
+            f"You have reached the limit of {v.MAX_ATTACHMENTS_PER_OWNER:,} "
+            f"stored files. Delete something first."
+        )
 
     if used + incoming_bytes > v.STORAGE_QUOTA_BYTES:
         used_mb = used // (1024 * 1024)

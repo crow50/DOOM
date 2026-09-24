@@ -84,9 +84,50 @@ def load_user(user_id: str):
                 extra={"extra_fields": {"user_id": str(user.id)}},
             )
             return None
+
+        # Inactivity timeout (ASVS 5.0.0-7.3.1). The absolute lifetime on the
+        # cookie caps how long a session can live; this caps how long an
+        # abandoned one stays usable, which is the case that actually happens -
+        # a phone left on a bench, a browser left open on a shared terminal.
+        #
+        # Revoked rather than merely refused, so the account page stops listing
+        # it and a stolen cookie cannot be retried after the fact.
+        if _expired(record):
+            _revoke(record, "idle timeout")
+            logger.info(
+                "session_idle_timeout",
+                extra={"extra_fields": {"user_id": str(user.id)}},
+            )
+            return None
+
         _touch(record)
 
     return user
+
+
+def _expired(record) -> bool:
+    """True when this session has gone unused past the idle limit."""
+    idle = utcnow() - record.last_seen_at
+    return idle.total_seconds() > v.SESSION_IDLE_MINUTES * 60
+
+
+def _revoke(record, reason: str) -> None:
+    """End one session, tolerating a database that will not take the write.
+
+    A failed revocation must not turn into a 500 on an ordinary page load:
+    the caller is about to refuse the request anyway, so the safe outcome is
+    "this request is unauthenticated" rather than "the site is down".
+    """
+    try:
+        record.revoked_at = utcnow()
+        db.session.commit()
+        record_audit(
+            action="session_revoked", object_type="user",
+            object_id=str(record.user_id), detail=reason, commit=True,
+        )
+    except Exception:
+        db.session.rollback()
+        logger.exception("session_revoke_failed")
 
 
 def _touch(record) -> None:
@@ -216,6 +257,8 @@ def _finish_login(user: User, plaintext: str) -> None:
             extra={"extra_fields": {"user_id": str(user.id)}},
         )
 
+    _enforce_session_cap(user)
+
     record = UserSession(
         user_id=user.id,
         ip=request.remote_addr,
@@ -233,6 +276,31 @@ def _finish_login(user: User, plaintext: str) -> None:
         action="login", object_type="user", object_id=str(user.id), actor_id=user.id
     )
     db.session.commit()
+
+
+def _enforce_session_cap(user: User) -> None:
+    """Keep one account inside its concurrent-session limit (ASVS 7.1.2).
+
+    The least recently used sessions are ended to make room, rather than the
+    new sign-in being refused. Refusing would mean an account that has
+    accumulated forgotten sessions on machines its owner no longer has locks
+    them out of the device in their hand, and the only way back would be an
+    operator - which is a support burden that ends in the limit being raised
+    until it means nothing.
+    """
+    live = db.session.execute(
+        select(UserSession)
+        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+        .order_by(UserSession.last_seen_at.desc())
+    ).scalars().all()
+
+    # -1 because the session about to be created needs a place too.
+    for stale in live[max(v.MAX_CONCURRENT_SESSIONS - 1, 0):]:
+        stale.revoked_at = utcnow()
+        record_audit(
+            action="session_revoked", object_type="user", object_id=str(user.id),
+            detail="concurrent session limit", actor_id=user.id,
+        )
 
 
 def _record_failure(user: User) -> None:
