@@ -446,3 +446,183 @@ class TestFieldSubset:
                 "visibility", "share_token", "share_pin_hash", "location_id",
                 "parent_id",
             }
+
+
+# ---------------------------------------------------------------------------
+# V7.4.1 / V7.4.2 - termination really terminates
+# ---------------------------------------------------------------------------
+
+class TestSessionTermination:
+    def test_logout_ends_the_session_for_good(self, client, alice):
+        login(client, "alice")
+        assert client.get("/locations/").status_code == 200
+
+        client.post("/logout")
+        assert client.get("/locations/").status_code == 302
+
+    def test_deactivating_an_account_ends_every_live_session(self, app, alice):
+        """V7.4.2 - checked on the request, not at the next sign-in."""
+        first, second = app.test_client(), app.test_client()
+        login(first, "alice")
+        login(second, "alice")
+        assert first.get("/locations/").status_code == 200
+        assert second.get("/locations/").status_code == 200
+
+        alice.is_active_flag = False
+        db.session.commit()
+
+        assert first.get("/locations/").status_code == 302
+        assert second.get("/locations/").status_code == 302
+
+    def test_a_password_change_ends_the_other_devices(self, app, client, alice):
+        other = app.test_client()
+        login(other, "alice")
+        login(client, "alice")
+
+        response = client.post("/account/password", data={
+            "current_password": "a-long-enough-passphrase",
+            "new_password": "relentless-kettle-mango-ribbon",
+            "confirm": "relentless-kettle-mango-ribbon",
+        })
+        assert response.status_code == 302
+
+        # The tab that made the change stays signed in; the others do not.
+        assert client.get("/locations/").status_code == 200
+        assert other.get("/locations/").status_code == 302
+
+    def test_the_share_handle_carries_enough_entropy_to_stop_the_question(self):
+        """Not a credential, and sized as though it were."""
+        import base64
+        from doom.blueprints.share import _remember
+
+        source = (APP_PACKAGE / "blueprints" / "share.py").read_text(encoding="utf-8")
+        assert "secrets.token_urlsafe(16)" in source
+
+
+# ---------------------------------------------------------------------------
+# V2.3.1 - business logic runs in its expected order
+# ---------------------------------------------------------------------------
+
+class TestSequentialFlows:
+    def test_a_protected_share_cannot_be_read_before_the_pin(self, client, alice_item):
+        from doom.security.passwords import hash_share_pin
+
+        alice_item.share_pin_hash = hash_share_pin("123456")
+        token = _share(alice_item)
+
+        landing = client.post("/t/", data={"token": token}, follow_redirects=True)
+        assert b"Cordless drill" not in landing.data
+        assert b'name="pin"' in landing.data
+
+    def test_the_wrong_pin_does_not_advance_the_flow(self, client, alice_item):
+        from doom.security.passwords import hash_share_pin
+
+        alice_item.share_pin_hash = hash_share_pin("123456")
+        token = _share(alice_item)
+        handle = client.post("/t/", data={"token": token}).headers["Location"]
+
+        response = client.post(handle, data={"pin": "000000"})
+        assert response.status_code == 401
+        assert b"Cordless drill" not in response.data
+
+        # And the correct PIN still works afterwards: a rejection is not a lockout.
+        assert b"Cordless drill" in client.post(handle, data={"pin": "123456"}).data
+
+    def test_a_password_change_requires_the_current_password_first(self, client, alice):
+        login(client, "alice")
+        response = client.post("/account/password", data={
+            "current_password": "not-the-right-one",
+            "new_password": "relentless-kettle-mango-ribbon",
+            "confirm": "relentless-kettle-mango-ribbon",
+        })
+        assert response.status_code == 200
+        assert b"not your current password" in response.data
+
+
+# ---------------------------------------------------------------------------
+# V1.2.2 / V3.2.1 / V3.5.1 - the remaining browser-facing controls
+# ---------------------------------------------------------------------------
+
+class TestBrowserFacingControls:
+    @pytest.mark.parametrize("hostile", [
+        "javascript:alert(1)",
+        "data:text/html,<script>alert(1)</script>",
+        "vbscript:msgbox(1)",
+        "file:///etc/passwd",
+    ])
+    def test_only_http_and_https_may_be_stored_as_a_link(self, hostile):
+        """V1.2.2 - an allowlist, so a scheme nobody predicted is refused too."""
+        from doom import validation as v
+
+        assert v.URL_SCHEMES == frozenset({"http", "https"})
+        assert hostile.split(":")[0] not in v.URL_SCHEMES
+
+    def test_a_stored_document_is_served_as_an_inert_attachment(
+        self, client, alice, alice_item
+    ):
+        """V3.2.1 - never rendered in this origin's context."""
+        from doom.models import Attachment
+
+        attachment = Attachment(
+            owner_id=alice.id, item_id=alice_item.id, kind="document",
+            stored_name="x.txt", original_name="notes.txt",
+            content_type="text/plain", byte_size=1, sha256="0" * 64,
+        )
+        db.session.add(attachment)
+        db.session.commit()
+
+        upload_dir = pathlib.Path(client.application.config["UPLOAD_DIR"])
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        (upload_dir / "x.txt").write_bytes(b"notes\n")
+        login(client, "alice")
+
+        response = client.get(f"/files/{attachment.id}")
+        assert response.status_code == 200
+        assert "attachment" in response.headers["Content-Disposition"]
+        assert response.headers["Content-Security-Policy"] == (
+            "default-src 'none'; sandbox"
+        )
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+    def test_a_blob_missing_from_disk_is_a_404_rather_than_a_traceback(
+        self, client, alice, alice_item
+    ):
+        """A restored volume without its files must not become a 500.
+
+        Found while writing the test above: send_file raised FileNotFoundError
+        straight through the view, so a row whose blob had gone produced a
+        stack trace and a different answer from every other miss (D-06).
+        """
+        from doom.models import Attachment
+
+        attachment = Attachment(
+            owner_id=alice.id, item_id=alice_item.id, kind="document",
+            stored_name="definitely-not-there.txt", original_name="gone.txt",
+            content_type="text/plain", byte_size=1, sha256="1" * 64,
+        )
+        db.session.add(attachment)
+        db.session.commit()
+        login(client, "alice")
+
+        assert client.get(f"/files/{attachment.id}").status_code == 404
+
+    def test_a_post_without_a_csrf_token_is_refused(self, app, alice):
+        """V3.5.1 - anti-forgery tokens, not CORS preflight.
+
+        The suite runs with CSRF disabled so forms can be driven directly, so
+        this builds an application that has it on - otherwise the test would
+        assert the configuration it is standing in rather than the control.
+        """
+        from doom.config import TestConfig
+
+        class CsrfConfig(TestConfig):
+            WTF_CSRF_ENABLED = True
+
+        from doom import create_app
+
+        protected = create_app(CsrfConfig)
+        with protected.test_client() as guarded:
+            response = guarded.post("/login", data={
+                "username": "alice", "password": "a-long-enough-passphrase",
+            })
+            assert response.status_code == 400

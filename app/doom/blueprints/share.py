@@ -182,7 +182,10 @@ def _remember(token: str) -> str:
         if hmac.compare_digest(value, token):
             return existing
 
-    handle = secrets.token_urlsafe(12)
+    # 16 bytes, not 12: a handle is not a credential - it is useless without
+    # the signed cookie that holds its entry - but sizing it at 128 bits means
+    # nobody has to be persuaded of that before they can read the next line.
+    handle = secrets.token_urlsafe(16)
     held.append([handle, token])
 
     # Oldest out first. The list is append-ordered, so this really is a queue.

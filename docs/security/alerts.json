@@ -14116,18 +14116,18 @@
     {
       "id": "CONTROL-v5.0.0-3.4.1",
       "group": "v5.0.0-3.4.1",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that a Strict-Transport-Security header field is included on all responses to enforce an HTTP Strict Transport Security (HSTS) policy. A maximum age of at least 1 year must be defined, and for L2 and up, the policy must apply to all subdomains as well.",
-      "rationale": "Application responses carry required headers; a Caddy-generated 502 during restart did not carry the application security header set. Full edge-generated response coverage is unverified.",
+      "rationale": "Closed by the ASVS 5.0 Level 1 review on 2026-09-24. max-age=31536000 (one year) with includeSubDomains, set by the application on every response and independently by the edge. The gap that made this Partial - a Caddy-generated 502 during a container replacement carrying no security headers at all - is closed: handle_errors now serves edge-generated responses with the full set, and the probe in evidence/proxy-edge-headers.txt records a 502, a proxied 200 and the plaintext redirect all carrying HSTS.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run the probe in evidence/proxy-edge-headers.txt against caddy/Caddyfile: stop the application container and confirm the 502 still carries HSTS with a one-year max-age and includeSubDomains.",
       "evidence": [
-        "app/doom/security/headers.py",
+        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
-        "docs/security/evidence/proxy-restart-502.txt"
+        "app/doom/security/headers.py"
       ],
       "exception": null
     },
@@ -14170,16 +14170,18 @@
     {
       "id": "CONTROL-v5.0.0-5.2.2",
       "group": "v5.0.0-5.2.2",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that when the application accepts a file, either on its own or within an archive such as a zip file, it checks if the file extension matches an expected file extension and validates that the contents correspond to the type represented by the extension. This includes, but is not limited to, checking the initial 'magic bytes', performing image re-writing, and using specialized libraries for file content validation. For L1, this can focus just on files which are used to make specific business or security decisions. For L2 and up, this must apply to all files being accepted.",
-      "rationale": "Content sniffing and image re-encoding exist; filename extension is deliberately ignored, so literal extension/content matching is not met.",
+      "rationale": "Closed by the ASVS 5.0 Level 1 review on 2026-09-24. Both halves are now present. Content is identified by libmagic from the bytes and checked against an allowlist; images are fully decoded and re-encoded into a new container, which destroys polyglots; and the submitted filename extension is checked against a per-type table so a JPEG named report.pdf is refused rather than silently stored under a corrected name. The stored name is still generated from the sniffed type and never derived from the submitted one.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestUploadExtensionMatchesContent, which covers a matching name, three mismatched ones, a missing extension, mixed case, and Markdown (which libmagic reports as text/plain).",
       "evidence": [
-        "app/doom/security/uploads.py"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/uploads.py",
+        "app/doom/validation.py"
       ],
       "exception": null
     },
@@ -14461,16 +14463,18 @@
     {
       "id": "CONTROL-v5.0.0-14.2.1",
       "group": "v5.0.0-14.2.1",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that sensitive data is only sent to the server in the HTTP message body or header fields, and that the URL and query string do not contain sensitive information, such as an API key or session token.",
-      "rationale": "A share capability is a credential carried in /t/<token>; redaction does not meet the literal requirement.",
+      "rationale": "Closed by the ASVS 5.0 Level 1 review on 2026-09-24. The one credential this application puts in front of an unauthenticated visitor no longer travels in a URL. A label encodes https://host/t/#<code>; a fragment is never transmitted, so scanning one sends the server GET /t/ and nothing more. The unlock page moves the code into a POST body, the server files it in the visitor's signed session and redirects to /t/v/<handle>, where the handle names an entry in that cookie and addresses nothing without it. Nothing else sensitive is ever placed in a URL or query string: identifiers in paths are UUIDs that still require a session.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestShareCodeNeverInAURL, which checks the generated label URL, the landing request, the redirect target, a second client's attempt on the same handle, the cap on held codes and handle reuse.",
       "evidence": [
-        "app/doom/blueprints/share.py"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/share.py",
+        "app/doom/blueprints/labels.py"
       ],
       "exception": null
     },
@@ -14493,15 +14497,17 @@
     {
       "id": "CONTROL-v5.0.0-14.3.1",
       "group": "v5.0.0-14.3.1",
-      "disposition": "confirmed",
+      "disposition": "resolved/stale",
       "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
       "impact": "Verify that authenticated data is cleared from client storage, such as the browser DOM, after the client or session is terminated. The 'Clear-Site-Data' HTTP response header field may be able to help with this but the client-side should also be able to clear up if the server connection is not available when the session is terminated.",
-      "rationale": "No-store reduces persistence, but no comprehensive DOM/client-state cleanup on local session termination or connection loss.",
+      "rationale": "Closed by the ASVS 5.0 Level 1 review on 2026-09-24. Sign-out sends Clear-Site-Data for cache, cookies and storage, so the browser drops what it holds for this origin rather than only the cookie; authenticated pages are already Cache-Control: no-store with Vary: Cookie, so little is left to clear and nothing is in an intermediary cache. executionContexts is deliberately not requested - browsers disagree about whether it takes effect before or after the redirect completes, which has produced reload loops - and the volatile DOM goes with the navigation that follows. Nothing authenticated is written to localStorage or sessionStorage, so there is no client-side state to clean up when the server is unreachable.",
       "exploitability": "Compliance gap is established; control-specific threat impact requires residual-risk assessment. No acceptance inferred from status.",
-      "residual_risk": "unknown",
-      "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "residual_risk": "none",
+      "remediation": "No further action; the control is in place and pinned by the evidence below.",
+      "verification": "Re-run TestClearSiteDataOnLogout; grep the scripts for localStorage and sessionStorage; sign out over HTTPS and confirm the header is honoured.",
       "evidence": [
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/auth.py",
         "app/doom/security/headers.py"
       ],
       "exception": null
@@ -14783,6 +14789,24 @@
         "docs/security/evidence/candidate-grype.json",
         "docs/security/evidence/candidate-sbom.json",
         "docs/security/evidence/candidate-image.json"
+      ],
+      "exception": null
+    },
+    {
+      "id": "CONTROL-v5.0.0-12.2.2",
+      "group": "v5.0.0-12.2.2",
+      "disposition": "confirmed",
+      "affected_versions": "Self-hosted release/development deployment described in docs/security/asvs-5.0.0.json",
+      "impact": "Verify that external facing services use publicly trusted TLS certificates.",
+      "rationale": "Not met literally, and no code change can close it. The reviewed deployment serves DOOM_DOMAIN=localhost, for which no public CA can issue: Caddy presents a certificate from its own internal CA. The compensating control is that the CA is distributed to the devices that need it out of band by `make trust-cert` rather than being clicked through, and the service is published on a private network with no public name. The mechanism for the real thing is present and automatic - setting DOOM_DOMAIN to a public name and an ACME contact makes Caddy obtain a publicly trusted certificate - so this is a property of a deployment that does not exist yet rather than a missing capability. Recorded as a finding, not accepted: no exception is approved.",
+      "exploitability": "Requires a position on the private network the instance is published to, plus a client that has not been given the internal CA. Such a client sees a certificate warning rather than a silent downgrade, so an interception attempt is visible; a client that has been given the CA validates normally. No public name exists for an attacker to obtain a competing certificate for.",
+      "residual_risk": "low",
+      "remediation": "Set DOOM_DOMAIN to a publicly resolvable name and add an `email` line to the Caddy global block. Caddy then obtains and renews a publicly trusted certificate over ACME with no further change. Until then the deployment is local by definition and the internal CA distributed by `make trust-cert` is the control.",
+      "verification": "On the first non-local deployment, set DOOM_DOMAIN and the ACME email, then confirm the served chain terminates in a publicly trusted root from a client with no custom CA installed. Re-run the release gate with --deployment non-local.",
+      "evidence": [
+        "caddy/Caddyfile",
+        "docs/security/HOSTED-READINESS.md",
+        "docs/security/evidence/proxy-edge-headers.txt"
       ],
       "exception": null
     }

@@ -34,12 +34,13 @@
       "id": "v5.0.0-1.2.1",
       "level": 1,
       "requirement": "Verify that output encoding for an HTTP response, HTML document, or XML document is relevant for the context required, such as encoding the relevant characters for HTML elements, HTML attributes, HTML comments, CSS, or HTTP header fields, to avoid changing the message or document structure.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Every HTML response is rendered by Jinja2 with autoescape on, and a test walks the AST of every template in the loader to assert that no template disables it and none applies the `safe` filter. Values reach HTML element and attribute contexts only; the application builds no CSS or XML documents and writes no user data into a response header field. Header values that are set are fixed strings from security/headers.py.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_security_review.py",
+        "app/doom/security/headers.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_jinja_templates_compile_with_autoescape, which parses and compiles every registered template; add a template with `|safe` and confirm it fails.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.3.1",
       "finding_ids": []
@@ -48,12 +49,14 @@
       "id": "v5.0.0-1.2.2",
       "level": 1,
       "requirement": "Verify that when dynamically building URLs, untrusted data is encoded according to its context (e.g., URL encoding or base64url encoding for query or path parameters). Ensure that only safe URL protocols are permitted (e.g., disallow javascript: or data:).",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "URLs are built with Flask's url_for, which percent-encodes every parameter for its position in the path or query. The one place a user-supplied URL is emitted as an href is a DocLink, and validation.URL_SCHEMES is an allowlist of exactly {http, https} - javascript:, data:, vbscript: and file: are refused because they are not on it rather than because they were predicted. Share codes are emitted in a fragment and are generated, not supplied.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/validation.py",
+        "app/tests/test_validation.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestBrowserFacingControls; inspect validation.URL_SCHEMES and the DocLink form validator; grep the templates for an href built by string concatenation rather than url_for.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-5.3.1",
       "finding_ids": []
@@ -62,12 +65,14 @@
       "id": "v5.0.0-1.2.3",
       "level": 1,
       "requirement": "Verify that output encoding or escaping is used when dynamically building JavaScript content (including JSON), to avoid changing the message or document structure (to avoid JavaScript and JSON injection).",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "No JavaScript is generated. All four scripts are static files under /static served with script-src 'self' and no nonce, and no template interpolates a value into a <script> block or an event-handler attribute - a property the autoescape test enforces by parsing each template. JSON responses are produced by flask.jsonify, which serialises through json.dumps and sets application/json; no response body is assembled by string formatting.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_security_review.py",
+        "app/doom/blueprints/items.py",
+        "app/doom/security/headers.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_jinja_templates_compile_with_autoescape; grep templates for <script> blocks with content and for on* attributes; confirm every JSON view returns jsonify.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.3.3, COVERS v4.0.3-5.3.6",
       "finding_ids": []
@@ -76,12 +81,15 @@
       "id": "v5.0.0-1.2.4",
       "level": 1,
       "requirement": "Verify that data selection or database queries (e.g., SQL, HQL, NoSQL, Cypher) use parameterized queries, ORMs, entity frameworks, or are otherwise protected from SQL Injection and other database injection attacks. This is also relevant when writing stored procedures.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Every query is built through SQLAlchemy's expression language. The single text() construct in the application - the ILIKE search in blueprints/items.py - binds its term as :term and escapes LIKE metacharacters so a search for '100%' is literal; the two remaining text() calls are an advisory-lock key bound as :key and a REVOKE in the operator CLI whose only interpolation is a role name validated as a plain identifier and then dialect-quoted. There are no stored procedures.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/items.py",
+        "app/doom/cli.py",
+        "app/doom/security/audit.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestInjectionSurfaces, which drives the search endpoint with SQL metacharacters and a DROP TABLE payload and asserts the table survives; grep for text( and confirm each call site binds rather than formats.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.3.4, COVERS v4.0.3-5.3.5",
       "finding_ids": []
@@ -90,12 +98,12 @@
       "id": "v5.0.0-1.2.5",
       "level": 1,
       "requirement": "Verify that the application protects against OS command injection and that operating system calls use parameterized OS queries or use contextual command line output encoding.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application makes no operating system calls at all: the AST of every module in the package is walked and contains no eval, exec, compile, os.system, os.popen, os.exec*, os.spawn* and no import of subprocess. There is therefore no command line for user input to reach, which is a stronger position than encoding one correctly.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_the_package_executes_no_dynamic_code_and_shells_out_nowhere; add a subprocess import to any module in app/doom and confirm it fails.",
       "exception": null,
       "migration": "tag-v4.0.3: MOVED FROM v4.0.3-5.3.8, COVERS v4.0.3-12.3.5",
       "finding_ids": []
@@ -174,12 +182,12 @@
       "id": "v5.0.0-1.3.2",
       "level": 1,
       "requirement": "Verify that the application avoids the use of eval() or other dynamic code execution features such as Spring Expression Language (SpEL). Where there is no alternative, any user input being included must be sanitized before being executed.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Same evidence as 1.2.5 and the same AST walk: no eval, exec or compile is reachable from the application package, and no template expression language evaluates user input - Jinja renders values, it does not evaluate them, and no template is constructed from a request. There is no alternative in use, so the requirement's sanitisation clause does not arise.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_the_package_executes_no_dynamic_code_and_shells_out_nowhere; confirm no render_template_string call exists.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.2.4, COVERS v4.0.3-5.5.4",
       "finding_ids": []
@@ -386,12 +394,13 @@
       "id": "v5.0.0-2.1.1",
       "level": 1,
       "requirement": "Verify that the application's documentation defines input validation rules for how to check the validity of data items against an expected structure. This could be common data formats such as credit card numbers, email addresses, telephone numbers, or it could be an internal data format.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "docs/security/POLICIES.md section 1 states the validation rules: positive allowlists throughout, structure parsed before value, the same constant enforced at every layer able to enforce it, HTML attributes treated as hints and never as controls, and canonicalisation performed once at the boundary. Every bound it names is a constant in validation.py, whose module docstring records the same rule, so the documentation and the implementation have one source.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        "app/doom/validation.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Read POLICIES.md section 1 against validation.py; pick three constants and confirm each is enforced in the form, the column and a database CHECK.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-1.5.1",
       "finding_ids": []
@@ -428,12 +437,15 @@
       "id": "v5.0.0-2.2.1",
       "level": 1,
       "requirement": "Verify that input is validated to enforce business or functional expectations for that input. This should either use positive validation against an allow list of values, patterns, and ranges, or be based on comparing the input to an expected structure and logical limits according to predefined rules. For L1, this can focus on input which is used to make specific business or security decisions. For L2 and up, this should apply to all input.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Validation is positive everywhere it decides anything: upload content types, filename extensions per type, URL schemes, location kinds, the username character class and the barcode alphabet are all allowlists; identifiers are parsed to UUIDs before comparison; share codes are matched against their exact issued shape before a lookup. Numeric and length ranges come from named constants rather than being restated per form.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_validation.py",
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/validation.py",
+        "app/doom/forms.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run tests/test_validation.py and TestUploadExtensionMatchesContent; submit a value outside each allowlist and confirm refusal rather than sanitisation.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.1.3, SPLIT FROM v4.0.3-5.1.4, MERGED FROM\n    v4.0.3-11.1.5, COVERS v4.0.3-13.2.2, v4.0.3-13.3.1",
       "finding_ids": []
@@ -442,12 +454,14 @@
       "id": "v5.0.0-2.2.2",
       "level": 1,
       "requirement": "Verify that the application is designed to enforce input validation at a trusted service layer. While client-side validation improves usability and should be encouraged, it must not be relied upon as a security control.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Every check that matters runs in the Flask application, which is the trusted service layer; the browser gets HTML maxlength attributes and a password-strength meter, and neither is consulted by any server decision. The test suite drives the server directly rather than through a browser, so every assertion about a refused input is an assertion about the server-side control.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_validation.py",
+        "app/doom/forms.py",
+        "docs/security/POLICIES.md"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run the suite with client-side scripts irrelevant (the test client runs no JavaScript); submit an over-length or out-of-allowlist value directly and confirm refusal.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-1.5.3",
       "finding_ids": []
@@ -470,12 +484,14 @@
       "id": "v5.0.0-2.3.1",
       "level": 1,
       "requirement": "Verify that the application will only process business logic flows for the same user in the expected sequential step order and without skipping steps.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The flows that have an order enforce it server-side: a PIN-protected share renders no content until the PIN has been accepted in this session, and a wrong PIN returns 401 without advancing; a password change requires the current password before the new one is applied; a checkout cannot be returned before it is taken out; quantity changes are computed by the database rather than submitted. Each step reads its precondition from persisted state, not from a hidden field.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/tests/test_custody.py",
+        "app/doom/blueprints/share.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestSequentialFlows and tests/test_custody.py; attempt to reach a share body without the PIN step and a return without a checkout.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-11.1.1",
       "finding_ids": []
@@ -540,12 +556,14 @@
       "id": "v5.0.0-3.2.1",
       "level": 1,
       "requirement": "Verify that security controls are in place to prevent browsers from rendering content or functionality in HTTP responses in an incorrect context (e.g., when an API, a user-uploaded file or other resource is requested directly). Possible controls could include: not serving the content unless HTTP request header fields (such as Sec-Fetch-\\*) indicate it is the correct context, using the sandbox directive of the Content-Security-Policy header field or using the attachment disposition type in the Content-Disposition header field.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Uploaded content is never served from a public folder - the uploads volume is deliberately not mounted in Caddy - and reaches a client only through an authenticated handler that sets Content-Disposition: attachment for anything that is not an image, Content-Security-Policy: default-src 'none'; sandbox, and X-Content-Type-Options: nosniff. Images are re-encoded from decoded pixels, so a polyglot cannot survive to be interpreted in another context.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/files.py",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestBrowserFacingControls and tests/test_uploads.py; request a stored document and confirm the disposition, sandbox CSP and nosniff on the response.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.5.2, MERGED FROM v4.0.3-1.12.2, v4.0.3-14.4.2",
       "finding_ids": []
@@ -554,12 +572,14 @@
       "id": "v5.0.0-3.2.2",
       "level": 1,
       "requirement": "Verify that content intended to be displayed as text, rather than rendered as HTML, is handled using safe rendering functions (such as createTextNode or textContent) to prevent unintended execution of content such as HTML or JavaScript.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Server-side, text is rendered by Jinja with autoescape and no template uses the safe filter. Client-side, every one of the four scripts writes through textContent; there is no innerHTML, insertAdjacentHTML, outerHTML or document.write anywhere in app/doom/static/js.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_security_review.py",
+        "app/doom/static/js/share-unlock.js",
+        "app/doom/static/js/password-meter.js"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_jinja_templates_compile_with_autoescape; grep app/doom/static/js for innerHTML and document.write.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-5.3.3",
       "finding_ids": []
@@ -629,30 +649,29 @@
       "id": "v5.0.0-3.4.1",
       "level": 1,
       "requirement": "Verify that a Strict-Transport-Security header field is included on all responses to enforce an HTTP Strict Transport Security (HSTS) policy. A maximum age of at least 1 year must be defined, and for L2 and up, the policy must apply to all subdomains as well.",
-      "status": "Partial",
-      "rationale": "Application responses carry required headers; a Caddy-generated 502 during restart did not carry the application security header set. Full edge-generated response coverage is unverified.",
+      "status": "Met",
+      "rationale": "max-age=31536000 (one year) with includeSubDomains, set by the application on every response and independently by the edge. The gap that made this Partial - a Caddy-generated 502 during a container replacement carrying no security headers at all - is closed: handle_errors now serves edge-generated responses with the full set, and the probe in evidence/proxy-edge-headers.txt records a 502, a proxied 200 and the plaintext redirect all carrying HSTS.",
       "evidence": [
-        "app/doom/security/headers.py",
+        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
-        "docs/security/evidence/proxy-restart-502.txt"
+        "app/doom/security/headers.py"
       ],
-      "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+      "verification": "Re-run the probe in evidence/proxy-edge-headers.txt against caddy/Caddyfile: stop the application container and confirm the 502 still carries HSTS with a one-year max-age and includeSubDomains.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-14.4.5",
-      "finding_ids": [
-        "CONTROL-v5.0.0-3.4.1"
-      ]
+      "finding_ids": []
     },
     {
       "id": "v5.0.0-3.4.2",
       "level": 1,
       "requirement": "Verify that the Cross-Origin Resource Sharing (CORS) Access-Control-Allow-Origin header field is a fixed value by the application, or if the Origin HTTP request header field value is used, it is validated against an allowlist of trusted origins. When 'Access-Control-Allow-Origin: *' needs to be used, verify that the response does not include any sensitive information.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application emits no CORS headers under any circumstances: no CORS extension is installed, no view sets Access-Control-Allow-Origin, and no response reflects the Origin request header. Cross-origin reads are therefore refused by the browser's default same-origin policy, which is the most restrictive outcome the requirement admits, and there is no allowlist to get wrong.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/headers.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_no_response_ever_grants_a_cross_origin_reader, which sends a hostile Origin to four endpoints and asserts no Access-Control-* header comes back.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-14.5.3",
       "finding_ids": []
@@ -725,12 +744,14 @@
       "id": "v5.0.0-3.5.1",
       "level": 1,
       "requirement": "Verify that, if the application does not rely on the CORS preflight mechanism to prevent disallowed cross-origin requests to use sensitive functionality, these requests are validated to ensure they originate from the application itself. This may be done by using and validating anti-forgery tokens or requiring extra HTTP header fields that are not CORS-safelisted request-header fields. This is to defend against browser-based request forgery attacks, commonly known as cross-site request forgery (CSRF).",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application does not rely on preflight. Every state-changing route is a POST carrying a Flask-WTF CSRF token bound to the session, WTF_CSRF_ENABLED is on outside the test configuration, WTF_CSRF_SSL_STRICT additionally checks the Referer on HTTPS, and the session cookie is SameSite=Lax so a cross-site POST arrives without it. The token is now signed with HMAC-SHA256 rather than the library default of HMAC-SHA1.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/config.py",
+        "app/doom/security/sessions.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_a_post_without_a_csrf_token_is_refused, which builds an application with CSRF enabled rather than asserting the test configuration; confirm SESSION_COOKIE_SAMESITE and WTF_CSRF_SSL_STRICT in config.py.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-4.2.2, COVERS v4.0.3-13.2.3",
       "finding_ids": []
@@ -753,12 +774,13 @@
       "id": "v5.0.0-3.5.3",
       "level": 1,
       "requirement": "Verify that HTTP requests to sensitive functionality use appropriate HTTP methods such as POST, PUT, PATCH, or DELETE, and not methods defined by the HTTP specification as \"safe\" such as HEAD, OPTIONS, or GET. Alternatively, strict validation of the Sec-Fetch-* request header fields can be used to ensure that the request did not originate from an inappropriate cross-origin call, a navigation request, or a resource load (such as an image source) where this is not expected.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Every route that changes state is POST-only, including logout - a GET /logout can be fired by an <img> tag on any page the user visits. A test enumerates the URL map and asserts that any path not served by a GET answers 405 to one, so a new mutating route that forgets the method restriction fails the suite rather than shipping.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/auth.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_state_changing_endpoints_refuse_get and test_logout_and_delete_are_not_reachable_by_get; add a GET-able mutating route and confirm the suite fails.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-13.2.1",
       "finding_ids": []
@@ -823,12 +845,14 @@
       "id": "v5.0.0-4.1.1",
       "level": 1,
       "requirement": "Verify that every HTTP response with a message body contains a Content-Type header field that matches the actual content of the response, including the charset parameter to specify safe character encoding (e.g., UTF-8, ISO-8859-1) according to IANA Media Types, such as \"text/\", \"/+xml\" and \"/xml\".",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Flask sets Content-Type on every response with a body: text/html; charset=utf-8 for rendered templates, application/json for jsonify, and for stored files the type sniffed from the bytes at upload rather than guessed from a name. A test walks the main response-producing endpoints and asserts a Content-Type is present and carries a charset parameter wherever the type is text/*.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/files.py",
+        "app/doom/security/uploads.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_every_body_carrying_response_declares_its_type; request a stored document and confirm the served type is the sniffed one.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-14.4.1, COVERS v4.0.3-5.3.2",
       "finding_ids": []
@@ -907,12 +931,13 @@
       "id": "v5.0.0-4.4.1",
       "level": 1,
       "requirement": "Verify that WebSocket over TLS (WSS) is used for all WebSocket connections.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "N/A",
+      "rationale": "The application opens no WebSocket connections. There is no ws:// or wss:// URL in the source, no WebSocket library in requirements.in, and Caddy is configured with `protocols h1 h2` and no WebSocket upgrade route. Applicability, not absence of a control: there is no connection for the requirement to govern.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/requirements.in",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Grep the source and the lockfile for websocket/socketio/ws://; inspect the Caddyfile for an upgrade handler. Re-assess if any real-time feature is added.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -977,12 +1002,15 @@
       "id": "v5.0.0-5.2.1",
       "level": 1,
       "requirement": "Verify that the application will only accept files of a size which it can process without causing a loss of performance or a denial of service attack.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Four bounds, in the order the bytes arrive: Caddy refuses a body over 12 MB, Werkzeug refuses a declared Content-Length over MAX_CONTENT_LENGTH (10 MB) before buffering it, _read_bounded refuses an individual part over the same limit because one multipart body can carry several, and image decoding is refused above MAX_IMAGE_PIXELS before any pixel is decoded - a decompression bomb is a few kilobytes on the wire. Per-owner byte and file-count quotas bound the aggregate.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_uploads.py",
+        "app/tests/test_security_review.py",
+        "app/doom/security/uploads.py",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run tests/test_uploads.py and test_image_pixel_limit_is_a_hard_limit; post a 13 MB body and confirm it is refused before reaching Python.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.1.1",
       "finding_ids": []
@@ -991,17 +1019,17 @@
       "id": "v5.0.0-5.2.2",
       "level": 1,
       "requirement": "Verify that when the application accepts a file, either on its own or within an archive such as a zip file, it checks if the file extension matches an expected file extension and validates that the contents correspond to the type represented by the extension. This includes, but is not limited to, checking the initial 'magic bytes', performing image re-writing, and using specialized libraries for file content validation. For L1, this can focus just on files which are used to make specific business or security decisions. For L2 and up, this must apply to all files being accepted.",
-      "status": "Partial",
-      "rationale": "Content sniffing and image re-encoding exist; filename extension is deliberately ignored, so literal extension/content matching is not met.",
+      "status": "Met",
+      "rationale": "Both halves are now present. Content is identified by libmagic from the bytes and checked against an allowlist; images are fully decoded and re-encoded into a new container, which destroys polyglots; and the submitted filename extension is checked against a per-type table so a JPEG named report.pdf is refused rather than silently stored under a corrected name. The stored name is still generated from the sniffed type and never derived from the submitted one.",
       "evidence": [
-        "app/doom/security/uploads.py"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/uploads.py",
+        "app/doom/validation.py"
       ],
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "verification": "Re-run TestUploadExtensionMatchesContent, which covers a matching name, three mismatched ones, a missing extension, mixed case, and Markdown (which libmagic reports as text/plain).",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.2.1",
-      "finding_ids": [
-        "CONTROL-v5.0.0-5.2.2"
-      ]
+      "finding_ids": []
     },
     {
       "id": "v5.0.0-5.2.3",
@@ -1055,12 +1083,15 @@
       "id": "v5.0.0-5.3.1",
       "level": 1,
       "requirement": "Verify that files uploaded or generated by untrusted input and stored in a public folder, are not executed as server-side program code when accessed directly with an HTTP request.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Uploads are stored on a volume outside any web root and Caddy has no file_server directive for it, so there is no public folder for the question to arise in. The only path to a stored file is an authenticated handler that looks the row up under an ownership filter and serves it with a sandbox CSP, nosniff and an attachment disposition. Stored names are generated UUIDs with an extension derived from the sniffed type, and the runtime container executes nothing from that volume.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "caddy/Caddyfile",
+        "app/doom/blueprints/files.py",
+        "docker-compose.yml"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestBrowserFacingControls; inspect the Caddyfile for any file_server over the uploads volume; confirm docker-compose mounts the volume only into the application container.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.4.1",
       "finding_ids": []
@@ -1132,12 +1163,14 @@
       "id": "v5.0.0-6.1.1",
       "level": 1,
       "requirement": "Verify that application documentation defines how controls such as rate limiting, anti-automation, and adaptive response, are used to defend against attacks such as credential stuffing and password brute force. The documentation must make clear how these controls are configured and prevent malicious account lockout.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "docs/security/POLICIES.md section 2 tabulates every rate limit with the constant that sets it, states that the adaptive response is account lockout, and states how malicious lockout is prevented: the lock is capped at LOCKOUT_MAX_SECONDS and expires unaided, so a griefer cannot convert a guessing attack into a durable denial of service against the real owner. It also records that the limiter fails closed when its store is unreachable.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        "app/doom/validation.py",
+        "app/doom/models.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Read POLICIES.md section 2 against validation.py's rate-limit constants and User.lock_duration; confirm each documented limit is the one the decorator applies.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-2.2.1",
       "finding_ids": []
@@ -1227,12 +1260,14 @@
       "id": "v5.0.0-6.2.4",
       "level": 1,
       "requirement": "Verify that passwords submitted during account registration or password change are checked against an available set of, at least, the top 3000 passwords which match the application's password policy, e.g. minimum length.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The corpus is 10,000 entries, well past the 3,000 the requirement asks for, and - the clause that usually fails - every entry matches this application's policy: they were filtered to at least PASSWORD_MIN characters from a 1,000,000-entry source, because a conventional top-10,000 list is almost entirely below a 12-character floor and would be rejected by the length check before the screen was ever consulted. Screening applies at registration and at password change.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/doom/security/data/common_passwords.txt",
+        "app/doom/security/passwords.py",
+        "app/tests/test_auth.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Count non-comment lines in security/data/common_passwords.txt and confirm every entry is at least PASSWORD_MIN characters; re-run tests/test_auth.py's policy tests.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-2.1.7",
       "finding_ids": []
@@ -1241,12 +1276,14 @@
       "id": "v5.0.0-6.2.5",
       "level": 1,
       "requirement": "Verify that passwords of any composition can be used, without rules limiting the type of characters permitted. There must be no requirement for a minimum number of upper or lower case characters, numbers, or special characters.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "check_policy applies a length floor, a length ceiling, a breach-corpus screen, a username screen and a context-word screen. There is no character-class rule of any kind - no required uppercase, digit or symbol - and the omission is deliberate and recorded in D-03, following NIST SP 800-63B. The ceiling is a control rather than a composition rule: every candidate is hashed at 64 MiB, so unbounded input is a memory amplifier.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/doom/security/passwords.py",
+        "app/tests/test_auth.py",
+        "docs/DECISIONS.md"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Read check_policy and confirm no character-class branch exists; submit a 12-character all-lowercase passphrase and confirm acceptance.",
       "exception": null,
       "migration": "tag-v4.0.3: GRAMMAR, MOVED FROM v4.0.3-2.1.9",
       "finding_ids": []
@@ -1271,12 +1308,13 @@
       "id": "v5.0.0-6.2.7",
       "level": 1,
       "requirement": "Verify that \"paste\" functionality, browser password helpers, and external password managers are permitted.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Password fields carry autocomplete=new-password or current-password, which is what invites a browser helper or an external manager rather than merely tolerating one, and there is no onpaste, oncopy, ondrop or oncontextmenu handler anywhere in the templates or the scripts. A test asserts both the invitation and the absence of the blockers.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/forms.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_password_fields_invite_managers_rather_than_fighting_them; add an onpaste handler to a password field and confirm it fails.",
       "exception": null,
       "migration": "tag-v4.0.3: MOVED FROM v4.0.3-2.1.11",
       "finding_ids": []
@@ -1364,12 +1402,15 @@
       "id": "v5.0.0-6.3.1",
       "level": 1,
       "requirement": "Verify that controls to prevent attacks such as credential stuffing and password brute force are implemented according to the application's security documentation.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The controls POLICIES.md section 2 documents are the controls that run: per-IP limits on sign-in, registration, writes, uploads, share pages and lookup, applied by decorator from the same constants the document tabulates; escalating account lockout capped so it cannot be weaponised; a generic failure message and a dummy hash so neither the user table nor the lockout state is observable; and a limiter that refuses rather than allows when its store is unreachable.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        "app/tests/test_auth.py",
+        "app/doom/blueprints/auth.py",
+        "app/doom/extensions.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run tests/test_auth.py's lockout and enumeration tests; confirm each documented limit matches its decorator; stop Redis and confirm requests are refused rather than allowed.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-2.2.1",
       "finding_ids": []
@@ -1378,12 +1419,13 @@
       "id": "v5.0.0-6.3.2",
       "level": 1,
       "requirement": "Verify that default user accounts (e.g., \"root\", \"admin\", or \"sa\") are not present in the application or are disabled.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "No account exists until somebody registers one, and a test asserts the user table is empty on a fresh instance. The one account the project could create - the demo user from `flask seed` - no longer ships a published password: it is generated with secrets.token_urlsafe and printed once, and the command refuses to run against a database that already holds other accounts, so demo data cannot be added to a system in use.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/cli.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestCredentialUsability; run `flask seed` twice and against a populated database; grep the repository for the former fixed demo password.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-2.5.4",
       "finding_ids": []
@@ -1694,12 +1736,14 @@
       "id": "v5.0.0-7.2.1",
       "level": 1,
       "requirement": "Verify that the application performs all session token verification using a trusted, backend service.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The session token is verified in the Flask application on every request: the signature is checked by the server-side session interface using SECRET_KEY, and the decoded contents are then checked against the database - the account must exist and be active, the session_version in the cookie must match the user's current value, and the named UserSession row must exist, be unrevoked and be inside its idle window. Nothing about that verification happens on the client.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/auth.py",
+        "app/doom/security/sessions.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestTokenSigning and TestSessionTermination; tamper with a cookie byte and confirm rejection; revoke a session row and confirm the next request is refused.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -1708,12 +1752,14 @@
       "id": "v5.0.0-7.2.2",
       "level": 1,
       "requirement": "Verify that the application uses either self-contained or reference tokens that are dynamically generated for session management, i.e. not using static API secrets and keys.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Sessions use a self-contained token - the signed Flask session cookie - generated per sign-in from the authenticated identity, the user's current session_version and a freshly created UserSession row id. There is no static API secret or key anywhere in the authentication path; SECRET_KEY signs tokens, it is not one.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/doom/blueprints/auth.py",
+        "app/doom/security/sessions.py",
+        "app/tests/test_asvs_l1_closure.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Sign in twice and confirm the two cookies differ; confirm no route accepts a fixed key or bearer secret.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-3.5.2",
       "finding_ids": []
@@ -1722,12 +1768,13 @@
       "id": "v5.0.0-7.2.3",
       "level": 1,
       "requirement": "Verify that if reference tokens are used to represent user sessions, they are unique and generated using a cryptographically secure pseudo-random number generator (CSPRNG) and possess at least 128 bits of entropy.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "N/A",
+      "rationale": "Reference tokens are not used for session management: the session is a self-contained signed cookie, assessed under V9. The two opaque identifiers that do appear - the UserSession row id inside the cookie and the share handle in /t/v/<handle> - are not bearer tokens, because neither is accepted from a client except as the content of, or an index into, a validly signed session; presenting either without that cookie addresses nothing. The share handle is nonetheless generated by secrets.token_urlsafe(16), 128 bits, so the question does not turn on that argument.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/share.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Confirm no route accepts an opaque identifier as a credential on its own: request /t/v/<handle> from a second client and confirm 404. Re-assess if a reference-token session store is introduced.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-3.2.2, MERGED FROM v4.0.3-3.2.4",
       "finding_ids": []
@@ -1736,12 +1783,14 @@
       "id": "v5.0.0-7.2.4",
       "level": 1,
       "requirement": "Verify that the application generates a new session token on user authentication, including re-authentication, and terminates the current session token.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "_finish_login clears the session before writing the authenticated identity into it, so nothing an attacker planted pre-login survives and the cookie the browser receives is a new token. A password change - the re-authentication path - increments session_version, which invalidates every cookie ever issued for the account including the one in the tab performing the change; that tab is then re-stamped rather than signed out.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/doom/blueprints/auth.py",
+        "app/tests/test_auth.py",
+        "app/tests/test_asvs_l1_closure.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_a_password_change_ends_the_other_devices and the session-fixation test in tests/test_auth.py; capture the cookie before and after sign-in and confirm it changes.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-3.2.1",
       "finding_ids": []
@@ -1782,12 +1831,14 @@
       "id": "v5.0.0-7.4.1",
       "level": 1,
       "requirement": "Verify that when session termination is triggered (such as logout or expiration), the application disallows any further use of the session. For reference tokens or stateful sessions, this means invalidating the session data at the application backend. Applications using self-contained tokens will need a solution such as maintaining a list of terminated tokens, disallowing tokens produced before a per-user date and time or rotating a per-user signing key.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application uses self-contained tokens and implements two of the three solutions the requirement names. Per-user invalidation: session_version is compared on every request, so bumping it disallows every token issued before that moment. Per-session termination: the UserSession row is marked revoked and checked on every request, so logout, an administrative revocation and the idle timeout all stop the token immediately rather than at its next issue.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/tests/test_asvs_l2_closure.py",
+        "app/doom/blueprints/auth.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestSessionTermination and TestInactivityTimeout; log out, replay the captured cookie, and confirm it is refused.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-3.3.1",
       "finding_ids": []
@@ -1796,12 +1847,14 @@
       "id": "v5.0.0-7.4.2",
       "level": 1,
       "requirement": "Verify that the application terminates all active sessions when a user account is disabled or deleted (such as an employee leaving the company).",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The user loader refuses any session for an account whose is_active flag is clear, and it runs on every request rather than at sign-in, so clearing the flag ends every live session at once - verified with two independent clients. Deleting the account cascades to its user_sessions rows, after which the loader finds no user at all.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/auth.py",
+        "app/doom/models.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_deactivating_an_account_ends_every_live_session; clear is_active with two clients signed in and confirm both are refused on their next request.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -1929,12 +1982,14 @@
       "id": "v5.0.0-8.1.1",
       "level": 1,
       "requirement": "Verify that authorization documentation defines rules for restricting function-level and data-specific access based on consumer permissions and resource attributes.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "docs/security/POLICIES.md section 4 states the model: function-level access is public, capability-scoped or login-required with no roles and no in-application administrative surface; data-level access is ownership expressed as a WHERE clause, so an unowned identifier and a non-existent one are the same event and both answer 404; enforcement is server-side only; and changes to the values decisions rest on apply on the next request rather than the next sign-in.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        "app/doom/security/authz.py",
+        "app/tests/test_authz_coverage.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Read POLICIES.md section 4 against security/authz.py and tests/test_authz_coverage.py's endpoint map.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -1957,12 +2012,13 @@
       "id": "v5.0.0-8.2.1",
       "level": 1,
       "requirement": "Verify that the application ensures that function-level access is restricted to consumers with explicit permissions.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Every endpoint is classified in tests/test_authz_coverage.py, and the test fails if the URL map contains an endpoint the map does not account for - so a new route cannot ship without a recorded decision about how it is scoped. There is no role system to escalate through and no administrative HTTP surface; operator actions are CLI commands run against the container.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_authz_coverage.py",
+        "app/tests/test_access_control.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestEveryEndpointIsClassified; add a route without an entry and confirm the suite fails.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-4.1.3, COVERS v4.0.3-4.1.2",
       "finding_ids": []
@@ -1971,12 +2027,14 @@
       "id": "v5.0.0-8.2.2",
       "level": 1,
       "requirement": "Verify that the application ensures that data-specific access is restricted to consumers with explicit permissions to specific data items to mitigate insecure direct object reference (IDOR) and broken object level authorization (BOLA).",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Ownership is part of the SELECT, not a check after it: get_owned_or_404 filters on owner_id == current_user.id, so there is no window between loading a row and deciding whether the caller may have it, and no code path that holds another account's object. A miss is 404 rather than 403 so the response does not confirm that the row exists. tests/test_access_control.py drives every object-scoped route with a second account's identifiers.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_access_control.py",
+        "app/doom/security/authz.py",
+        "app/tests/test_authz_coverage.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run tests/test_access_control.py and tests/test_authz_coverage.py; request each object route with another account's id and confirm 404 and an access_denied audit row.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-4.2.1, COVERS v4.0.3-13.1.4",
       "finding_ids": []
@@ -1999,12 +2057,14 @@
       "id": "v5.0.0-8.3.1",
       "level": 1,
       "requirement": "Verify that the application enforces authorization rules at a trusted service layer and doesn't rely on controls that an untrusted consumer could manipulate, such as client-side JavaScript.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "All authorization runs in the Flask application. The account whose data is returned comes from the signed session and from nothing the client can set - no form field, header, cookie value or URL parameter selects it - and the ownership predicate is applied by the database. The client-side scripts render text and read a camera; none of them gates anything.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_access_control.py",
+        "app/doom/security/authz.py",
+        "docs/security/POLICIES.md"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run tests/test_access_control.py with scripts irrelevant (the test client runs none); attempt to select another owner through a form field or query parameter and confirm it has no effect.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-4.1.1, COVERS v4.0.3-1.4.1, v4.0.3-14.5.2",
       "finding_ids": []
@@ -2046,12 +2106,13 @@
       "id": "v5.0.0-9.1.1",
       "level": 1,
       "requirement": "Verify that self-contained tokens are validated using their digital signature or MAC to protect against tampering before accepting the token's contents.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The session cookie is a self-contained token and is accepted only after its MAC verifies. Flask's session interface refuses a cookie whose signature does not check out and hands the application an empty session, so tampered contents are never read. A test signs a well-formed cookie with the previous algorithm and confirms the application refuses it rather than trusting its contents.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/sessions.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_a_cookie_signed_with_the_old_algorithm_is_refused and test_session_cookie_is_signed_with_sha256; flip a byte in a live cookie and confirm the session is discarded.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-3.5.3",
       "finding_ids": []
@@ -2060,12 +2121,13 @@
       "id": "v5.0.0-9.1.2",
       "level": 1,
       "requirement": "Verify that only algorithms on an allowlist can be used to create and verify self-contained tokens, for a given context. The allowlist must include the permitted algorithms, ideally only either symmetric or asymmetric algorithms, and must not include the 'None' algorithm. If both symmetric and asymmetric must be supported, additional controls will be needed to prevent key confusion.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Exactly one algorithm can create or verify a token here: HMAC-SHA256, fixed in code by the session interface rather than read from the token. The format carries no algorithm field, so there is no 'None' algorithm to select and no confusion between symmetric and asymmetric verification - only symmetric keying exists. Flask's HMAC-SHA1 default and the itsdangerous default that Flask-WTF's CSRF serializer inherits are both raised in security/sessions.py.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/sessions.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestTokenSigning; confirm the token format carries no caller-selectable algorithm; confirm no asymmetric verification path exists.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -2074,12 +2136,14 @@
       "id": "v5.0.0-9.1.3",
       "level": 1,
       "requirement": "Verify that key material that is used to validate self-contained tokens is from trusted pre-configured sources for the token issuer, preventing attackers from specifying untrusted sources and keys. For JWTs and other JWS structures, headers such as 'jku', 'x5u', and 'jwk' must be validated against an allowlist of trusted sources.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The only key material is SECRET_KEY, read at startup from a file mounted read-only into the container - never from the token, a URL or a request header. There is no JWS structure and therefore no jku, x5u or jwk header for an attacker to point at a key source of their choosing, and the configuration refuses to boot on a missing or placeholder value.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/doom/config.py",
+        "app/doom/security/sessions.py",
+        "docker-compose.yml"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Inspect config._read_secret and the compose secret mount; confirm no code path derives a verification key from request data.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -2088,12 +2152,14 @@
       "id": "v5.0.0-9.2.1",
       "level": 1,
       "requirement": "Verify that, if a validity time span is present in the token data, the token and its content are accepted only if the verification time is within this validity time span. For example, for JWTs, the claims 'nbf' and 'exp' must be verified.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The token's validity span is enforced on both sides. The cookie is issued with PERMANENT_SESSION_LIFETIME (12 hours) and SESSION_REFRESH_EACH_REQUEST is off, so the span is absolute rather than sliding; the server additionally refuses a session whose UserSession row has been idle past SESSION_IDLE_MINUTES, so an abandoned token stops working an hour after its last use rather than at the end of the absolute window.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/tests/test_asvs_l2_closure.py",
+        "app/doom/config.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_session_lifetime_is_bounded and TestInactivityTimeout; backdate last_seen_at past the idle limit and confirm the next request is refused.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -2622,12 +2688,14 @@
       "id": "v5.0.0-11.3.1",
       "level": 1,
       "requirement": "Verify that insecure block modes (e.g., ECB) and weak padding schemes (e.g., PKCS#1 v1.5) are not used.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application performs no symmetric encryption, so there is no block mode or padding scheme to choose badly: an AST walk over the package finds no cipher use, and the only cryptographic primitives are Argon2id, HMAC-SHA256 and SHA-256. The one encrypted channel is TLS at the edge, where Caddy offers only AEAD cipher suites - ECDHE with AES-GCM or ChaCha20-Poly1305 - and ECB and PKCS#1 v1.5 are not among them.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "docs/security/evidence/proxy-edge-headers.txt",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_no_withdrawn_hash_is_reachable_from_the_package; enumerate the offered suites against the running edge and confirm all are AEAD.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-6.2.2, v4.0.3-6.2.5, COVERS v4.0.3-6.2.3",
       "finding_ids": []
@@ -2636,12 +2704,13 @@
       "id": "v5.0.0-11.3.2",
       "level": 1,
       "requirement": "Verify that only approved ciphers and modes such as AES with GCM are used.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Same scope as 11.3.1: the only cipher in use is the one TLS negotiates, and Caddy's suite list is AEAD-only (AES-GCM and ChaCha20-Poly1305) with TLS 1.2 as the floor and 1.3 preferred, which the probe in evidence/proxy-edge-headers.txt confirms by refusing a TLS 1.1 handshake and completing a TLS 1.3 one.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/evidence/proxy-edge-headers.txt",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run the TLS cases in evidence/proxy-edge-headers.txt; enumerate offered suites and confirm no CBC or RC4 suite is present.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-6.2.2, v4.0.3-6.2.5, COVERS v4.0.3-6.2.3",
       "finding_ids": []
@@ -2664,12 +2733,14 @@
       "id": "v5.0.0-11.4.1",
       "level": 1,
       "requirement": "Verify that only approved hash functions are used for general cryptographic use cases, including digital signatures, HMAC, KDF, and random bit generation. Disallowed hash functions, such as MD5, must not be used for any cryptographic purpose.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Argon2id for passwords and share PINs, HMAC-SHA256 for the session cookie, the CSRF serializer and the share PIN approval, SHA-256 for content addressing and the audit hash chain, and os.urandom by way of the secrets module for random bit generation. No MD5, SHA-1 or SHA-224 is reachable from the package, and the test that asserts it walks the AST rather than grepping, so the paragraph in security/sessions.py that explains why SHA-1 is not used does not itself trip the check.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/security/sessions.py",
+        "app/doom/security/passwords.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run test_no_withdrawn_hash_is_reachable_from_the_package and TestTokenSigning; introduce hashlib.sha1 anywhere in app/doom and confirm the suite fails.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-6.2.2, v4.0.3-6.2.5, COVERS v4.0.3-6.2.3",
       "finding_ids": []
@@ -2748,12 +2819,13 @@
       "id": "v5.0.0-12.1.1",
       "level": 1,
       "requirement": "Verify that only the latest recommended versions of the TLS protocol are enabled, such as TLS 1.2 and TLS 1.3. The latest version of the TLS protocol must be the preferred option.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The edge offers TLS 1.2 and 1.3 only, and prefers 1.3. Caddy's default minimum was already 1.2; the Caddyfile now states the policy explicitly so a future default cannot lower it silently and so the setting is reviewable without knowing which Caddy version shipped which default. A TLS 1.1 handshake against the running edge is refused and a TLS 1.3 one completes.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/evidence/proxy-edge-headers.txt",
+        "caddy/Caddyfile"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run cases D and E of evidence/proxy-edge-headers.txt against the running edge.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-9.1.3",
       "finding_ids": []
@@ -2790,12 +2862,14 @@
       "id": "v5.0.0-12.2.1",
       "level": 1,
       "requirement": "Verify that TLS is used for all connectivity between a client and external facing, HTTP-based services, and does not fall back to insecure or unencrypted communications.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The application is reachable only through Caddy, which terminates TLS; the plaintext listener exists solely to answer 308 to the HTTPS URL and serves no content, and HSTS with a one-year max-age is on every response including the ones Caddy generates itself, so a browser that has seen the site once will not attempt plaintext again. There is no downgrade path: the application container's port is not published.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/evidence/proxy-edge-headers.txt",
+        "caddy/Caddyfile",
+        "docker-compose.yml"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run case C of evidence/proxy-edge-headers.txt; confirm docker-compose publishes ports only on the caddy service.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-9.1.1, COVERS v4.0.3-1.9.1",
       "finding_ids": []
@@ -2804,15 +2878,19 @@
       "id": "v5.0.0-12.2.2",
       "level": 1,
       "requirement": "Verify that external facing services use publicly trusted TLS certificates.",
-      "status": "Not assessed",
-      "rationale": "Caddy supports public ACME certificates; local verification uses internal CA. Public deployment chain and renewal evidence are required.",
+      "status": "Compensating",
+      "rationale": "Not met literally, and no code change can close it. The reviewed deployment serves DOOM_DOMAIN=localhost, for which no public CA can issue: Caddy presents a certificate from its own internal CA. The compensating control is that the CA is distributed to the devices that need it out of band by `make trust-cert` rather than being clicked through, and the service is published on a private network with no public name. The mechanism for the real thing is present and automatic - setting DOOM_DOMAIN to a public name and an ACME contact makes Caddy obtain a publicly trusted certificate - so this is a property of a deployment that does not exist yet rather than a missing capability. Recorded as a finding, not accepted: no exception is approved.",
       "evidence": [
-        "caddy/Caddyfile"
+        "caddy/Caddyfile",
+        "docs/security/HOSTED-READINESS.md",
+        "docs/security/evidence/proxy-edge-headers.txt"
       ],
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "verification": "On the first non-local deployment, set DOOM_DOMAIN and the ACME email, then confirm the served chain terminates in a publicly trusted root from a client with no custom CA installed. Re-run the release gate with --deployment non-local.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
-      "finding_ids": []
+      "finding_ids": [
+        "CONTROL-v5.0.0-12.2.2"
+      ]
     },
     {
       "id": "v5.0.0-12.3.1",
@@ -2998,12 +3076,14 @@
       "id": "v5.0.0-13.4.1",
       "level": 1,
       "requirement": "Verify that the application is deployed either without any source control metadata, including the .git or .svn folders, or in a way that these folders are inaccessible both externally and to the application itself.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "The build context is ./app, and .git lives at the repository root, so version-control metadata is not in the context at all. The image is then built from an explicit COPY allowlist - doom, migrations and wsgi.py - rather than a COPY of the context, so nothing arrives by accident, and .dockerignore excludes VCS and editor debris as a second line. The uploads volume, the only writable path, contains no repository data.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/Dockerfile",
+        "app/.dockerignore",
+        "docs/security/evidence/candidate-image.json"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Inspect the COPY lines in app/Dockerfile; run `docker run --rm <image> ls -a /srv/doom` and confirm no .git; confirm the build context root contains no VCS directory.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-4.3.2",
       "finding_ids": []
@@ -3096,17 +3176,17 @@
       "id": "v5.0.0-14.2.1",
       "level": 1,
       "requirement": "Verify that sensitive data is only sent to the server in the HTTP message body or header fields, and that the URL and query string do not contain sensitive information, such as an API key or session token.",
-      "status": "Not met",
-      "rationale": "A share capability is a credential carried in /t/<token>; redaction does not meet the literal requirement.",
+      "status": "Met",
+      "rationale": "The one credential this application puts in front of an unauthenticated visitor no longer travels in a URL. A label encodes https://host/t/#<code>; a fragment is never transmitted, so scanning one sends the server GET /t/ and nothing more. The unlock page moves the code into a POST body, the server files it in the visitor's signed session and redirects to /t/v/<handle>, where the handle names an entry in that cookie and addresses nothing without it. Nothing else sensitive is ever placed in a URL or query string: identifiers in paths are UUIDs that still require a session.",
       "evidence": [
-        "app/doom/blueprints/share.py"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/share.py",
+        "app/doom/blueprints/labels.py"
       ],
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "verification": "Re-run TestShareCodeNeverInAURL, which checks the generated label URL, the landing request, the redirect target, a second client's attempt on the same handle, the cap on held codes and handle reuse.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-8.3.1, MERGED FROM v4.0.3-3.1.1, v4.0.3-13.1.3",
-      "finding_ids": [
-        "CONTROL-v5.0.0-14.2.1"
-      ]
+      "finding_ids": []
     },
     {
       "id": "v5.0.0-14.2.2",
@@ -3171,17 +3251,17 @@
       "id": "v5.0.0-14.3.1",
       "level": 1,
       "requirement": "Verify that authenticated data is cleared from client storage, such as the browser DOM, after the client or session is terminated. The 'Clear-Site-Data' HTTP response header field may be able to help with this but the client-side should also be able to clear up if the server connection is not available when the session is terminated.",
-      "status": "Partial",
-      "rationale": "No-store reduces persistence, but no comprehensive DOM/client-state cleanup on local session termination or connection loss.",
+      "status": "Met",
+      "rationale": "Sign-out sends Clear-Site-Data for cache, cookies and storage, so the browser drops what it holds for this origin rather than only the cookie; authenticated pages are already Cache-Control: no-store with Vary: Cookie, so little is left to clear and nothing is in an intermediary cache. executionContexts is deliberately not requested - browsers disagree about whether it takes effect before or after the redirect completes, which has produced reload loops - and the volatile DOM goes with the navigation that follows. Nothing authenticated is written to localStorage or sessionStorage, so there is no client-side state to clean up when the server is unreachable.",
       "evidence": [
+        "app/tests/test_asvs_l1_closure.py",
+        "app/doom/blueprints/auth.py",
         "app/doom/security/headers.py"
       ],
-      "verification": "Reinspect the named implementation against the full requirement; rerun relevant tests after any feature, protocol or deployment change.",
+      "verification": "Re-run TestClearSiteDataOnLogout; grep the scripts for localStorage and sessionStorage; sign out over HTTPS and confirm the header is honoured.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-8.2.3",
-      "finding_ids": [
-        "CONTROL-v5.0.0-14.3.1"
-      ]
+      "finding_ids": []
     },
     {
       "id": "v5.0.0-14.3.2",
@@ -3215,12 +3295,15 @@
       "id": "v5.0.0-15.1.1",
       "level": 1,
       "requirement": "Verify that application documentation defines risk based remediation time frames for 3rd party component versions with vulnerabilities and for updating libraries in general, to minimize the risk from these components.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "docs/security/POLICIES.md section 7 defines the deadlines - 72 hours for a reachable critical, 7 days for high, 30 for medium, 90 or the next routine refresh for low - and states that the clock starts when a fix becomes available to this project rather than at disclosure, because a deadline that starts before a remedy exists cannot be met. It also records the standing obligation for findings with no fix, and names the mechanism: Renovate proposing updates continuously, Trivy and Grype gating every build and running on a schedule, neither filtering unfixed findings.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        ".github/renovate.json",
+        ".github/workflows/sbom-scanning.yml",
+        ".github/workflows/trivy-image-scanning.yaml"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Read POLICIES.md section 7 against .github/renovate.json and the scanning workflows; confirm neither scanner uses --ignore-unfixed or only-fixed.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-14.2.1, COVERS v4.0.3-1.14.3",
       "finding_ids": []
@@ -3257,12 +3340,15 @@
       "id": "v5.0.0-15.2.1",
       "level": 1,
       "requirement": "Verify that the application only contains components which have not breached the documented update and remediation time frames.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "Scoped to the candidate artifact, which is what this review assessed. Its gates pass: Trivy reports no vulnerability matches, and Grype's HIGH gate passes with the one high zlib match closed by an upstream-patched runtime library and an exact-PURL VEX statement, not a suppression. Nine lower findings remain open - eight medium and one low - and all were observed on 2026-09-24, so every one is inside the 30-day and 90-day windows POLICIES.md section 7 defines. No component is past its deadline. The separately published Debian release image carries its own older findings and is not this row's subject.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "docs/security/POLICIES.md",
+        "docs/security/evidence/candidate-grype.json",
+        "docs/security/evidence/candidate-trivy.json",
+        "docs/security/evidence/candidate-sbom.json"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run the image gates against the candidate SBOM and compare each open finding's first-observed date against the deadline table in POLICIES.md section 7.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-14.2.1, COVERS v4.0.3-1.14.3",
       "finding_ids": []
@@ -3299,12 +3385,14 @@
       "id": "v5.0.0-15.3.1",
       "level": 1,
       "requirement": "Verify that the application only returns the required subset of fields from a data object. For example, it should not return an entire data object, as some individual fields should not be accessible to users.",
-      "status": "Not assessed",
-      "rationale": "Full requirement has not been independently verified on the candidate and public deployment. Historical or migration evidence is a starting point only.",
+      "status": "Met",
+      "rationale": "A share page is built from a plain dictionary assembled by security/serializers.py, never from an ORM object, so the owner, the ancestor chain, the movement ledger, internal identifiers and the share token are not hidden from the template - they were never put in, and a template mistake cannot leak a field it was never given. Authenticated views render the owner's own rows, where the subset question does not arise, and the JSON endpoints return fixed literal keys.",
       "evidence": [
-        "docs/security/RELEASE-ASSESSMENT.md"
+        "app/tests/test_asvs_l1_closure.py",
+        "app/tests/test_sharing.py",
+        "app/doom/security/serializers.py"
       ],
-      "verification": "Review each clause of the quoted requirement; inspect implementation, run relevant negative-path tests and collect operator evidence where deployment-dependent.",
+      "verification": "Re-run TestFieldSubset and tests/test_sharing.py's serializer tests; add a field to the serializer and confirm the omission tests fail.",
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": []
@@ -3727,10 +3815,11 @@
     }
   ],
   "totals": {
-    "Not assessed": 149,
-    "N/A": 64,
-    "Partial": 16,
-    "Met": 16,
-    "Not met": 13
+    "Not assessed": 100,
+    "Met": 66,
+    "N/A": 66,
+    "Partial": 13,
+    "Not met": 12,
+    "Compensating": 1
   }
 }

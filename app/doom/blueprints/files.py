@@ -10,6 +10,7 @@ row up under an ownership filter first.
 from __future__ import annotations
 
 import logging
+import os
 
 from flask import (
     Blueprint,
@@ -141,6 +142,18 @@ def _send(attachment: Attachment, stored_name: str, content_type: str, *, inline
     under an ownership filter, and is a UUID we generated.
     """
     path = resolve_stored_path(current_app.config["UPLOAD_DIR"], stored_name)
+
+    # A row whose blob is gone - a volume restored without its files, a
+    # half-finished delete - is a miss, not a fault. Left to send_file it
+    # raised FileNotFoundError out of the view and produced a stack trace and
+    # a 500, which is both a different answer from every other miss (D-06) and
+    # the one response this application never gives on purpose.
+    if not os.path.isfile(path):
+        logger.warning(
+            "attachment_blob_missing",
+            extra={"extra_fields": {"attachment_id": str(attachment.id)}},
+        )
+        abort(404)
 
     # Images render inline; everything else downloads. A PDF rendered inline
     # runs in the origin's context in some viewers, so documents are always
