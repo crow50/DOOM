@@ -29,7 +29,11 @@ services:
       web:
         condition: service_healthy
     networks:
+      # edge for inbound traffic from the LAN, proxy to reach the application.
+      # Caddy is the only service on both, which is what makes `web` reachable
+      # without giving `web` a route back out.
       - edge
+      - proxy
     # --- container hardening (T-34) ---
     # The same posture as `web`, and it matters more here: this is the one
     # process that parses bytes straight off the network.  Until an audit
@@ -102,7 +106,21 @@ services:
       # Writable island in an otherwise read-only filesystem.
       - uploads:/var/lib/doom/uploads:rw
     networks:
-      - edge
+      # NOT `edge`. The application has no route off this host at all: it can
+      # reach the database and the cache on `internal`, and Caddy can reach it
+      # on `proxy`, and that is the entire set of destinations that exist for
+      # it. This is the server-level outbound allowlist ASVS 5.0.0-13.2.4 and
+      # 13.2.5 ask for, expressed as a deny-all, which is the only version of
+      # an allowlist that cannot be incomplete.
+      #
+      # It also means an SSRF in the application has nowhere to go. That is
+      # worth more than the validation in security/lookup.py, because it holds
+      # even when the validation is wrong.
+      #
+      # Enabling BARCODE_LOOKUP_PROVIDER needs outbound HTTPS and therefore
+      # needs `edge` added back here. That is a deliberate, reviewable change
+      # rather than the default posture - see docs/security/POLICIES.md §9.
+      - proxy
       - internal
     depends_on:
       db:
@@ -246,6 +264,11 @@ services:
 networks:
   edge:
     driver: bridge
+  proxy:
+    # Caddy to the application, and nothing else. `internal: true` means no
+    # route off the host, so being on this network gives the application
+    # reachability without giving it egress.
+    internal: true
   internal:
     # No route off the host.  db and cache cannot be reached from the LAN even
     # if a port were published by mistake.

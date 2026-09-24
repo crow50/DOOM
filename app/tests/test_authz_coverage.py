@@ -100,6 +100,22 @@ SCOPING: dict[str, str] = {
     # start from owned_query() - see the module docstring in search.py.
     "search.index": DELEGATED,
 
+    # Second factor. auth.verify is reachable without a session on purpose -
+    # it is half of a sign-in - and is scoped by the pending marker it reads,
+    # which names an account, expires in five minutes and grants nothing on
+    # its own. Everything under /account/two-factor is login_required and
+    # additionally re-authenticates (ASVS 5.0.0-7.5.1).
+    "auth.verify": CAPABILITY,
+    # Every one of these acts on current_user and reaches no row addressed by
+    # the request, exactly like auth.change_password - so the helper is
+    # inapplicable rather than forgotten. Each additionally re-authenticates
+    # before it changes anything (ASVS 5.0.0-7.5.1).
+    "account.two_factor": NO_OBJECT,
+    "account.two_factor_begin": NO_OBJECT,
+    "account.two_factor_confirm": NO_OBJECT,
+    "account.two_factor_disable": NO_OBJECT,
+    "account.regenerate_recovery_codes": NO_OBJECT,
+
     # The token is the credential (T-36). Unauthenticated by design, and the
     # response is built from a reduced dict with no owner in it.
     #

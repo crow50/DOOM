@@ -20,7 +20,7 @@ import io
 import logging
 
 from flask import (
-    Blueprint, Response, flash, redirect, render_template, request,
+    Blueprint, Response, current_app, flash, redirect, render_template, request,
     session as flask_session, url_for,
 )
 from flask_login import current_user, login_required
@@ -28,9 +28,18 @@ from sqlalchemy import func, select
 
 from .. import validation as v
 from ..extensions import db
-from ..forms import ChangePasswordForm, ProfileForm, RevokeSessionForm
+from ..forms import (
+    ChangePasswordForm,
+    ProfileForm,
+    RevokeSessionForm,
+    TotpConfirmForm,
+    TotpDisableForm,
+    TotpEnrolForm,
+)
 from ..models import Attachment, AuditLog, Item, Location, UserSession, utcnow
 from ..security.audit import chain_head_hash, record_audit
+from ..blueprints.labels import qr_data_uri
+from ..security import mfa, totp
 from ..security.passwords import verify_password
 from ..security.uploads import storage_used
 
@@ -83,11 +92,47 @@ def profile():
     form = ProfileForm(obj=current_user)
 
     if form.validate_on_submit():
+        incoming_email = (form.email.data or "").strip() or None
+
+        # ASVS 5.0.0-7.5.1 - full re-authentication before an account
+        # attribute that can affect authentication changes.
+        #
+        # Email does not currently unlock anything: there is no mail server
+        # and no reset flow (D-12), so today this is a guard on a field that
+        # is only a label. It is here because the day that stops being true is
+        # the day nobody remembers to add it - a recovery address added later
+        # would silently become a credential that a borrowed session could
+        # rewrite in one POST.
+        #
+        # Only on a change. Re-typing a password to edit a display name is the
+        # kind of friction that teaches people to keep the password in the
+        # clipboard.
+        if incoming_email != current_user.email:
+            if not verify_password(
+                current_user.password_hash, form.current_password.data or ""
+            ):
+                form.current_password.errors.append(
+                    "Enter your current password to change the email address."
+                )
+                record_audit(
+                    action="email_change_denied", object_type="user",
+                    object_id=str(current_user.id), detail="password not confirmed",
+                    commit=True,
+                )
+                return render_template(
+                    "account/profile.html", form=form, **_profile_context()
+                )
+
+            record_audit(
+                action="email_changed", object_type="user",
+                object_id=str(current_user.id),
+            )
+
         # Field by field from a validated form, never **request.form - the
         # same rule as everywhere else, and the reason a posted `is_active`
         # or `session_version` has nothing to bind to (T-10).
         current_user.display_name = (form.display_name.data or "").strip() or None
-        current_user.email = (form.email.data or "").strip() or None
+        current_user.email = incoming_email
         current_user.timezone = (form.timezone.data or "").strip() or None
 
         record_audit(
@@ -98,6 +143,15 @@ def profile():
         flash("Profile saved.", "success")
         return redirect(url_for("account.profile"))
 
+    return render_template("account/profile.html", form=form, **_profile_context())
+
+
+def _profile_context() -> dict:
+    """Everything the profile page needs besides the form it was posted with.
+
+    Extracted so the re-authentication failure path re-renders the whole page
+    rather than a version of it missing the session list and the counters.
+    """
     # Keys are suffixed rather than named "items"/"locations".
     #
     # In Jinja, `counts.items` resolves to dict.items - the built-in method,
@@ -142,9 +196,7 @@ def profile():
 
     from ..blueprints.auth import SESSION_ID_KEY
 
-    return render_template(
-        "account/profile.html",
-        form=form,
+    return dict(
         sessions=sessions,
         current_session_id=flask_session.get(SESSION_ID_KEY),
         revoke_form=RevokeSessionForm(),
@@ -157,6 +209,8 @@ def profile():
         },
         recent=[(e, _describe(e)) for e in recent],
     )
+
+
 
 
 @bp.route("/sessions/revoke", methods=["POST"])
@@ -345,3 +399,217 @@ def export_csv():
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+# ---------------------------------------------------------------------------
+# Second factor (ASVS 5.0.0-6.3.3, 7.4.3, 7.5.1)
+# ---------------------------------------------------------------------------
+
+@bp.route("/two-factor", methods=["GET"])
+@login_required
+def two_factor():
+    """The enrolment page, in whichever of its three states applies."""
+    pending = bool(current_user.totp_secret) and not current_user.has_totp
+    uri = None
+    if pending:
+        uri = totp.provisioning_uri(
+            current_user.totp_secret,
+            account=current_user.username,
+            issuer=_issuer(),
+        )
+
+    return render_template(
+        "account/two_factor.html",
+        enrol_form=TotpEnrolForm(),
+        confirm_form=TotpConfirmForm(),
+        disable_form=TotpDisableForm(),
+        pending=pending,
+        secret=current_user.totp_secret if pending else None,
+        qr=qr_data_uri(uri) if uri else None,
+        remaining=mfa.remaining(current_user) if current_user.has_totp else 0,
+    )
+
+
+def _issuer() -> str:
+    """What the authenticator shows above the code.
+
+    Taken from the configured public base URL rather than the request host, for
+    the same reason every generated label is (T-14): a Host header must not be
+    able to decide what a user's authenticator calls this account.
+    """
+    from urllib.parse import urlparse
+
+    host = urlparse(current_app.config["PUBLIC_BASE_URL"]).hostname or "DOOM"
+    return f"DOOM ({host})"
+
+
+@bp.route("/two-factor/begin", methods=["POST"])
+@login_required
+def two_factor_begin():
+    """Generate a pending secret, after re-authentication.
+
+    The password is required because enrolling a factor is a change to how the
+    account authenticates: an attacker holding a borrowed session who can enrol
+    their own authenticator owns the account even after the password is
+    changed (ASVS 5.0.0-7.5.1).
+    """
+    form = TotpEnrolForm()
+    if not form.validate_on_submit():
+        flash("That request could not be verified.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    if not verify_password(current_user.password_hash, form.current_password.data):
+        record_audit(
+            action="totp_enrol_denied", object_type="user",
+            object_id=str(current_user.id), detail="password not confirmed",
+            commit=True,
+        )
+        flash("That is not your current password.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    # Overwrites any previous pending secret: starting again means starting
+    # again, and a half-scanned QR code from ten minutes ago is not a factor.
+    current_user.totp_secret = totp.new_secret()
+    current_user.totp_confirmed_at = None
+    current_user.totp_last_step = None
+    record_audit(
+        action="totp_enrolment_started", object_type="user",
+        object_id=str(current_user.id),
+    )
+    db.session.commit()
+    return redirect(url_for("account.two_factor"))
+
+
+@bp.route("/two-factor/confirm", methods=["POST"])
+@login_required
+def two_factor_confirm():
+    """Turn the pending secret into a required factor, once it has been proven."""
+    form = TotpConfirmForm()
+    if not form.validate_on_submit() or not current_user.totp_secret:
+        flash("That request could not be verified.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    if current_user.has_totp:
+        flash("Two-factor sign-in is already on.", "info")
+        return redirect(url_for("account.two_factor"))
+
+    step = totp.verify(current_user.totp_secret, form.code.data or "")
+    if step is None:
+        record_audit(
+            action="totp_confirm_failed", object_type="user",
+            object_id=str(current_user.id), commit=True,
+        )
+        flash(
+            "That code was not accepted. Check your phone's clock is correct "
+            "and try the next code.", "error",
+        )
+        return redirect(url_for("account.two_factor"))
+
+    current_user.totp_confirmed_at = utcnow()
+    current_user.totp_last_step = step
+    codes = mfa.issue(current_user)
+
+    # ASVS 5.0.0-7.4.3: the option, not the imposition. Offered because a
+    # factor being added is exactly when somebody who fears a stolen session
+    # wants the other devices gone; optional because forcing it on a person who
+    # is simply improving their security punishes them for it.
+    if form.sign_out_others.data:
+        _sign_out_other_sessions()
+
+    record_audit(
+        action="totp_enabled", object_type="user", object_id=str(current_user.id),
+        detail=f"{len(codes)} recovery codes issued",
+    )
+    db.session.commit()
+
+    # Shown once. They are not recoverable from the database afterwards.
+    return render_template("account/recovery_codes.html", codes=codes, fresh=True)
+
+
+@bp.route("/two-factor/recovery-codes", methods=["POST"])
+@login_required
+def regenerate_recovery_codes():
+    """Replace the set. Re-authenticated, like every other factor change."""
+    form = TotpEnrolForm()
+    if not form.validate_on_submit() or not current_user.has_totp:
+        flash("That request could not be verified.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    if not verify_password(current_user.password_hash, form.current_password.data):
+        flash("That is not your current password.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    codes = mfa.issue(current_user)
+    record_audit(
+        action="recovery_codes_regenerated", object_type="user",
+        object_id=str(current_user.id), detail="previous set invalidated",
+    )
+    db.session.commit()
+    return render_template("account/recovery_codes.html", codes=codes, fresh=False)
+
+
+@bp.route("/two-factor/disable", methods=["POST"])
+@login_required
+def two_factor_disable():
+    """Remove the factor - and require both factors to do it."""
+    form = TotpDisableForm()
+    if not form.validate_on_submit() or not current_user.has_totp:
+        flash("That request could not be verified.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    password_ok = verify_password(
+        current_user.password_hash, form.current_password.data
+    )
+    step = totp.verify(
+        current_user.totp_secret, form.code.data or "",
+        last_step=current_user.totp_last_step,
+    )
+
+    if not password_ok or step is None:
+        record_audit(
+            action="totp_disable_denied", object_type="user",
+            object_id=str(current_user.id),
+            detail="password or code not accepted", commit=True,
+        )
+        flash("Both your password and a current code are required.", "error")
+        return redirect(url_for("account.two_factor"))
+
+    current_user.totp_secret = None
+    current_user.totp_confirmed_at = None
+    current_user.totp_last_step = None
+    for code in list(current_user.recovery_codes):
+        db.session.delete(code)
+
+    record_audit(
+        action="totp_disabled", object_type="user",
+        object_id=str(current_user.id), detail="recovery codes destroyed",
+    )
+    db.session.commit()
+    flash("Two-factor sign-in is off. Your recovery codes no longer work.", "info")
+    return redirect(url_for("account.two_factor"))
+
+
+def _sign_out_other_sessions() -> None:
+    """End every session for this account except the one making the request."""
+    from ..blueprints.auth import SESSION_ID_KEY
+
+    mine = flask_session.get(SESSION_ID_KEY)
+    rows = db.session.execute(
+        select(UserSession).where(
+            UserSession.user_id == current_user.id,
+            UserSession.revoked_at.is_(None),
+        )
+    ).scalars().all()
+
+    ended = 0
+    for row in rows:
+        if str(row.id) == str(mine):
+            continue
+        row.revoked_at = utcnow()
+        ended += 1
+
+    if ended:
+        record_audit(
+            action="other_sessions_ended", object_type="user",
+            object_id=str(current_user.id), detail=f"{ended} session(s)",
+        )

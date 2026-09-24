@@ -194,9 +194,27 @@ class TestTokenSigning:
         paragraph of ``security/sessions.py`` that explains why it is not used,
         which is the opposite of the property being asserted. Walking the AST
         looks only at names the interpreter would actually resolve.
+
+        SHA-1 has exactly one permitted home, and the assertion is written as
+        "only there" rather than as an exemption: RFC 6238 fixes HMAC-SHA1 as
+        the default TOTP construction and every authenticator application
+        implements that and only that, so a SHA-256 variant would be a factor
+        nobody could enrol. NIST SP 800-131A Rev. 2 still permits HMAC-SHA1;
+        it is SHA-1 *signatures* that are withdrawn. If a second module ever
+        acquires a SHA-1 call, this fails - which is the point, because the
+        argument above covers one module and does not generalise.
         """
         offenders = _names_used(APP_PACKAGE, {"sha1", "md5", "sha224", "md4"})
-        assert not offenders, offenders
+        permitted_home = "totp.py"
+
+        stray = [use for use in offenders if not use.startswith(permitted_home)]
+        assert not stray, stray
+
+        # And the exception is real rather than stale: if TOTP stops needing
+        # it, this test should start failing and the comment should go.
+        assert any(use.startswith(permitted_home) for use in offenders), (
+            "security/totp.py no longer uses SHA-1 - remove the exception above"
+        )
 
 
 class TestSessionValidity:

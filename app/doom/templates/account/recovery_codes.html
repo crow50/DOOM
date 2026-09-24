@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Recovery codes{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>{% if fresh %}Two-factor sign-in is on{% else %}New recovery codes{% endif %}</h1>
+
+  <p class="warn">
+    <strong>This page is shown once.</strong> These codes are stored hashed, in
+    the same way your password is, so nobody - including this server - can show
+    them to you again. Save them somewhere that is not the phone holding your
+    authenticator.
+  </p>
+
+  <ul class="code-list">
+    {% for code in codes %}<li><code>{{ code }}</code></li>{% endfor %}
+  </ul>
+
+  <p class="muted small">
+    Each code works once. {% if not fresh %}Your previous codes no longer
+    work.{% endif %} Using one to sign in does not turn two-factor sign-in off;
+    it gets you in so you can enrol a new authenticator.
+  </p>
+
+  <p><a class="button" href="{{ url_for('account.two_factor') }}">Done</a></p>
+</section>
+{% endblock %}

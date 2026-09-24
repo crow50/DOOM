@@ -644,7 +644,7 @@ interface, which is what 8.3.3 asks for and why that row reads Partial.
 Most of this ledger is executable rather than asserted.
 
 ```bash
-make test           # 379 tests pinning the controls above
+make test           # 442 tests pinning the controls above
 make lint           # autoescape bypasses, and tools/check_docs.py against this file
 make audit-verify   # walks the audit hash chain
 make db-shell-app   # connect as the app role and try to exceed its privileges

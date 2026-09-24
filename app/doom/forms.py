@@ -174,6 +174,15 @@ class ProfileForm(FlaskForm):
         validators=[Optional()],
         description="Used to show timestamps in your local time.",
     )
+    current_password = PasswordField(
+        "Your password",
+        validators=[Optional()],
+        description=(
+            "Required only when you change the email address. An address is "
+            "the field an attacker with a borrowed session would change first "
+            "if it ever became a way back into the account."
+        ),
+    )
     submit = SubmitField("Save profile")
 
     def __init__(self, *args, **kwargs):
@@ -454,6 +463,76 @@ class ShareTokenForm(FlaskForm):
         },
     )
     submit = SubmitField("Open")
+
+
+class TotpForm(FlaskForm):
+    """The second-factor step of sign-in, or a recovery code instead of one.
+
+    One form with two fields rather than two forms, because the person at the
+    keyboard has one question to answer - "can you prove you are you" - and
+    splitting it across two pages means the one whose phone is dead has to
+    guess which page they want before they can say so.
+    """
+
+    code = StringField(
+        "Authentication code",
+        validators=[Optional(), Length(max=16)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric",
+                   "autocapitalize": "off", "spellcheck": "false"},
+    )
+    recovery_code = StringField(
+        "Recovery code",
+        validators=[Optional(), Length(max=32)],
+        render_kw={"autocomplete": "off", "autocapitalize": "characters",
+                   "spellcheck": "false"},
+    )
+    submit = SubmitField("Verify")
+
+
+class TotpEnrolForm(FlaskForm):
+    """Start enrolment. Re-authenticated, because turning a factor on from a
+    borrowed session is how an attacker locks the owner out of their own
+    account."""
+
+    current_password = PasswordField(
+        "Your password", validators=[InputRequired()],
+        render_kw={"autocomplete": "current-password"},
+    )
+    submit = SubmitField("Set up an authenticator")
+
+
+class TotpConfirmForm(FlaskForm):
+    """Prove the authenticator works before it becomes required."""
+
+    code = StringField(
+        "Code from your authenticator",
+        validators=[InputRequired(), Length(min=6, max=8)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric"},
+    )
+    #: ASVS 5.0.0-7.4.3 - the option, offered rather than imposed.
+    sign_out_others = BooleanField("Sign out my other devices", default=True)
+    submit = SubmitField("Turn on two-factor sign-in")
+
+
+class TotpDisableForm(FlaskForm):
+    """Both factors to remove a factor.
+
+    A password alone would mean a stolen session that has already seen the
+    password can quietly drop the second factor; a code alone would mean a
+    borrowed phone can. Asking for both means removing the protection needs
+    everything protecting it.
+    """
+
+    current_password = PasswordField(
+        "Your password", validators=[InputRequired()],
+        render_kw={"autocomplete": "current-password"},
+    )
+    code = StringField(
+        "Code from your authenticator",
+        validators=[InputRequired(), Length(min=6, max=8)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric"},
+    )
+    submit = SubmitField("Turn off two-factor sign-in")
 
 
 class RevokeSessionForm(FlaskForm):

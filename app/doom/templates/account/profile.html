@@ -44,11 +44,18 @@
       {{ field(form.display_name, placeholder="Sam Baker") }}
       {{ field(form.email, placeholder="optional") }}
       {{ field(form.timezone) }}
+      {# Only consulted when the email address changes (ASVS 7.5.1); left
+         blank for a display-name or timezone edit. #}
+      {{ field(form.current_password) }}
       {{ submit(form.submit) }}
     </form>
     <p class="muted small">
       All optional. Nothing here is required to use DOOM - data that is not
       collected cannot leak.
+    </p>
+    <p class="small">
+      <a href="{{ url_for('account.two_factor') }}">Two-factor sign-in</a> -
+      {% if current_user.has_totp %}on{% else %}off{% endif %}.
     </p>
   </section>
 

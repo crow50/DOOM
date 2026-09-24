@@ -18,7 +18,8 @@ from sqlalchemy import func, select
 
 from . import validation as v
 from .extensions import db
-from .models import Item, Location, User, utcnow
+from .models import Item, Location, User, UserSession, utcnow
+from .security.audit import record_audit
 from .security.passwords import (
     PasswordPolicyError,
     check_policy,
@@ -50,6 +51,61 @@ def register_cli(app: Flask) -> None:
         user.locked_until = None
         db.session.commit()
         click.echo(f"Unlocked {name}.")
+
+    @app.cli.command("revoke-sessions")
+    @click.argument("username", required=False)
+    @click.option("--all-users", is_flag=True,
+                  help="Every account, not one. For a suspected key compromise.")
+    def revoke_sessions(username: str | None, all_users: bool) -> None:
+        """End every active session for one user, or for everybody.
+
+        ASVS 5.0.0-7.4.5. There is no administrative surface inside the
+        application - deliberately, because an in-application admin role is a
+        privilege-escalation target reachable over HTTP - so this lives where
+        the other operator verbs do: a command run against the container by
+        somebody who already has the host.
+
+        Both halves are done, because either alone leaves a way back in:
+        session_version is bumped, which invalidates every cookie ever issued
+        for the account, and the UserSession rows are marked revoked, which is
+        what the account page reads and what the per-request check consults.
+        """
+        if all_users == bool(username):
+            raise click.UsageError("Name one user, or pass --all-users.")
+
+        if all_users:
+            users = db.session.execute(select(User)).scalars().all()
+        else:
+            name = v.normalize_username(username)
+            user = db.session.execute(
+                select(User).where(User.username == name)
+            ).scalar_one_or_none()
+            if user is None:
+                raise click.ClickException(f"No such user: {username}")
+            users = [user]
+
+        ended = 0
+        for user in users:
+            user.session_version += 1
+            rows = db.session.execute(
+                select(UserSession).where(
+                    UserSession.user_id == user.id,
+                    UserSession.revoked_at.is_(None),
+                )
+            ).scalars().all()
+            for row in rows:
+                row.revoked_at = utcnow()
+            ended += len(rows)
+            record_audit(
+                action="sessions_revoked_by_operator", object_type="user",
+                object_id=str(user.id), detail=f"{len(rows)} session(s)",
+            )
+
+        db.session.commit()
+        click.echo(
+            f"Ended {ended} session(s) across {len(users)} account(s). "
+            f"Every previously issued cookie is now invalid."
+        )
 
     @app.cli.command("set-password")
     @click.argument("username")

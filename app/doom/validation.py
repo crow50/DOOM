@@ -399,6 +399,20 @@ SESSION_IDLE_MINUTES = 60
 #: individually revocable on the account page.
 MAX_CONCURRENT_SESSIONS = 10
 
+#: How long a half-finished sign-in may sit between the password step and the
+#: second factor (ASVS 5.0.0-6.3.3).
+#:
+#: Five minutes. Long enough to find a phone, unlock it and read six digits;
+#: short enough that a pending state left on a shared machine is not a standing
+#: invitation. The pending marker is not an authenticated session - it grants
+#: nothing on its own - but it does name an account, so it should not outlive
+#: the person standing at the keyboard.
+MFA_PENDING_SECONDS = 300
+
+#: Rate limit on the second-factor step. Tighter than the password step,
+#: because the search space is a million codes rather than a passphrase.
+MFA_RATE_LIMIT = "10 per 15 minutes"
+
 # ---------------------------------------------------------------------------
 # Profile
 # ---------------------------------------------------------------------------
