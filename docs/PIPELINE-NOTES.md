@@ -31,7 +31,7 @@ So this is now a record of what runs, and a much shorter list of what does not.
 | **Renovate** | Dependency currency — pinning as a maintained position, not a snapshot | [`renovate.json`](../.github/renovate.json) | scheduled |
 | **Lockfile drift** | A hand-edited `requirements.txt` | [`diff-and-make-test.yml`](../.github/workflows/diff-and-make-test.yml) | every push and PR |
 | **Hash-pinned installs** | A substituted artifact, not merely a wrong version | `app/requirements.txt` — every pin carries `--hash=sha256:` | every build |
-| **`make lint`** | `\|safe` / `Markup(` in templates, and documentation drift | [`Makefile`](../Makefile), [`tools/check_docs.py`](../tools/check_docs.py) | every push and PR |
+| **`make lint`** | `\|safe` / `Markup(` in templates, and the ASVS ledger against the code it cites | [`Makefile`](../Makefile), [`tools/security_assessment.py`](../tools/security_assessment.py) | every push and PR |
 | **`make test`** | Executable application regressions; operator and unassessed controls require separate evidence | `diff-and-make-test.yml` | every push and PR |
 
 The strongest control in that list is the least obvious one: the lockfile check
@@ -125,7 +125,7 @@ the build, on every tag push. A container tagged `v0.2.0` that logs `0.1.0` at
 startup is lying about itself in the one field an operator would use to work out
 what they are running, and nothing else in this pipeline would notice - it is not
 a vulnerability, so no scanner looks for it, and both files are individually
-valid. This is the same reasoning as `tools/check_docs.py`: two places state the
+valid. This is the same reasoning as the ledger validator: two places state the
 same fact, so something has to fail when they disagree.
 
 The check is also the reason the version bump is a *commit* and not part of the
@@ -159,7 +159,8 @@ it nearly free.
 ## Not shipped
 
 One item, real, and recorded as a gap in
-[COMPLIANCE.md](COMPLIANCE.md) rather than described here as future work.
+[findings.json](security/findings.json) as `CONTROL-5.4.3` rather than
+described here as future work.
 
 ### Antivirus scanning of uploads — ASVS 12.4.2, **Not met**
 
@@ -295,6 +296,7 @@ workflow directory, and templates moved one level up to `.github/ISSUE_TEMPLATE/
 are not found. GitHub only discovers workflows from `.yml`/`.yaml` files sitting
 directly in `.github/workflows/`, so a subdirectory of Markdown is inert there.
 
-**`make lint` runs `tools/check_docs.py`.** If you add an ASVS requirement to a
-document, add its ledger row too — the check fails otherwise. That is deliberate:
-this file being wrong for ten commits is what prompted it.
+**`make lint` runs `tools/security_assessment.py`.** If you cite an ASVS
+requirement in a document it has to be a real one, and every row's evidence has
+to exist — the check fails otherwise. That is deliberate: this file being wrong
+for ten commits is what prompted it.

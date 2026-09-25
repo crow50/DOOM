@@ -1,3 +1,0 @@
-checking documentation against the code (253 ledger rows)...
-  note: test count 453 not verified here - pytest is unavailable; `make verify-test-count` checks it in the container
-  clean: one test count, exceptions match the ledger, no orphan ids

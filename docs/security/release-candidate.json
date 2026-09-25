@@ -1,0 +1,5 @@
+{
+  "note": "The artifact a release may promote without rebuilding. Publication is refused while registry_ref is null, which is the correct state until a candidate has been built, scanned and reviewed. Everything else that used to live here - which gates passed, and a SHA-256 of every source file - was either CI's answer to give or a reimplementation of the commit SHA that git already provides.",
+  "registry_ref": null,
+  "image_id": null
+}

@@ -1,8 +1,0 @@
-checking the application database role...
-  ok: doom_app can connect over TCP
-  ok: citext is installed
-  ok: DML reads are permitted
-  ok: every table grants the verbs the application needs
-  ok: DDL is refused
-  ok: audit_log is append-only for doom_app
-  clean: the two-role split is in place

@@ -231,7 +231,7 @@ cannot be met and so is not a deadline.
 "As it applies here" is doing real work: a scanner's severity is assigned to
 the component, not to this deployment. Reachability, configuration and
 container hardening are recorded per alert in
-[alerts.json](alerts.json), and a finding whose residual risk is reduced still
+[findings.json](findings.json), and a finding whose residual risk is reduced still
 carries its original severity in the record.
 
 **Mechanism.** Renovate proposes dependency and base-image updates
@@ -494,7 +494,7 @@ and the reason this section is short.
 | Share tokens | 256-bit random (`token_urlsafe(32)`) | addressing a shared node | not an account credential |
 | Share handles | 128-bit random (`token_urlsafe(16)`) | naming an entry in one visitor's signed session | confers nothing on its own |
 | Attachment digests | SHA-256 | content addressing, per-owner deduplication | not an integrity guarantee against an attacker with database write access |
-| Audit row hashes | SHA-256 chain | tamper *evidence* | not proof — see COMPLIANCE.md on why evident is not the same as provable |
+| Audit row hashes | SHA-256 chain | tamper *evidence* | not proof — the application's own role cannot rewrite history, which is evidence of tampering rather than prevention of it |
 | TLS certificates | Caddy-managed by default — internal CA locally, ACME for a public name — or a certificate the operator mounts and names with `tls` | transport to the browser | not used for internal service authentication, which is unencrypted — see `v5.0.0-12.3.1` |
 
 All of it comes from `hashlib`, `hmac`, `secrets` and `argon2-cffi`, which is

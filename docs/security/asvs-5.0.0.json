@@ -262,7 +262,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-5.2.6",
       "finding_ids": [
-        "CONTROL-v5.0.0-1.3.6"
+        "CONTROL-1.3.6"
       ]
     },
     {
@@ -344,9 +344,7 @@
       "status": "Met",
       "rationale": "The application is Python, which has no pointer arithmetic, bounds-checks every sequence access and manages string memory itself; a stack, buffer or heap overflow is not expressible in the code under review. The memory-unsafe surface is confined to the C extensions the runtime image ships - Pillow, libmagic, psycopg, argon2-cffi and CPython itself - and that surface is managed the way it has to be, by keeping them current: Renovate proposes updates continuously and two image scanners gate every build on the versions actually present.",
       "evidence": [
-        "docs/security/POLICIES.md",
-        "docs/security/evidence/candidate-sbom.json",
-        "docs/security/evidence/candidate-grype.json"
+        "docs/security/POLICIES.md"
       ],
       "verification": "Confirm the package contains no ctypes or cffi use of its own; check the SBOM for the native components and their versions against the scanners' output.",
       "exception": null,
@@ -629,9 +627,7 @@
       "status": "Met",
       "rationale": "Production Config uses __Host-doom_session with Secure, Path=/ and no Domain. TestConfig deliberately differs; production cookie is verified through Caddy.",
       "evidence": [
-        "app/doom/config.py",
-        "docs/security/evidence/proxy-headers.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/config.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -646,8 +642,7 @@
       "rationale": "SameSite=Lax on the session cookie, which is the value the purpose calls for: the application is navigated to from printed labels and external links, so Strict would drop the session on arrival and present a signed-in user with a sign-in page, while Lax still withholds the cookie from every cross-site POST - the shape CSRF takes. It is one of three layers, alongside CSRF tokens and the strict Referer check, rather than the only one.",
       "evidence": [
         "app/doom/config.py",
-        "app/tests/test_headers.py",
-        "docs/security/evidence/proxy-headers.txt"
+        "app/tests/test_headers.py"
       ],
       "verification": "Inspect SESSION_COOKIE_SAMESITE in config.py and the Set-Cookie on a live response; issue a cross-site POST and confirm the cookie is absent.",
       "exception": null,
@@ -661,10 +656,7 @@
       "status": "Met",
       "rationale": "Production session cookie uses __Host- and is not shared with other hosts.",
       "evidence": [
-        "app/doom/config.py",
-        "docs/security/evidence/proxy-headers.txt",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/config.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -694,7 +686,6 @@
       "status": "Met",
       "rationale": "max-age=31536000 (one year) with includeSubDomains, set by the application on every response and independently by the edge. The gap that made this Partial - a Caddy-generated 502 during a container replacement carrying no security headers at all - is closed: handle_errors now serves edge-generated responses with the full set, and the probe in evidence/proxy-edge-headers.txt records a 502, a proxied 200 and the plaintext redirect all carrying HSTS.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
         "app/doom/security/headers.py"
       ],
@@ -726,8 +717,7 @@
       "rationale": "A global policy on every response, carrying object-src 'none' and base-uri 'none' as the requirement names, plus an allowlist: default-src, script-src, style-src, connect-src and form-action are all 'self'. The absence of unsafe-inline is what makes script-src 'self' hold without nonces - every script is an external file under /static and no template carries an inline handler, which the autoescape test enforces by parsing rather than by convention. Per-response nonces are an L3 obligation and are not claimed.",
       "evidence": [
         "app/doom/security/headers.py",
-        "app/tests/test_headers.py",
-        "docs/security/evidence/proxy-headers.txt"
+        "app/tests/test_headers.py"
       ],
       "verification": "Re-run tests/test_headers.py; inspect the header on a live response in evidence/proxy-headers.txt; add an inline script to a template and confirm the browser refuses to run it.",
       "exception": null,
@@ -741,7 +731,6 @@
       "status": "Met",
       "rationale": "Set by the application on every response and again at the edge, including on the responses the application never produces. The gap that made this Partial - a Caddy-generated 502 during a container replacement carrying no security headers at all - is closed by the handle_errors route, and the probe in evidence/proxy-edge-headers.txt records nosniff on a proxied 200, a Caddy 502 and the plaintext redirect. Stored files carry it a third time, set explicitly in the download handler.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
         "app/doom/security/headers.py"
       ],
@@ -773,7 +762,6 @@
       "status": "Met",
       "rationale": "frame-ancestors 'none' in the CSP on every response, with X-Frame-Options: DENY alongside it for browsers that still read it - the requirement notes the latter is obsolete and must not be relied upon, and it is not: the CSP directive is the control. Edge-generated responses now carry the same directive, which is the gap that made this Partial.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "app/doom/security/headers.py",
         "app/tests/test_headers.py"
       ],
@@ -926,7 +914,6 @@
       "status": "Met",
       "rationale": "Two halves of one control, and both are required. Caddy sets X-Forwarded-For to a value it chooses with header_up rather than appending to whatever arrived, so a client cannot seed the chain; ProxyFix is configured with x_for=1, which takes the last entry - the one Caddy wrote - rather than trusting more hops than exist. The value Caddy forwards is {client_ip}, which with no trusted_proxies declared - the shipped default - is the direct peer, so a forged header is ignored; declaring an operator's own upstream proxy trusted makes it resolve the real client out of that proxy's chain instead. Both behaviours are recorded in evidence/proxy-client-ip.txt. X-Forwarded-Port is trusted at zero hops because Caddy does not overwrite it, which was a finding in this review.",
       "evidence": [
-        "docs/security/evidence/proxy-client-ip.txt",
         "app/tests/test_asvs_l2_closure.py",
         "app/tests/test_security_review.py",
         "caddy/Caddyfile",
@@ -1130,8 +1117,7 @@
       "rationale": "Explicit dimensions check now rejects images above the declared pixel ceiling before decoding, including the Pillow warning-only range.",
       "evidence": [
         "app/doom/security/uploads.py",
-        "app/tests/test_security_review.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/tests/test_security_review.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1164,9 +1150,7 @@
       "rationale": "Stored paths use generated names with containment checking; original filenames are display-only. Tests exercise traversal and upload authorization.",
       "evidence": [
         "app/doom/security/uploads.py",
-        "app/tests/test_uploads.py",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/tests/test_uploads.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1181,8 +1165,7 @@
       "rationale": "Original filenames are stripped of control/separator characters and passed to send_file as download_name; paths use generated names.",
       "evidence": [
         "app/doom/security/uploads.py",
-        "app/doom/blueprints/files.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/blueprints/files.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1220,7 +1203,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.4.2",
       "finding_ids": [
-        "CONTROL-v5.0.0-5.4.3"
+        "CONTROL-5.4.3"
       ]
     },
     {
@@ -1279,9 +1262,7 @@
       "rationale": "Server password policy requires at least 12 characters, exceeding the required eight. Fifteen is recommended by this requirement, not mandatory.",
       "evidence": [
         "app/doom/security/passwords.py",
-        "app/doom/validation.py",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/validation.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1296,9 +1277,7 @@
       "rationale": "Authenticated password change is implemented and available from account profile.",
       "evidence": [
         "app/doom/blueprints/auth.py",
-        "app/doom/templates/auth/change_password.html",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/templates/auth/change_password.html"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1313,9 +1292,7 @@
       "rationale": "Password change verifies current password before accepting and hashing the new password.",
       "evidence": [
         "app/doom/blueprints/auth.py",
-        "app/doom/forms.py",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/forms.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1362,8 +1339,7 @@
       "rationale": "Authentication password and PIN fields use WTForms PasswordField and password type; reveal control is user-initiated.",
       "evidence": [
         "app/doom/forms.py",
-        "app/doom/static/js/password-meter.js",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/static/js/password-meter.js"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1393,9 +1369,7 @@
       "rationale": "Passwords are hashed/verified as received, without trimming or case changes. Lowercase is used only for blocklist comparison, not verification.",
       "evidence": [
         "app/doom/security/passwords.py",
-        "app/doom/forms.py",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/forms.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1410,8 +1384,7 @@
       "rationale": "Password maximum is 128 characters, allowing the required 64.",
       "evidence": [
         "app/doom/validation.py",
-        "app/doom/forms.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/forms.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1426,8 +1399,7 @@
       "rationale": "No periodic password expiry exists; user-triggered password change is supported. Session expiration does not rotate credentials.",
       "evidence": [
         "app/doom/models.py",
-        "app/doom/blueprints/auth.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/blueprints/auth.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1552,8 +1524,7 @@
       "rationale": "No password hint, knowledge question or answer field/process exists.",
       "evidence": [
         "app/doom/forms.py",
-        "app/doom/blueprints/auth.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/blueprints/auth.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -1576,7 +1547,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-2.5.6",
       "finding_ids": [
-        "CONTROL-v5.0.0-6.4.3"
+        "CONTROL-6.4.3"
       ]
     },
     {
@@ -1894,8 +1865,7 @@
       "rationale": "Sessions expire after 12 hours without sliding refresh; signed timestamp enforces maximum lifetime.",
       "evidence": [
         "app/doom/config.py",
-        "app/doom/validation.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/doom/validation.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -2005,9 +1975,7 @@
       "rationale": "Account profile lists per-device UserSession records; revocation requires password confirmation, scopes by owner and supports individual/other sessions.",
       "evidence": [
         "app/doom/blueprints/account.py",
-        "app/tests/test_asvs_l2.py",
-        "docs/security/evidence/tests-candidate.txt",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/tests/test_asvs_l2.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -2029,7 +1997,7 @@
       "selection_reason": "Privileged account actions require fresh authentication.",
       "migration": "tag-v4.0.3: ADDED, SPLIT FROM v4.0.3-3.7.1",
       "finding_ids": [
-        "CONTROL-v5.0.0-7.5.3"
+        "CONTROL-7.5.3"
       ]
     },
     {
@@ -2173,7 +2141,7 @@
       "selection_reason": "Sharing and private inventory: authorization changes take effect immediately.",
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": [
-        "CONTROL-v5.0.0-8.3.2"
+        "CONTROL-8.3.2"
       ]
     },
     {
@@ -2716,8 +2684,7 @@
       "evidence": [
         "docs/security/POLICIES.md",
         "app/doom/config.py",
-        "docker-compose.yml",
-        "docs/security/evidence/secrets-final.txt"
+        "docker-compose.yml"
       ],
       "verification": "Read POLICIES.md section 6 against config._read_secret and the compose secret mounts; run make verify-secrets against a live stack.",
       "exception": null,
@@ -2781,7 +2748,6 @@
       "rationale": "Every primitive is at or above 128 bits of security: HMAC-SHA256 with a 256-bit key for the session cookie and the CSRF serializer, SHA-256 for content addressing and the audit chain, Argon2id with a 256-bit output and a 128-bit salt for passwords, 256-bit share tokens, 128-bit share handles, and TLS suites offering 128-bit security or better. The TOTP secret is 160 bits as RFC 4226 specifies; its HMAC-SHA1 construction is the documented exception in section 6, and a 30-second six-digit code is bounded by rate limiting and single use rather than by hash strength.",
       "evidence": [
         "docs/security/POLICIES.md",
-        "docs/security/evidence/proxy-edge-headers.txt",
         "app/doom/models.py"
       ],
       "verification": "Read POLICIES.md section 16's size column against the generators in the code; enumerate the TLS suites the live edge offers.",
@@ -2797,7 +2763,6 @@
       "rationale": "The application performs no symmetric encryption, so there is no block mode or padding scheme to choose badly: an AST walk over the package finds no cipher use, and the only cryptographic primitives are Argon2id, HMAC-SHA256 and SHA-256. The one encrypted channel is TLS at the edge, where Caddy offers only AEAD cipher suites - ECDHE with AES-GCM or ChaCha20-Poly1305 - and ECB and PKCS#1 v1.5 are not among them.",
       "evidence": [
         "app/tests/test_asvs_l1_closure.py",
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile"
       ],
       "verification": "Re-run test_no_withdrawn_hash_is_reachable_from_the_package; enumerate the offered suites against the running edge and confirm all are AEAD.",
@@ -2812,7 +2777,6 @@
       "status": "Met",
       "rationale": "Same scope as 11.3.1: the only cipher in use is the one TLS negotiates, and Caddy's suite list is AEAD-only (AES-GCM and ChaCha20-Poly1305) with TLS 1.2 as the floor and 1.3 preferred, which the probe in evidence/proxy-edge-headers.txt confirms by refusing a TLS 1.1 handshake and completing a TLS 1.3 one.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile"
       ],
       "verification": "Re-run the TLS cases in evidence/proxy-edge-headers.txt; enumerate offered suites and confirm no CBC or RC4 suite is present.",
@@ -2938,7 +2902,6 @@
       "status": "Met",
       "rationale": "The edge offers TLS 1.2 and 1.3 only, and prefers 1.3. Caddy's default minimum was already 1.2; the Caddyfile now states the policy explicitly so a future default cannot lower it silently and so the setting is reviewable without knowing which Caddy version shipped which default. A TLS 1.1 handshake against the running edge is refused and a TLS 1.3 one completes.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile"
       ],
       "verification": "Re-run cases D and E of evidence/proxy-edge-headers.txt against the running edge.",
@@ -2953,7 +2916,6 @@
       "status": "Met",
       "rationale": "Caddy offers only AEAD suites - ECDHE with AES-GCM or ChaCha20-Poly1305 - and orders them by the client's preference within that set, with TLS 1.3 preferred over 1.2. Every offered suite provides forward secrecy through ECDHE, which is an L3 obligation and holds here as a property of the default rather than a claim. The probe confirms a TLS 1.1 handshake is refused and a TLS 1.3 one completes.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile"
       ],
       "verification": "Re-run cases D and E in evidence/proxy-edge-headers.txt; enumerate the offered suites against the running edge and confirm no CBC or RC4 suite appears.",
@@ -2982,7 +2944,6 @@
       "status": "Met",
       "rationale": "The application is reachable only through Caddy, which terminates TLS; the plaintext listener exists solely to answer 308 to the HTTPS URL and serves no content, and HSTS with a one-year max-age is on every response including the ones Caddy generates itself, so a browser that has seen the site once will not attempt plaintext again. There is no downgrade path: the application container's port is not published.",
       "evidence": [
-        "docs/security/evidence/proxy-edge-headers.txt",
         "caddy/Caddyfile",
         "docker-compose.yml"
       ],
@@ -3007,7 +2968,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": [
-        "CONTROL-v5.0.0-12.2.2"
+        "CONTROL-12.2.2"
       ]
     },
     {
@@ -3018,14 +2979,13 @@
       "rationale": "Not met literally. Caddy reaches the application over plaintext HTTP, and the application reaches PostgreSQL and Redis over plaintext, on Docker networks that carry nothing else. What has changed since this was assessed is the boundary rather than the encryption: those networks are now all internal, the application container has no route off the host at all, and the only process that touches the outside is Caddy, which terminates TLS. So the plaintext exists inside a boundary that is narrower than it was, and there is no inbound or outbound connection crossing the host unencrypted. That is a mitigation, not the control - an attacker with the Docker host, or a second workload on it, reads this traffic. Recorded as a finding; no exception is approved.",
       "evidence": [
         "docker-compose.yml",
-        "docs/security/POLICIES.md",
-        "docs/security/evidence/deployment-final.json"
+        "docs/security/POLICIES.md"
       ],
       "verification": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-9.2.2, COVERS v4.0.3-1.9.1",
       "finding_ids": [
-        "CONTROL-v5.0.0-12.3.1"
+        "CONTROL-12.3.1"
       ]
     },
     {
@@ -3059,7 +3019,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: ADDED, COVERS v4.0.3-1.9.1",
       "finding_ids": [
-        "CONTROL-v5.0.0-12.3.3"
+        "CONTROL-12.3.3"
       ]
     },
     {
@@ -3076,7 +3036,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-9.2.1, COVERS v4.0.3-1.9.2",
       "finding_ids": [
-        "CONTROL-v5.0.0-12.3.4"
+        "CONTROL-12.3.4"
       ]
     },
     {
@@ -3110,7 +3070,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-2.10.1, MERGED FROM v4.0.3-1.2.2",
       "finding_ids": [
-        "CONTROL-v5.0.0-13.2.1"
+        "CONTROL-13.2.1"
       ]
     },
     {
@@ -3122,7 +3082,6 @@
       "evidence": [
         "db/init/01-roles.sh",
         "app/doom/cli.py",
-        "docs/security/evidence/roles-final.txt",
         "Makefile"
       ],
       "verification": "Run make verify-db-roles against a live stack; attempt an UPDATE on audit_log as the application role and confirm it is refused.",
@@ -3139,8 +3098,7 @@
       "evidence": [
         "app/doom/config.py",
         "Makefile",
-        "app/tests/test_asvs_l1_closure.py",
-        "docs/security/evidence/gitleaks-candidate.log"
+        "app/tests/test_asvs_l1_closure.py"
       ],
       "verification": "Start the stack with a placeholder SECRET_KEY and confirm it refuses to boot; grep the repository and the image for a hardcoded credential; re-run TestCredentialUsability.",
       "exception": null,
@@ -3187,14 +3145,13 @@
       "evidence": [
         "docker-compose.yml",
         "app/doom/config.py",
-        "docs/security/evidence/secrets-final.txt",
         "docs/security/POLICIES.md"
       ],
       "verification": "Introduce a secrets manager that issues and rotates these credentials, and record rotation and destruction evidence. Until then, run make verify-secrets and confirm the host directory's permissions.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-6.4.1, MERGED FROM v4.0.3-1.6.2, v4.0.3-2.10.4,\n    SPLIT FROM v4.0.3-2.9.1, COVERS v4.0.3-2.10.3, v4.0.3-2.8.2",
       "finding_ids": [
-        "CONTROL-v5.0.0-13.3.1"
+        "CONTROL-13.3.1"
       ]
     },
     {
@@ -3206,7 +3163,6 @@
       "evidence": [
         "Makefile",
         "docker-compose.yml",
-        "docs/security/evidence/secrets-final.txt",
         "app/doom/config.py"
       ],
       "verification": "Run make verify-secrets against a live stack; inspect the mount modes in docker-compose.yml.",
@@ -3222,8 +3178,7 @@
       "rationale": "The build context is ./app, and .git lives at the repository root, so version-control metadata is not in the context at all. The image is then built from an explicit COPY allowlist - doom, migrations and wsgi.py - rather than a COPY of the context, so nothing arrives by accident, and .dockerignore excludes VCS and editor debris as a second line. The uploads volume, the only writable path, contains no repository data.",
       "evidence": [
         "app/Dockerfile",
-        "app/.dockerignore",
-        "docs/security/evidence/candidate-image.json"
+        "app/.dockerignore"
       ],
       "verification": "Inspect the COPY lines in app/Dockerfile; run `docker run --rm <image> ls -a /srv/doom` and confirm no .git; confirm the build context root contains no VCS directory.",
       "exception": null,
@@ -3403,7 +3358,7 @@
       "selection_reason": "Uploads: metadata may reveal private locations.",
       "migration": "tag-v4.0.3: ADDED",
       "finding_ids": [
-        "CONTROL-v5.0.0-14.2.8"
+        "CONTROL-14.2.8"
       ]
     },
     {
@@ -3478,7 +3433,6 @@
       "status": "Met",
       "rationale": "A CycloneDX SBOM is generated by Syft for every image build and retained as a workflow artifact, and the candidate's is kept in the evidence directory alongside the scan results produced from it. Provenance is pinned rather than trusted: the base image is a digest, not a tag; Python dependencies are a hash-pinned lockfile compiled from requirements.in, and CI recompiles and diffs it on every run so a changed hash fails the build; the zlib source is a specific upstream commit with its archive SHA-256 verified before it is unpacked; and every GitHub Action is pinned by commit SHA.",
       "evidence": [
-        "docs/security/evidence/candidate-sbom.json",
         ".github/workflows/sbom-scanning.yml",
         "app/Dockerfile",
         ".github/workflows/diff-and-make-test.yml"
@@ -3511,10 +3465,7 @@
       "status": "Met",
       "rationale": "Scoped to the candidate artifact, which is what this review assessed. Its gates pass: Trivy reports no vulnerability matches, and Grype's HIGH gate passes with the one high zlib match closed by an upstream-patched runtime library and an exact-PURL VEX statement, not a suppression. Nine lower findings remain open - eight medium and one low - and all were observed on 2026-09-24, so every one is inside the 30-day and 90-day windows POLICIES.md section 7 defines. No component is past its deadline. The separately published Debian release image carries its own older findings and is not this row's subject.",
       "evidence": [
-        "docs/security/POLICIES.md",
-        "docs/security/evidence/candidate-grype.json",
-        "docs/security/evidence/candidate-trivy.json",
-        "docs/security/evidence/candidate-sbom.json"
+        "docs/security/POLICIES.md"
       ],
       "verification": "Re-run the image gates against the candidate SBOM and compare each open finding's first-observed date against the deadline table in POLICIES.md section 7.",
       "exception": null,
@@ -3546,8 +3497,7 @@
       "rationale": "The runtime image is built from an explicit COPY allowlist - the package, the migrations and wsgi.py - so test code cannot arrive by accident. pytest and the test suite live in a separate build target that the runtime stage never copies from, and pip itself is removed from the runtime image along with its vendored dependency tree. There are no sample routes, no debug console and no development endpoints; a test asserts none of the usual documentation or introspection paths is registered.",
       "evidence": [
         "app/Dockerfile",
-        "app/tests/test_asvs_l2_closure.py",
-        "docs/security/evidence/candidate-image.json"
+        "app/tests/test_asvs_l2_closure.py"
       ],
       "verification": "Run `docker run --rm <image> ls /srv/doom` and confirm no tests directory; confirm pytest is absent from the runtime image; re-run test_no_documentation_or_introspection_endpoint_is_registered.",
       "exception": null,
@@ -3578,8 +3528,7 @@
       "rationale": "Only outbound provider lookup sets allow_redirects=False and rejects redirect statuses before body processing.",
       "evidence": [
         "app/doom/security/lookup.py",
-        "app/tests/test_lookup.py",
-        "docs/security/evidence/tests-candidate.txt"
+        "app/tests/test_lookup.py"
       ],
       "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
       "exception": null,
@@ -3610,7 +3559,6 @@
       "rationale": "Caddy pins X-Forwarded-For to {client_ip} rather than appending to what arrived, and ProxyFix trusts exactly one hop, so the address the application logs and rate-limits on is the one the proxy wrote. With no trusted proxy declared that is the direct peer and a forged chain is ignored, which a test drives through the configured middleware; when a homelab puts its own Traefik or Caddy in front and declares it trusted, the real client survives the extra hop instead of collapsing every visitor into one rate-limit bucket. The requirement's caveat is respected in the design rather than ignored: the address is used for rate limiting and the audit trail, never as an authorization input, precisely because a shared NAT or a VPN makes it an unreliable identity.",
       "evidence": [
         "app/tests/test_asvs_l2_closure.py",
-        "docs/security/evidence/proxy-client-ip.txt",
         "caddy/Caddyfile",
         "app/doom/__init__.py"
       ],
@@ -3713,7 +3661,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-7.3.4",
       "finding_ids": [
-        "CONTROL-v5.0.0-16.2.2"
+        "CONTROL-16.2.2"
       ]
     },
     {
@@ -3852,7 +3800,6 @@
       "status": "Compensating",
       "rationale": "The application cannot rewrite its own history: UPDATE and DELETE on audit_log are revoked from the restricted role the runtime uses, so a compromise of the application does not become a compromise of the record, and the hash chain makes any out-of-band modification evident. Those are the two properties that can be established from inside this repository. What cannot is protection of the container's stdout stream on the host, its retention, and access control over it - all of which belong to the operator and have no evidence. Recorded as a finding rather than claimed.",
       "evidence": [
-        "docs/security/evidence/roles-final.txt",
         "app/doom/cli.py",
         "docs/security/HOSTED-READINESS.md",
         "app/tests/test_audit_chain.py"
@@ -3861,7 +3808,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-7.3.3",
       "finding_ids": [
-        "CONTROL-v5.0.0-16.4.2"
+        "CONTROL-16.4.2"
       ]
     },
     {
@@ -3879,7 +3826,7 @@
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-1.7.2",
       "finding_ids": [
-        "CONTROL-v5.0.0-16.4.3"
+        "CONTROL-16.4.3"
       ]
     },
     {

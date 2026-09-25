@@ -51,11 +51,11 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os
-          with open('docs/security/verification.json') as source:
-              verification = json.load(source)
+          with open('docs/security/release-candidate.json') as source:
+              candidate = json.load(source)
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              print('ref=' + verification['candidate_registry_ref'], file=output)
-              print('image_id=' + verification['candidate_digest'], file=output)
+              print('ref=' + candidate['registry_ref'], file=output)
+              print('image_id=' + candidate['image_id'], file=output)
           PY
 
       - name: Set up Docker Buildx

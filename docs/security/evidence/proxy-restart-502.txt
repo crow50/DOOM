@@ -1,5 +1,0 @@
-Observed 2026-09-23T20:32:35Z during disposable web container replacement.
-HTTP/2 502
-server: Caddy
-content-length: 0
-No application CSP/HSTS/nosniff/frame headers were returned.

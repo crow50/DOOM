@@ -1364,3 +1364,72 @@ publishing a fix and the base image being rebuilt, which is where all twelve of
 these lived. A CVE Debian has not yet fixed is still a CVE in this image, and
 `ignore-unfixed: true` in the Trivy workflow means the scan will not fail the
 build for it — that is the deliberate position (D-36), not an oversight.
+
+---
+
+## D-40 — The evidence directory is deleted; the tests are the evidence
+
+This supersedes the part of D-37 that made `COMPLIANCE.md` an exhaustive ledger,
+and it removes `docs/security/evidence/` entirely — seven megabytes across
+seventy-five files, against an application whose own source is under one.
+
+### The question that ended it
+
+"Evidence for whom?" Every audience was checked and none of them wanted it:
+
+- **The maintainer** already knows what they built. A Trivy report from last
+  Tuesday tells them nothing they would act on.
+- **A self-hoster** wants to know how to run this safely. Seventeen thousand
+  lines of JSON describing an image that no longer exists is not that.
+- **An auditor** does not trust self-reported evidence, which is the whole point
+  of being an auditor. Handed a committed `candidate-trivy.json`, they run Trivy
+  themselves. A stored scan is at best a claim about what somebody once saw.
+
+So the directory answered a question nobody had asked, and it cost every reader
+of the repository attention that the ledger and the tests deserved.
+
+### What was actually in there
+
+| Class | Size | Why it went |
+|---|---|---|
+| Scanner output — Trivy, Grype, SBOMs, CodeQL SARIF, Bandit, Semgrep, Gitleaks | ~6 MB | Re-runnable, and CI already uploads SARIF to the Security tab and SBOMs as build artifacts. Committed copies were duplication that went stale on the next commit. |
+| Snapshots of GitHub's own alert API | ~1 MB | GitHub is the authority on GitHub's alerts. Query it. |
+| Run logs — "453 passed", `make lint` output, gate transcripts | ~80 KB | A green check on a commit is verifiable by anyone. A text file claiming one is not. |
+| Probe transcripts — proxy headers, reproduced before-states | ~10 KB | The conclusions are what matter, and they live in the Caddyfile comments and in tests that fail if the behaviour changes. |
+| `verification.json`'s `source_hashes` | 44 KB, 71% of the file | A SHA-256 of every source file, written as 140 arrays of integers. That is a commit SHA, reimplemented badly. |
+| `alerts.json`'s scanner mirror | ~1 MB, 576 of 601 rows | 312 rows shared the same three sentences verbatim. It was a scanner report transcribed into JSON, frozen against one advisory database. One row now records the published image's dependency posture and tells you to scan it yourself. |
+| `asvs-4.0.3.json` + `COMPLIANCE.md` | ~344 KB | A second ledger against a superseded standard, 81% of it never assessed. |
+
+### The rule that made it worse
+
+A previous pass added a validator check requiring every file in that directory
+to be cited by something. Faced with thirty-seven orphans, the response was to
+invent citations for twenty-five of them so they would pass — optimising for
+"no orphans" instead of asking whether the files should exist. A rule that can
+be satisfied by writing more bookkeeping is a rule that will be.
+
+### What is kept, and why each survives
+
+- **`asvs-5.0.0.json`** — the analysis. One row per requirement, with a status,
+  the reasoning, how to verify it, and the code or test that demonstrates it.
+- **`findings.json`** — twenty-two rows that carry an argument, sixteen of them
+  open. Each names a residual risk somebody has to accept or close.
+- **`POLICIES.md`** — the policies several requirements ask for by name. Read by
+  people, and pointed at by the rows that depend on them.
+- **`README.md`** — how to re-run every check yourself. The method outlives the
+  output, and is the only thing a sceptical reader can use.
+- **`REMEDIATION.md`** — a work queue with acceptance criteria. Forward-looking.
+- **The test suite.** This is the real answer to "evidence for whom": a test
+  fails when the control is removed, it runs on anyone's machine, and it needs
+  no trust in whoever wrote it. Archived output has none of those properties.
+
+### The published test count went with it
+
+`COMPLIANCE.md` §6 published the suite's size, a check enforced that exactly one
+file did so, and a pytest collection hook failed the run when it drifted. The
+control was added because four files once claimed four different numbers — a
+real problem with the wrong fix. Guarding a number in prose means every commit
+that adds a test also edits a document; closing out ASVS Level 1 and 2 paid that
+tax eight times in one sitting. `make test` prints the count, and the ledger
+names the test behind each control, which is the link that was ever worth
+checking.

@@ -234,7 +234,7 @@ db-shell-app: ## psql as the RESTRICTED app role - use this to prove least privi
 # instead of writing a probe row, because the app role cannot clean up after
 # itself on audit_log by design.
 #
-# Each assertion below is the executable evidence for a row in COMPLIANCE.md.
+# Each assertion below is the executable evidence for a row in the ASVS ledger.
 .PHONY: verify-db-roles
 verify-db-roles: ## Prove the app role exists and is properly restricted
 	@set -e; \
@@ -330,24 +330,6 @@ test: ## Run the test suite
 	$(COMPOSE) --profile test build --quiet test
 	$(COMPOSE) --profile test run --rm test python -m pytest -p no:cacheprovider -q
 
-# The test image has no docs/ (the build context is app/), so the collection
-# hook in tests/conftest.py cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
-# what pytest collects in the container and compares against the one number the
-# documentation publishes.  Four files once published four different counts, none
-# of them right; this is what makes the surviving one checkable in CI.
-.PHONY: verify-test-count
-verify-test-count: ## Check COMPLIANCE.md's test count against what pytest collects
-	@claimed=$$(grep -oE '[0-9]+ tests pinning' docs/COMPLIANCE.md | head -1 | cut -d' ' -f1); \
-	$(COMPOSE) --profile test build --quiet test; \
-	actual=$$($(COMPOSE) --profile test run --rm -T test python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
-		| grep -oE '^[0-9]+ tests? collected' | cut -d' ' -f1); \
-	if [ -z "$$actual" ]; then echo "FAIL: could not collect tests"; exit 1; fi; \
-	if [ "$$claimed" != "$$actual" ]; then \
-		echo "FAIL: docs/COMPLIANCE.md claims $$claimed tests, pytest collects $$actual"; \
-		exit 1; \
-	fi; \
-	echo "  clean: docs/COMPLIANCE.md and pytest agree on $$actual tests"
-
 .PHONY: audit-verify
 audit-verify: ## Verify the audit hash chain and print the head hash
 	$(COMPOSE) run --rm web flask audit-verify
@@ -365,7 +347,7 @@ lint: ## Template safety grep - fails if user data could bypass autoescaping
 		exit 1; \
 	fi
 	@echo "  clean: no autoescape bypasses"
-	@python3 tools/check_docs.py
+	@python3 tools/security_assessment.py
 
 .PHONY: verify-version
 verify-version: ## Check a release tag agrees with __version__ (TAG=v1.2.3, or HEAD's tag)

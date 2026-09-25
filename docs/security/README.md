@@ -1,84 +1,109 @@
-# Reproducing the security review
+# Checking this yourself
 
-Start with the [assessment](RELEASE-ASSESSMENT.md), [generated status summary](SUMMARY.md),
-[alert register](alerts.json), [v4 ledger](asvs-4.0.3.json) and
-[v5 ledger](asvs-5.0.0.json). The documented policies several requirements ask
-for by name are in [POLICIES.md](POLICIES.md), and
-[evidence/README.md](evidence/README.md) lists every retained artifact with
-what cites it - the validator fails on a file in that directory that nothing
-points at, so the manifest cannot quietly go stale. Current execution scope is local self-hosting;
-non-local hosting is future state. The ledgers account for requirements without
-claiming that unassessed requirements have passed.
+Nothing in this directory asks to be believed. Every claim below is one you can
+re-run, and the reason there is no archive of past runs is that an archive is
+exactly the thing a sceptical reader cannot use — see D-40.
 
-Run these from the repository root:
+Read in this order:
+
+| File | What it is |
+|---|---|
+| [SUMMARY.md](SUMMARY.md) | The scoreboard. Generated; twenty lines. |
+| [asvs-5.0.0.json](asvs-5.0.0.json) | One row per ASVS 5.0 requirement: status, the reasoning, how to verify it, and the code or test that demonstrates it. |
+| [findings.json](findings.json) | What is open. Sixteen rows, each with a residual risk somebody has to accept or close. |
+| [RELEASE-ASSESSMENT.md](RELEASE-ASSESSMENT.md) | The release decision and the conditions attached to it. |
+| [POLICIES.md](POLICIES.md) | The policies several requirements ask for by name — validation rules, anti-automation, session limits, key lifecycle, remediation deadlines. |
+| [REMEDIATION.md](REMEDIATION.md) | The work queue, with acceptance criteria per batch. |
+| [HOSTED-READINESS.md](HOSTED-READINESS.md) | What a non-local deployment would additionally have to prove. |
+
+## The checks, and what each one actually establishes
 
 ```sh
-python3 tools/check_docs.py
-python3 -m unittest discover -s tools/tests -v
-python3 tools/security_assessment.py --write
+make test          # the suite. Every control the ledger claims is pinned here.
+make lint          # no autoescape bypass; the ledger against the code it cites
+python3 -m unittest discover -s tools/tests -v    # the validator's own tests
+```
+
+`make lint` runs `tools/security_assessment.py`, which checks that every
+mandatory Level 1 and Level 2 requirement has a row, that each row quotes the
+standard verbatim, that no status is asserted without a rationale and a way to
+verify it, that every file a row cites exists, and that no gap is left without
+a finding. **It cannot check whether a conclusion is true.** That is a review
+obligation, and the thing that makes a conclusion checkable is the test the row
+names — which is why `evidence` points at code and tests and not at logs.
+
+```sh
 python3 tools/security_assessment.py --release
 ```
 
-The release command is expected to fail while findings and control reviews are
-unresolved. For future non-local hosting, additionally run
-`python3 tools/security_assessment.py --release --deployment non-local`.
-Structural checks passing does not imply a release recommendation or ASVS level.
+Expected to fail, and the failures are the point: it refuses while any risk is
+open and unaccepted. A passing release gate would mean somebody had signed for
+each one in `exceptions.json`, with an owner and an expiry.
 
-To rerun the full container suite and deployment probes:
+## Reproducing the deployment checks
 
-```sh
-python3 tools/run_security_review.py --output /tmp/doom-review-new-run
-```
-
-Use a new output directory. This requires Docker/Compose with `!override`
-support, make, and network access for image/dependency downloads. The runner
-copies source to a temporary directory, creates fresh secrets and a unique
-project, binds test ports to loopback, runs migrations/seed/tests and restricted
-role/secret checks, verifies TLS and production cookies through Caddy, then
-removes that project's containers and volumes. Generated logs redact the test
-secrets. Images remain available for scanning. Read `results.json` and use its
-project name to identify `<project>-web`; never substitute an operator stack.
-
-Capture image metadata and archive the runtime image before scanning. Use the
-scanner image digests in `evidence/scanners.json`, mount only the archive/input
-needed, and scan both the separately pulled release and rebuilt candidate.
-Trivy JSON records all severities; Grype JSON preserves matching details and
-database build metadata. Generate a CycloneDX SBOM with Syft. Do not use
-`--ignore-unfixed`/`--only-fixed` when collecting evidence. Record scanner errors
-and skipped/partially parsed files as coverage gaps. Capture new database
-timestamps: current scans cannot reproduce an old advisory database by date
-alone. Historic scan files are retained as the exact observed results.
-
-Export fresh GitHub evidence without dismissing or modifying any alert:
+These need Docker, Compose with `!override` support, make, and network access.
 
 ```sh
-python3 tools/export_security_evidence.py --repo crow50/DOOM --output /tmp/doom-alerts-new-run
+python3 tools/run_security_review.py --output /tmp/doom-review-$(date +%s)
 ```
 
-The authenticated `gh` account needs read access to the respective security
-APIs. All pages are exported; failures are recorded in source availability.
-Secret-scanning exports contain metadata only, never secret values. Preserve
-the original baseline IDs when reconciling later snapshots. New scan observations
-and compliance gaps have distinct IDs; `related_alerts` correlates advisory and
-package matches without erasing artifact differences.
+Use a fresh output directory. The runner copies the source to a temporary
+directory, generates its own secrets, picks a unique project name, binds test
+ports to loopback only, runs the migrations, the seed and the suite inside the
+image, checks the restricted database role and the secret hygiene, verifies TLS
+and the production cookie attributes through Caddy, then removes its own
+containers and volumes. Read `results.json` and use its project name to
+identify the containers. **Never point it at an operator's stack.**
 
-Before updating an assessment, inspect the complete official requirement text
-and migration mapping. Evidence must support every clause to justify **Met**.
-Conditional features can be **N/A** only with an explicit applicability reason.
-Risk acceptance belongs in the finding register and `exceptions.json`, with
-approval evidence, a named owner, expiry and reassessment trigger. It never
-changes a compliance status to Met.
+Against a running stack:
 
-`verification.json` records the source revision plus hashes of every code and
-configuration input because this review's candidate includes uncommitted branch
-changes. It distinguishes Docker image/config IDs from registry manifest
-digests. Refresh it only after rerunning relevant verification against the
-new candidate; copying a passing status from an older build is not verification.
+```sh
+make verify-db-roles   # the app role cannot ALTER, DROP, or rewrite audit_log
+make verify-secrets    # no secret value in any process environment or docker inspect
+make verify-cert       # the certificate being served is the one you think it is
+make audit-verify      # walk the audit hash chain and print its head
+```
 
-Tag publication additionally requires `--release --publish` and a reviewed
-`candidate_registry_ref` in the form `ghcr.io/crow50/doom-organizer@sha256:…`.
-The workflow pulls that immutable reference, verifies its image/config ID, and
-promotes its existing manifest to release tags. It never rebuilds a release
-after verification. Current local evidence has no published candidate reference
-and therefore cannot authorize publication. Development branch builds continue
-to publish development images for subsequent testing and review.
+## Scanning the images
+
+There is no stored scan to read, deliberately. Both images are public, so scan
+them yourself and get an answer against today's advisory database rather than
+one frozen against last week's:
+
+```sh
+trivy image ghcr.io/crow50/doom-organizer:0.1.0        # the published release
+docker build -f app/Dockerfile --target runtime -t doom-candidate ./app
+trivy image doom-candidate
+grype doom-candidate --fail-on high
+syft doom-candidate -o cyclonedx-json
+```
+
+Do not pass `--ignore-unfixed` or `--only-fixed`: an unavailable patch is still
+a risk. CI runs the same gates on every push and uploads SARIF to the
+repository's Security tab and the SBOM as a build artifact, which is where the
+authoritative copies live.
+
+The published `0.1.0` image is Debian-based and has open findings; the candidate
+that supersedes it is Alpine-based and does not contain the affected packages.
+That is recorded once, as `DEP-release-0.1.0`, rather than as one row per CVE.
+
+## Current GitHub alerts
+
+```sh
+python3 tools/export_security_evidence.py --repo crow50/DOOM --output /tmp/doom-alerts
+```
+
+Exports code-scanning, Dependabot and secret-scanning alerts for whoever wants
+to work with them offline. The output is deliberately not committed: GitHub is
+the authority on its own alerts, and a snapshot in git is stale the moment a
+scan runs. Secret-scanning exports carry metadata only, never a secret value.
+
+## Writing a status
+
+Read the full official requirement text, not a summary of it. Evidence must
+support every clause for **Met**. **N/A** needs the specific technology or
+feature to be genuinely absent, with the reason stated — a control that was
+never built is Not met, not N/A. A gap needs a finding, and risk acceptance
+goes in `exceptions.json` with an approver, an owner, an expiry and a
+reassessment trigger; it never changes a status to Met.

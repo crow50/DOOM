@@ -1,0 +1,347 @@
+[
+  {
+    "id": "CONTROL-1.3.6",
+    "requirement": "v5.0.0-1.3.6",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "Two layers, and the outer one is now the load-bearing part. At the application layer the lookup pins the scheme, host and path from a dict in code, refuses redirects, and validates resolved addresses against private ranges - but the DNS name is resolved once for validation and again by the transport when connecting, so a rebinding attack between the two remains open and is not closed by this review. What has changed is the layer beneath: the application container no longer has any route off the host, so a successful SSRF reaches nothing. The feature is also off unless an operator sets BARCODE_LOOKUP_PROVIDER, which requires adding the edge network back and is therefore a reviewable change rather than a default. Recorded as a finding; the rebinding defect is real and unfixed.",
+    "exploitability": "Requires the operator to have enabled BARCODE_LOOKUP_PROVIDER, which also requires restoring the application container's egress route - two deliberate changes. With the feature off, as it ships and as the release assessment recommends, the path is unreachable. With it on, an attacker who controls a DNS answer for the pinned provider host can make the connection resolve to an address the validation rejected, because validation and connection resolve separately. The reachable surface is then whatever the container's network allows, which is why the network change matters more than it looks.",
+    "remediation": "Pin validated addresses in the transport with correct TLS hostname verification, then add regression tests for a changing DNS answer, IPv6 and redirect behaviour. Until then, confirm docker-compose keeps `web` off the edge network and BARCODE_LOOKUP_PROVIDER unset.",
+    "verification": "Pin validated addresses in the transport with correct TLS hostname verification, then add regression tests for a changing DNS answer, IPv6 and redirect behaviour. Until then, confirm docker-compose keeps `web` off the edge network and BARCODE_LOOKUP_PROVIDER unset.",
+    "evidence": [
+      "docker-compose.yml",
+      "app/doom/security/lookup.py",
+      "app/tests/test_lookup.py",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-5.4.3",
+    "requirement": "v5.0.0-5.4.3",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "No antivirus or malware scanning exists. Image re-encoding destroys polyglots and strips metadata, and it is not a substitute: a PDF or a text file is stored exactly as received. The serving controls are real but address a different threat - attachment disposition, a sandbox CSP and nosniff stop a file executing in this origin, and owner-only authorisation means one account's upload is not reachable by another - so what remains is that a malicious document is served back to the owner who uploaded it, unchanged, to open in their own reader. Recorded honestly; no exception is approved, and the absence of a demonstrated cross-account path does not close it.",
+    "exploitability": "Requires the account's own owner to upload a malicious document and later open it in their own reader; there is no cross-account path, because downloads are owner-authorised and per-owner deduplication keeps blobs separate. Serving controls stop it executing in this origin. What remains is a storage-and-return path for malware that the application does not inspect, which is a real gap for a user who treats their inventory as a safe place to keep documents.",
+    "remediation": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
+    "verification": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
+    "evidence": [
+      "docs/security/POLICIES.md",
+      "app/doom/security/uploads.py",
+      "app/doom/blueprints/files.py"
+    ]
+  },
+  {
+    "id": "CONTROL-6.4.3",
+    "requirement": "v5.0.0-6.4.3",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "There is no self-service reset, and that is a decision rather than an omission (D-12): a reset flow is an unauthenticated endpoint whose purpose is to hand out account access, it is the most attacked path in web authentication, and this deployment has no mail server to build one on. The process that exists is operator-mediated - `flask set-password`, run against the container by somebody who already holds the host - and it does not bypass the second factor, because it changes only the password and leaves the TOTP enrolment in place. Recorded as a finding because the requirement asks for a secure process and an operator with shell access is a coarse one, not because the absence is accidental. Users who lose an authenticator have ten single-use recovery codes and do not need this path at all.",
+    "exploitability": "Not an attack path but a recovery one: a user who forgets their password needs an operator with shell access. The risk is availability rather than confidentiality, and it is bounded for users who have enrolled a second factor by the ten single-use recovery codes, which cover the case this requirement most often protects. The operator command does not bypass the second factor, so the usual danger of a reset flow - that it becomes the weakest authentication path - does not arise here.",
+    "remediation": "Confirm `flask set-password` leaves totp_secret and totp_confirmed_at untouched; confirm no unauthenticated route can alter a password. Re-assess if mail infrastructure is ever introduced, at which point a reset flow must be built with the factor enforced.",
+    "verification": "Confirm `flask set-password` leaves totp_secret and totp_confirmed_at untouched; confirm no unauthenticated route can alter a password. Re-assess if mail infrastructure is ever introduced, at which point a reset flow must be built with the factor enforced.",
+    "evidence": [
+      "app/doom/cli.py",
+      "docs/DECISIONS.md",
+      "docs/security/POLICIES.md",
+      "app/tests/test_mfa.py"
+    ]
+  },
+  {
+    "id": "CONTROL-7.5.3",
+    "requirement": "v5.0.0-7.5.3",
+    "level": 3,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "Sensitive account/session actions require password confirmation; all inventory/share changes are not step-up protected.",
+    "exploitability": "Sensitive account and session operations already require the password. What is missing is step-up on inventory and share changes, where the actor is already an authenticated owner acting on their own data.",
+    "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
+    "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+    "evidence": [
+      "app/doom/blueprints/account.py",
+      "app/doom/blueprints/labels.py"
+    ]
+  },
+  {
+    "id": "CONTROL-8.3.2",
+    "requirement": "v5.0.0-8.3.2",
+    "level": 3,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "Per-request ownership, visibility and session revocation are enforced; PIN approval now tracks credential changes. Concurrent in-flight operations and every revocation path still need full verification.",
+    "exploitability": "Ownership, visibility and session revocation all apply on the next request. What is unverified is the behaviour of an operation already in flight when a revocation lands - a race measured in milliseconds against a single-tenant dataset.",
+    "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
+    "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+    "evidence": [
+      "app/doom/blueprints/auth.py",
+      "app/doom/blueprints/share.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "CONTROL-12.2.2",
+    "requirement": "v5.0.0-12.2.2",
+    "level": 1,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "Not met literally, and no code change can close it. The reviewed deployment serves DOOM_DOMAIN=localhost, for which no public CA can issue: Caddy presents a certificate from its own internal CA. The compensating control is that the CA is distributed to the devices that need it out of band by `make trust-cert` rather than being clicked through, and the service is published on a private network with no public name. The mechanism for the real thing is present and automatic - setting DOOM_DOMAIN to a public name and an ACME contact makes Caddy obtain a publicly trusted certificate - so this is a property of a deployment that does not exist yet rather than a missing capability. Recorded as a finding, not accepted: no exception is approved.",
+    "exploitability": "Requires a position on the private network the instance is published to, plus a client that has not been given the internal CA. Such a client sees a certificate warning rather than a silent downgrade, so an interception attempt is visible; a client that has been given the CA validates normally. No public name exists for an attacker to obtain a competing certificate for.",
+    "remediation": "Three supported routes, all with the stock Caddy image, documented in caddy/conf.d/README.md. (A) Let an existing reverse proxy - Traefik, another Caddy, Nginx Proxy Manager - terminate TLS in front of this stack and declare it in `trusted_proxies` so client addresses survive the hop; renewal stays that proxy's problem and nothing here restarts. (B) Mount a certificate this deployment did not issue and name it with `tls`; `make verify-cert` then guards the failure mode that makes this route bite, which is that Caddy reads such a file once at config load and keeps serving the old certificate after a renewal in place. (C) Set DOOM_DOMAIN to a publicly resolvable name, at which point Caddy issues from Let's Encrypt on its own - but that needs an inbound path for the ACME challenge on port 80 or 443, turns a LAN service into an internet-facing one, and publishes the hostname to Certificate Transparency logs. A wildcard avoids the last of those and needs DNS-01, so issue it wherever certificates are already issued and use route A or B.",
+    "verification": "On the first non-local deployment, confirm the served chain terminates in a publicly trusted root from a client with no custom CA installed, and re-run the release gate with --deployment non-local.",
+    "evidence": [
+      "caddy/Caddyfile",
+      "caddy/conf.d/README.md",
+      "Makefile",
+      "docs/security/HOSTED-READINESS.md"
+    ]
+  },
+  {
+    "id": "CONTROL-12.3.1",
+    "requirement": "v5.0.0-12.3.1",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "Not met literally. Caddy reaches the application over plaintext HTTP, and the application reaches PostgreSQL and Redis over plaintext, on Docker networks that carry nothing else. What has changed since this was assessed is the boundary rather than the encryption: those networks are now all internal, the application container has no route off the host at all, and the only process that touches the outside is Caddy, which terminates TLS. So the plaintext exists inside a boundary that is narrower than it was, and there is no inbound or outbound connection crossing the host unencrypted. That is a mitigation, not the control - an attacker with the Docker host, or a second workload on it, reads this traffic. Recorded as a finding; no exception is approved.",
+    "exploitability": "Requires an attacker to be on the Docker host or in another workload on it - which is to say, to have already crossed a boundary that would give them the database credentials by other means. The traffic never leaves the host: all three internal networks are internal-only, the application container has no egress route, and the only published ports belong to Caddy, which terminates TLS. The exposure is real and the mitigation is containment, not encryption.",
+    "remediation": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
+    "verification": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
+    "evidence": [
+      "docker-compose.yml",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-12.3.3",
+    "requirement": "v5.0.0-12.3.3",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "Same subject as 12.3.1 and the same disposition: the reverse proxy reaches web:8000 over plaintext HTTP. The compensating position is the network boundary - that hop is on an internal-only Docker network shared by exactly two containers, no port is published for it, and the application has no route off the host - and the honest statement is that this is containment rather than transport encryption.",
+    "exploitability": "Same position as 12.3.1 and narrower: one hop between two containers on an internal-only network that publishes nothing. An attacker able to observe it is already inside the host.",
+    "remediation": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
+    "verification": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
+    "evidence": [
+      "docker-compose.yml",
+      "caddy/Caddyfile",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-12.3.4",
+    "requirement": "v5.0.0-12.3.4",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "There is no internal TLS, so there are no internal certificates to trust specifically - and the absence of the transport is exactly why this cannot be Compensating: a trust decision cannot be evaluated where no trust decision is made. It is recorded separately from 12.3.1 and 12.3.3 rather than folded into them, because closing those by issuing certificates would leave this one open unless each consuming service is also configured to trust one specific internal CA rather than any certificate presented.",
+    "exploitability": "No exposure of its own today, because there is no internal TLS whose trust could be misplaced. It is recorded separately so that closing 12.3.1 and 12.3.3 by issuing certificates cannot silently leave consumers trusting any certificate presented, which is the failure this requirement exists to prevent.",
+    "remediation": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
+    "verification": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
+    "evidence": [
+      "docker-compose.yml",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-13.2.1",
+    "requirement": "v5.0.0-13.2.1",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "Backend authentication uses static, file-mounted passwords for PostgreSQL and Redis. They are strong, generated by make init, held in mode-0400 files rather than the environment, and the database role is restricted - none of which is what this requirement asks for. It asks for individual service accounts with short-term tokens or certificate-based authentication, and unchanging credentials are named as the thing not to use. Recorded as Not met rather than compensated, because the mitigations here reduce exposure of the credential without changing its nature.",
+    "exploitability": "A static credential does not expire, so a copy taken once stays useful until an operator rotates it. Reaching it requires the host: the files are mode 0400, mounted read-only, read once at startup and absent from every process environment, which make verify-secrets checks rather than assumes. The database role the credential opens is the restricted one, which cannot ALTER, DROP, or rewrite audit_log.",
+    "remediation": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
+    "verification": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
+    "evidence": [
+      "docker-compose.yml",
+      "app/doom/config.py",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-13.3.1",
+    "requirement": "v5.0.0-13.3.1",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "There is no key vault. Secrets are generated by make init, held in a restricted host directory, mounted read-only into the containers and read from files rather than the environment - which covers storage and access control, and make verify-secrets proves the environment half rather than asserting it. What a vault would add is managed creation, rotation and destruction with an audit trail, and those remain operator tasks with no verified lifecycle evidence. The mount point is the seam where a vault would attach. L3's hardware-backed requirement is not met and is not claimed. Recorded as a finding; no exception is approved.",
+    "exploitability": "Exposure is bounded by host access, and the missing half is lifecycle rather than storage: there is no managed rotation, no destruction of superseded copies and no audit trail over who read a secret. A compromise that is never noticed is therefore never remediated on a schedule, which is the property a vault provides and a directory does not.",
+    "remediation": "Introduce a secrets manager that issues and rotates these credentials, and record rotation and destruction evidence. Until then, run make verify-secrets and confirm the host directory's permissions.",
+    "verification": "Introduce a secrets manager that issues and rotates these credentials, and record rotation and destruction evidence. Until then, run make verify-secrets and confirm the host directory's permissions.",
+    "evidence": [
+      "docker-compose.yml",
+      "app/doom/config.py",
+      "Makefile",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-14.2.8",
+    "requirement": "v5.0.0-14.2.8",
+    "level": 3,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "Image metadata is stripped but PDF/document metadata is stored unchanged; no separate metadata consent workflow.",
+    "exploitability": "Image metadata is stripped, which is where GPS coordinates live. PDF and document metadata is stored as received, so an author name or a source path can travel with a file the owner uploaded and shares.",
+    "remediation": "Close the stated missing clauses or document residual impact for explicit time-limited acceptance; compliance status stays separate.",
+    "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
+    "evidence": [
+      "app/doom/security/uploads.py"
+    ]
+  },
+  {
+    "id": "CONTROL-16.2.2",
+    "requirement": "v5.0.0-16.2.2",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "low",
+    "rationale": "The application's half is met and testable: every timestamp is UTC with an explicit offset, in the log formatter and in the database, so there is no daylight-saving ambiguity to resolve. The half that is not met is that all four containers take their clock from the host kernel, so their timestamps agree with each other by construction but their accuracy is the host's - and no evidence exists that the host runs NTP. That is an operator obligation no code in this repository can discharge, and it is recorded rather than assumed. Container-to-container consistency is the compensating property; absolute accuracy is not established.",
+    "exploitability": "Timestamps are internally consistent and explicitly UTC, so correlation across the stack is sound regardless. The risk is that absolute times drift from an external reference, which matters for correlating this system's record with another's during an investigation. It cannot be exploited; it can make evidence harder to align.",
+    "remediation": "Confirm the host runs a time synchronisation service and record its status as operator evidence. The application-side property can be re-checked by inspecting any log line's offset.",
+    "verification": "Confirm the host runs a time synchronisation service and record its status as operator evidence. The application-side property can be re-checked by inspecting any log line's offset.",
+    "evidence": [
+      "app/doom/security/logging.py",
+      "docs/security/HOSTED-READINESS.md",
+      "docs/security/POLICIES.md"
+    ]
+  },
+  {
+    "id": "CONTROL-16.4.2",
+    "requirement": "v5.0.0-16.4.2",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "The application cannot rewrite its own history: UPDATE and DELETE on audit_log are revoked from the restricted role the runtime uses, so a compromise of the application does not become a compromise of the record, and the hash chain makes any out-of-band modification evident. Those are the two properties that can be established from inside this repository. What cannot is protection of the container's stdout stream on the host, its retention, and access control over it - all of which belong to the operator and have no evidence. Recorded as a finding rather than claimed.",
+    "exploitability": "An attacker who reaches the Docker host can read or discard the stdout stream. They cannot rewrite audit_log through the application - UPDATE and DELETE are revoked from its role - and out-of-band modification of that table is detectable by the hash chain, so the durable record resists the case the stream does not.",
+    "remediation": "Run make verify-db-roles and attempt an UPDATE on audit_log as the application role; for the rest, record the host's log store permissions and retention as operator evidence.",
+    "verification": "Run make verify-db-roles and attempt an UPDATE on audit_log as the application role; for the rest, record the host's log store permissions and retention as operator evidence.",
+    "evidence": [
+      "app/doom/cli.py",
+      "app/tests/test_audit_chain.py",
+      "Makefile",
+      "docs/security/HOSTED-READINESS.md"
+    ]
+  },
+  {
+    "id": "CONTROL-16.4.3",
+    "requirement": "v5.0.0-16.4.3",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "Logs stay on the host that produces them. There is no shipper, no separate analysis system, no alerting and no escalation path, so the property this requirement exists for - that a breach of the application does not also compromise the record of it - does not hold for the stdout stream. The append-only database table and its hash chain are a partial answer for the audit trail specifically and are already credited at 16.4.2; they are not log shipping, and treating them as such would be the kind of substitution this assessment is written to avoid. Recorded honestly; no exception is approved.",
+    "exploitability": "An attacker who compromises the host compromises the only copy of the request and edge logs at the same time, so the record of how they arrived can be removed along with the evidence of what they did. The audit table's hash chain means removal of the application's own record is detectable rather than silent, which narrows the gap without closing it. There is also no alerting, so nothing raises a breach in progress.",
+    "remediation": "Configure a log driver or sidecar shipping to a separate system, with alerting on the authentication and access-denial events, and record delivery evidence. This is a deployment obligation and is listed in the hosted-readiness assessment.",
+    "verification": "Configure a log driver or sidecar shipping to a separate system, with alerting on the authentication and access-denial events, and record delivery evidence. This is a deployment obligation and is listed in the hosted-readiness assessment.",
+    "evidence": [
+      "docs/security/POLICIES.md",
+      "docs/security/HOSTED-READINESS.md",
+      "docker-compose.yml"
+    ]
+  },
+  {
+    "id": "REV-001",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/blueprints/share.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/blueprints/share.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "REV-002",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/security/redirects.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/security/redirects.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "REV-003",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/blueprints/items.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/blueprints/items.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "REV-004",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/security/logging.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/security/logging.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "REV-005",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/__init__.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/__init__.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "REV-006",
+    "requirement": null,
+    "level": null,
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Reproduced on pre-fix image; candidate implementation fixes the boundary and full regression suite passes.",
+    "exploitability": "See before/after regression evidence; scope and limits documented in release assessment.",
+    "remediation": "Implemented in app/doom/security/uploads.py; release artifact still needs promotion/retest on target architecture.",
+    "verification": "Run tools/run_security_review.py and inspect test_security_review.py.",
+    "evidence": [
+      "app/doom/security/uploads.py",
+      "app/tests/test_security_review.py"
+    ]
+  },
+  {
+    "id": "DEP-release-0.1.0",
+    "requirement": "v5.0.0-15.2.1",
+    "level": 2,
+    "status": "open",
+    "residual_risk": "medium",
+    "rationale": "The published ghcr.io/crow50/doom-organizer:0.1.0 image is Debian-based and carries unpatched distribution CVEs, several rated high, mostly in packages the application never invokes (util-linux mount/cgroup operations, infocmp, Perl Archive::Tar). Debian stable had no fixes available for them at the time of review. This replaces 321 individual rows transcribed from a scanner report: they were frozen against one advisory database, 78% of them shared the same three boilerplate sentences, and anyone who needs the real answer gets a better one by scanning the image themselves - it is public and immutable.",
+    "exploitability": "The image runs as UID 10001 with no capabilities, no-new-privileges and a read-only filesystem, and none of the affected utilities is reachable from any request path. Exploiting these generally requires local privileged operations the container cannot perform.",
+    "remediation": "The candidate that supersedes this image is Alpine-based and does not contain the affected packages. Publish it. Until then, scan the published image for its current state rather than reading a stored report: `trivy image ghcr.io/crow50/doom-organizer:0.1.0`.",
+    "verification": "Re-scan the published tag and compare against the candidate. A finding that is absent from the Alpine SBOM is closed by publishing, not by suppression.",
+    "evidence": [
+      "app/Dockerfile",
+      "docs/security/RELEASE-ASSESSMENT.md"
+    ]
+  }
+]

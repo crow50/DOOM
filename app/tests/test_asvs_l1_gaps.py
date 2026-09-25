@@ -1,6 +1,6 @@
 """The controls an ASVS audit found missing, pinned so they cannot go missing again.
 
-Each class here corresponds to a requirement that ``docs/COMPLIANCE.md`` either
+Each class here corresponds to a requirement that the ASVS ledger either
 claimed without an implementation behind it, or did not mention at all.  The
 ledger now cites these tests as the evidence for those rows, so the claim and the
 check live and die together.

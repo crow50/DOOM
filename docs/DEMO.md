@@ -274,8 +274,9 @@ Full traceback, server-side, against the same ID.
 make test
 ```
 
-All passing — the count is in COMPLIANCE.md §6, which is the only file that
-publishes it.
+All passing. The count is deliberately not written down anywhere: it used to
+be, guarded by a check, and the guard's only effect was that every commit
+adding a test also had to edit a document.
 
 > Several of these exist because the control fails *quietly*. Session
 > revocation is the clearest: increment the version column, forget to compare
@@ -312,14 +313,21 @@ Renovate are already running — PIPELINE-NOTES.md says which trigger on what.
 
 **"What's still weak?"** - Registration reveals whether a username is taken; a
 compromised account exposes that user's whole inventory; no antivirus scanning of
-uploads; no TLS between containers. Nine accepted risks are written up in
-SECURITY.md §4, and the complete picture — 36 requirements that are not a clean
-pass, out of 253 — is the exception table in COMPLIANCE.md §1.
+uploads; no TLS between containers. The accepted risks are written up in
+SECURITY.md §4, and the complete picture is
+[docs/security/SUMMARY.md](security/SUMMARY.md) — twelve requirements that are
+not a clean pass out of 258, each with a finding in
+[findings.json](security/findings.json).
 
-**"You claim ASVS Level 2. Do you meet it?"** - No, and the ledger says so. 65 of
-126 L2 requirements met, 31 not applicable, 30 exceptions. L1 is 100 of 127 with
-six exceptions. An earlier revision of COMPLIANCE.md claimed L1 "met in full"
-and L2 "met with two compensating controls"; both were overstated, an audit said
-so, and the document was rebuilt to enumerate every requirement rather than
-curate the ones that passed. The scoreboard in COMPLIANCE.md is the honest
-answer, and being able to give it is worth more than the claim was.
+**"You claim ASVS Level 2. Do you meet it?"** - No, and the ledger says so. Every
+Level 1 and Level 2 requirement of ASVS 5.0 is assessed: L1 is 58 met, 11 not
+applicable and one compensating; L2 is 108 met, 64 not applicable, seven
+compensating and four not met. Four not met is four too many for a claim.
+
+An earlier revision claimed L1 "met in full" and L2 "met with two compensating
+controls"; both were overstated, an audit said so, and the ledger was rebuilt to
+enumerate every requirement rather than curate the ones that passed. The four
+that are still not met — antivirus, internal TLS and its trust decisions,
+certificate-based backend authentication, off-host log shipping — are named in
+[findings.json](security/findings.json) with what it would take to close each.
+Being able to give that answer is worth more than the claim was.

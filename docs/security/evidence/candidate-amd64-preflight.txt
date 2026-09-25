@@ -1,4 +1,0 @@
-Attempted preflight: docker build --platform linux/amd64 --target runtime -t doom-review-zlib:amd64-local ./app
-Base manifest resolved: python:3.14.7-alpine3.23@sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d
-Result: build stopped at the first runtime RUN instruction with `/bin/sh: exec format error`.
-The local Docker host is ARM64 and has no registered AMD64 binfmt emulator. No application test or package scan ran on this image. Native AMD64 GitHub CI remains the required cross-architecture verification.

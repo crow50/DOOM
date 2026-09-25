@@ -109,7 +109,7 @@ documented as carefully as the code.
 | [DECISIONS.md](docs/DECISIONS.md) | Why each limit, algorithm and tradeoff is what it is |
 | [PIPELINE-NOTES.md](docs/PIPELINE-NOTES.md) | DevSecOps tooling roadmap |
 | [DEMO.md](docs/DEMO.md) | Run-of-show for presenting it |
-| [COMPLIANCE.md](docs/COMPLIANCE.md) | Exhaustive control ledger: every ASVS 4.0.3 L1/L2 requirement with a status, evidence and its CWE |
+| [security/](docs/security/) | The ASVS 5.0 ledger, the documented policies it requires, the open findings, and how to verify any of it yourself |
 | [INSPIRATION.md](docs/INSPIRATION.md) | What Sortly, Grocy, Homebox, Snipe-IT and real warehouse systems do differently, and what to borrow |
 
 The threat model was written **before** the code, and every control traces
@@ -169,10 +169,9 @@ make lint           # autoescape bypasses, and the docs against the ledger
 make db-shell-app   # connect as the app's restricted role and try DROP TABLE
 ```
 
-The test count is published in exactly one place — [COMPLIANCE.md](docs/COMPLIANCE.md)
-§6 — and `make lint` fails if a second file starts quoting its own. Four files
-used to quote four different numbers, which is how you end up with a figure
-nobody trusts.
+Run `make test` for the count; it is deliberately not written down anywhere,
+because a number in prose has to be kept in sync by hand and the ledger
+already names the test behind each control.
 
 ---
 

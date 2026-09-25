@@ -1,6 +1,6 @@
 """Ownership enforcement, checked across every route rather than asserted.
 
-``docs/COMPLIANCE.md`` used to answer ASVS 4.2.1 with "No IDOR" and point at
+The ledger used to answer object-level authorization with "No IDOR" and point at
 ``get_owned_or_404()``.  A helper existing proves nothing about the routes that
 forget to call it, and an audit said so.  This module replaces the claim with two
 checks that can fail:

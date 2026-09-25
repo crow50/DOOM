@@ -1,4 +1,13 @@
-"""Adversarial tests for evidence accounting and the release gate."""
+"""Adversarial tests for the ledger validator.
+
+Each one breaks something and asserts the validator notices. The tests that
+used to live here checked the bookkeeping this repository no longer keeps -
+that a committed snapshot of GitHub's alert API agreed with a committed
+register derived from it, that a SHA-256 manifest of every source file matched
+the tree, that no file in an evidence directory went uncited. All three
+compared self-attested records against each other, and D-40 records why they
+went with the records.
+"""
 import copy
 import json
 from pathlib import Path
@@ -11,139 +20,192 @@ import security_assessment as assessment
 from export_security_evidence import decode_pages
 
 
-class AssessmentTests(unittest.TestCase):
-    def mutate(self, filename, change):
+class LedgerTests(unittest.TestCase):
+    """Break the ASVS ledger; expect a specific complaint."""
+
+    def mutate(self, filename, change, **kwargs):
         original = assessment.read
+
         def changed(path, root=assessment.ROOT):
             value = original(path, root)
             if Path(path).name == filename:
                 value = copy.deepcopy(value)
                 change(value)
             return value
-        with patch.object(assessment, 'read', side_effect=changed):
-            return assessment.validate()
 
-    def test_repository_evidence_is_consistent(self):
+        with patch.object(assessment, "read", side_effect=changed):
+            return assessment.validate(**kwargs)
+
+    def ledger(self, change, **kwargs):
+        return self.mutate(f"asvs-{assessment.VERSION}.json", change, **kwargs)
+
+    def findings(self, change, **kwargs):
+        return self.mutate("findings.json", change, **kwargs)
+
+    def assertComplains(self, errors, fragment):
+        self.assertTrue(any(fragment in e for e in errors),
+                        f"expected a complaint containing {fragment!r}, got {errors[:4]}")
+
+    # --- the repository as it stands ---------------------------------------
+    def test_the_repository_is_consistent(self):
         self.assertEqual([], assessment.validate())
 
-    def test_an_evidence_file_nobody_cites_is_rejected(self):
-        """An orphan is not harmless: it looks like something rests on it."""
-        orphan = assessment.ROOT / assessment.BASE / 'evidence' / 'orphan-probe.log'
-        orphan.write_text('nothing points at this\n')
-        try:
-            errors = assessment.validate()
-        finally:
-            orphan.unlink()
-        self.assertTrue(
-            any('orphan-probe.log' in e and 'nothing cites' in e for e in errors),
-            errors[:5],
-        )
+    def test_every_mandatory_requirement_has_a_row(self):
+        official = assessment.universe()
+        rows = {r["id"] for r in
+                assessment.read(assessment.BASE / f"asvs-{assessment.VERSION}.json")["requirements"]}
+        mandatory = {rid for rid, row in official.items() if row["level"] <= 2}
+        self.assertEqual(set(), mandatory - rows)
 
-    def test_citing_an_evidence_file_from_prose_is_enough(self):
-        """A document that argues from a file cites it as surely as a row does."""
-        cited = assessment.unreferenced_evidence(
-            {f'{assessment.BASE}/evidence/candidate-sbom.json'}
-        )
-        self.assertNotIn('evidence/candidate-sbom.json', cited)
+    # --- coverage ----------------------------------------------------------
+    def test_a_dropped_requirement_is_rejected(self):
+        self.assertComplains(self.ledger(lambda d: d["requirements"].pop(0)), "missing mandatory")
 
-    def test_a_raw_export_needs_no_citation(self):
-        """The validator reads these itself; nothing argues from them."""
-        self.assertEqual([], [
-            name for name in assessment.RAW_EXPORTS
-            if name in assessment.unreferenced_evidence(set())
-        ])
+    def test_a_duplicated_requirement_is_rejected(self):
+        self.assertComplains(
+            self.ledger(lambda d: d["requirements"].append(d["requirements"][0])),
+            "appears more than once")
 
-    def test_missing_control_is_rejected(self):
-        errors = self.mutate('asvs-5.0.0.json', lambda d: d['requirements'].pop(0))
-        self.assertTrue(any('missing' in e for e in errors))
-
-    def test_duplicate_control_is_rejected(self):
-        errors = self.mutate('asvs-5.0.0.json', lambda d: d['requirements'].append(d['requirements'][0]))
-        self.assertTrue(any('duplicate row' in e for e in errors))
-
-    def test_unsupported_met_evidence_is_rejected(self):
+    def test_an_invented_requirement_is_rejected(self):
         def change(d):
-            d['requirements'][0].update(status='Met', evidence=['missing-evidence'])
-        self.assertTrue(any('missing/unsafe evidence' in e for e in self.mutate('asvs-5.0.0.json', change)))
+            d["requirements"][0]["id"] = "v5.0.0-99.99.99"
+        self.assertComplains(self.ledger(change), "not a requirement in ASVS")
 
-    def test_omitted_alert_is_rejected(self):
-        errors = self.mutate('alerts.json', lambda d: d['alerts'].pop())
-        self.assertIn('alert export/register mismatch', errors)
+    def test_reworded_requirement_text_is_rejected(self):
+        """The row has to quote the standard, not paraphrase it."""
+        def change(d):
+            d["requirements"][0]["requirement"] += " (and also whatever we happened to build)"
+        self.assertComplains(self.ledger(change), "verbatim")
 
-    def test_exception_cannot_be_invented(self):
-        errors = self.mutate('alerts.json', lambda d: d['alerts'][0].update(exception='not-approved'))
-        self.assertTrue(any('invalid exception' in e for e in errors))
+    def test_a_row_moved_to_a_easier_level_is_rejected(self):
+        def change(d):
+            row = next(r for r in d["requirements"] if r["level"] == 2)
+            row["level"] = 3
+        self.assertComplains(self.ledger(change), "wrong level")
 
-    def test_unreviewed_release_fails(self):
-        self.assertTrue(assessment.validate(release=True))
+    # --- a status has to be supported --------------------------------------
+    def test_met_without_evidence_that_exists_is_rejected(self):
+        def change(d):
+            d["requirements"][0].update(status="Met", evidence=["app/doom/imaginary.py"])
+        self.assertComplains(self.ledger(change), "evidence does not exist")
 
-    def test_release_requires_all_checks_and_all_sources(self):
-        original = assessment.read
-        def changed(path, root=assessment.ROOT):
-            value = original(path, root)
-            if Path(path).name == 'verification.json':
-                value['checks'] = []
-                value['source_hashes'] = {}
-            return value
-        with patch.object(assessment, 'read', side_effect=changed):
-            errors = assessment.validate(release=True)
-        self.assertIn('missing required verification checks', errors)
-        self.assertIn('candidate source hashes absent', errors)
+    def test_a_status_without_a_rationale_is_rejected(self):
+        def change(d):
+            d["requirements"][0]["rationale"] = ""
+        self.assertComplains(self.ledger(change), "assertion")
 
-    def test_publication_requires_reviewed_registry_artifact(self):
-        errors = assessment.validate(publish=True)
-        self.assertIn('publication requires an immutable reviewed registry reference', errors)
+    def test_an_evidence_line_past_the_end_of_the_file_is_rejected(self):
+        def change(d):
+            d["requirements"][0].update(status="Met", evidence=["app/doom/config.py:99999"])
+        self.assertComplains(self.ledger(change), "line out of range")
 
-    def test_compose_is_bound_to_candidate_evidence(self):
-        self.assertIn('docker-compose.yml', assessment.source_hashes())
+    def test_evidence_outside_the_repository_is_rejected(self):
+        def change(d):
+            d["requirements"][0].update(status="Met", evidence=["../../etc/passwd"])
+        self.assertComplains(self.ledger(change), "evidence does not exist")
 
-    def test_grouped_candidate_hashes_still_verify(self):
-        verification = assessment.read('docs/security/verification.json')
-        hashes = assessment.source_hashes()
-        for path, digest in verification['source_hashes'].items():
-            self.assertIsInstance(digest, list, path)
-            self.assertEqual(32, len(digest), path)
-            self.assertTrue(all(type(byte) is int and 0 <= byte <= 255 for byte in digest), path)
-            self.assertEqual(hashes[path], bytes(digest).hex(), path)
+    def test_a_level_three_row_needs_its_threat_stated(self):
+        def change(d):
+            row = next(r for r in d["requirements"] if r["level"] == 3)
+            row["selection_reason"] = ""
+        self.assertComplains(self.ledger(change), "Level 3")
 
-    def test_source_scan_cannot_be_deferred_as_future_hosting(self):
-        original = assessment.read
-        def changed(path, root=assessment.ROOT):
-            value = original(path, root)
-            if Path(path).name == 'verification.json':
-                for check in value['checks']:
-                    if check['name'] == 'semgrep':
-                        check['scope'] = 'non-local'
-            return value
-        with patch.object(assessment, 'read', side_effect=changed):
-            errors = assessment.validate(release=True)
-        self.assertIn('semgrep: mandatory check cannot be deferred to non-local hosting', errors)
+    # --- a gap has to be owned ---------------------------------------------
+    def test_a_gap_with_no_finding_is_rejected(self):
+        def change(d):
+            d["requirements"][0].update(status="Not met", finding_ids=[])
+        self.assertComplains(self.ledger(change), "nobody owns")
 
-    def test_new_exported_alert_requires_reconciliation(self):
-        original = assessment.read
-        def changed(path, root=assessment.ROOT):
-            value = original(path, root)
-            if Path(path).parent.name == 'updated-main' and Path(path).name == 'code-scanning-pages.json':
-                value.append([{'number': 999999}])
-            return value
-        with patch.object(assessment, 'read', side_effect=changed):
-            errors = assessment.validate()
-        self.assertIn('code-scanning: refreshed alerts missing from register', errors)
+    def test_a_gap_pointing_at_a_nonexistent_finding_is_rejected(self):
+        def change(d):
+            d["requirements"][0].update(status="Not met", finding_ids=["CONTROL-nope"])
+        self.assertComplains(self.ledger(change), "does not exist")
 
-    def test_textual_asvs_levels_are_required(self):
-        reqs = assessment.universe('4.0.3')
-        self.assertEqual(2, reqs['v4.0.3-2.10.1']['level'])
-        self.assertEqual(1, reqs['v4.0.3-3.3.2']['level'])
-        self.assertEqual(3, reqs['v4.0.3-2.8.7']['level'])
+    def test_a_gap_whose_finding_is_closed_is_rejected(self):
+        """Closing the finding without closing the row is how a gap disappears."""
+        def change(d):
+            row = next(r for r in d["requirements"] if r["status"] == "Not met")
+            row["finding_ids"] = ["REV-001"]
+        self.assertComplains(self.ledger(change), "is closed")
 
-    def test_paginated_json_keeps_every_page(self):
-        self.assertEqual([[{'number': 1}], [{'number': 2}], []],
-                         decode_pages('[{"number":1}]\n[{"number":2}]\n[]'))
-        with self.assertRaises(ValueError):
-            decode_pages('{"message":"forbidden"}')
-        with self.assertRaises(ValueError):
-            decode_pages('')
+    def test_risk_acceptance_cannot_be_written_into_a_status(self):
+        def change(d):
+            d["requirements"][0]["exception"] = "we decided it was fine"
+        self.assertComplains(self.ledger(change), "belongs in the finding register")
+
+    def test_stale_totals_are_rejected(self):
+        def change(d):
+            d["totals"]["Met"] += 1
+        self.assertComplains(self.ledger(change), "totals")
+
+    # --- findings ----------------------------------------------------------
+    def test_a_finding_without_a_residual_risk_is_rejected(self):
+        def change(f):
+            f[0]["residual_risk"] = "probably fine"
+        self.assertComplains(self.findings(change), "invalid residual risk")
+
+    def test_a_closed_finding_carrying_risk_is_rejected(self):
+        def change(f):
+            closed = next(x for x in f if x["status"] == "closed")
+            closed["residual_risk"] = "medium"
+        self.assertComplains(self.findings(change), "still carries residual risk")
+
+    def test_a_finding_missing_its_remediation_is_rejected(self):
+        def change(f):
+            f[0]["remediation"] = ""
+        self.assertComplains(self.findings(change), "missing remediation")
+
+    def test_duplicate_finding_ids_are_rejected(self):
+        self.assertComplains(self.findings(lambda f: f.append(f[0])), "duplicate finding id")
+
+    # --- the release gate ---------------------------------------------------
+    def test_release_refuses_an_unassessed_requirement(self):
+        def change(d):
+            d["requirements"][0]["status"] = "Not assessed"
+        self.assertComplains(self.ledger(change, release=True), "never assessed")
+
+    def test_release_refuses_an_open_risk_nobody_accepted(self):
+        """This is the state the repository is in, and it should stay refused."""
+        self.assertComplains(assessment.validate(release=True), "nobody has accepted")
+
+    def test_release_refuses_an_open_high_risk(self):
+        def change(f):
+            f[0]["residual_risk"] = "high"
+        self.assertComplains(self.findings(change, release=True), "high residual risk")
+
+    def test_publication_requires_a_reviewed_immutable_artifact(self):
+        self.assertComplains(assessment.validate(publish=True), "immutable, reviewed")
+
+    def test_publication_refuses_a_mutable_tag(self):
+        def change(c):
+            c["registry_ref"] = "ghcr.io/crow50/doom-organizer:latest"
+            c["image_id"] = "sha256:" + "a" * 64
+        errors = self.mutate("release-candidate.json", change, publish=True)
+        self.assertComplains(errors, "immutable, reviewed")
+
+    # --- the vendored standard ---------------------------------------------
+    def test_a_modified_standard_is_rejected(self):
+        def change(entries):
+            entries[0]["sha256"] = "0" * 64
+        self.assertComplains(self.mutate("standards.json", change), "has changed")
+
+    def test_the_standard_and_its_licence_must_both_be_recorded(self):
+        def change(entries):
+            del entries[0]
+        self.assertComplains(self.mutate("standards.json", change), "must record")
+
+    def test_textual_asvs_levels_are_parsed_as_integers(self):
+        official = assessment.universe()
+        self.assertTrue(all(row["level"] in (1, 2, 3) for row in official.values()))
+        self.assertGreater(len([r for r in official.values() if r["level"] <= 2]), 250)
 
 
-if __name__ == '__main__':
+class PaginationTests(unittest.TestCase):
+    def test_every_page_of_a_concatenated_export_is_kept(self):
+        """A GitHub export arrives as concatenated JSON documents, not one array."""
+        pages = decode_pages('[{"number": 1}]\n[{"number": 2}]\n')
+        self.assertEqual([[{"number": 1}], [{"number": 2}]], pages)
+
+
+if __name__ == "__main__":
     unittest.main()
