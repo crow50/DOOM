@@ -14,7 +14,11 @@ COMPOSE := docker compose
 # Migrations run as the schema OWNER, never as the application role.
 # doom_app holds DML only and cannot ALTER TABLE or CREATE EXTENSION, so
 # pointing alembic at the app DSN would fail by design (T-35).
-ADMIN_DSN := postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/$(POSTGRES_DB)
+#
+# sslmode=verify-full: this DSN crosses the network inside a `web` one-off
+# container (db/init/00-hba.sh refuses that hop over anything else), which
+# already has the internal CA mounted for config.py's own DSNs.
+ADMIN_DSN := postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/$(POSTGRES_DB)?sslmode=verify-full&sslrootcert=/run/secrets/doom_internal_ca_cert
 
 BACKUP_DIR := backups
 STAMP      := $(shell date +%Y%m%d-%H%M%S)
@@ -84,7 +88,43 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	 printf '%s' "$$REDIS_PASSWORD"    > secrets/redis_password; \
 	 { echo "requirepass $$REDIS_PASSWORD"; \
 	   echo "save \"\""; \
-	   echo "appendonly no"; } > secrets/redis.conf
+	   echo "appendonly no"; \
+	   echo "port 0"; \
+	   echo "tls-port 6379"; \
+	   echo "tls-cert-file /run/secrets/doom_cache_tls_cert"; \
+	   echo "tls-key-file /run/secrets/doom_cache_tls_key"; \
+	   echo "tls-auth-clients no"; \
+	   echo "tls-protocols \"TLSv1.2 TLSv1.3\""; \
+	 } > secrets/redis.conf
+	@# --- internal TLS: a private CA for caddy->web, web->db, web->cache -----
+	@# (ASVS 5.0.0-12.3.1, 12.3.3, 12.3.4). One CA; three leaf certs, one per
+	@# hostname a client on the internal network actually dials. Idempotent
+	@# like the secrets above - an existing CA and its issued certs are left
+	@# alone, so re-running `make init` does not invalidate certificates
+	@# already trusted by a running stack.
+	@test -f secrets/internal_ca.key || { \
+		openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+			-keyout secrets/internal_ca.key -out secrets/internal_ca.crt \
+			-subj "/CN=DOOM internal CA" \
+			-addext "basicConstraints=critical,CA:true" \
+			-addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null; \
+		echo "  generated secrets/internal_ca.{key,crt} (10-year validity)"; \
+	}
+	@for svc in db cache web; do \
+		test -f secrets/$${svc}_tls.key || { \
+			tmp=$$(mktemp -d); \
+			openssl req -newkey rsa:2048 -sha256 -nodes \
+				-keyout secrets/$${svc}_tls.key -out $$tmp/$${svc}.csr \
+				-subj "/CN=$${svc}" 2>/dev/null; \
+			printf 'subjectAltName=DNS:%s\n' "$${svc}" > $$tmp/$${svc}.ext; \
+			openssl x509 -req -in $$tmp/$${svc}.csr -CA secrets/internal_ca.crt \
+				-CAkey secrets/internal_ca.key -CAcreateserial -days 825 -sha256 \
+				-extfile $$tmp/$${svc}.ext -out secrets/$${svc}_tls.crt 2>/dev/null; \
+			rm -rf "$$tmp"; \
+			echo "  generated secrets/$${svc}_tls.{key,crt} (signed for CN=$${svc})"; \
+		}; \
+	done
+	@rm -f secrets/internal_ca.srl
 	@# Mode 0444, not 0400.
 	@#
 	@# Compose bind-mounts file-based secrets with their host permissions, and
@@ -134,9 +174,10 @@ migrate: ## Generate a migration from model changes (M="message")
 	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
 	before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
 	docker run --name doom-mig --network doom_internal --user root \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/run/secrets/doom_internal_ca_cert:ro" \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e REDIS_URL="rediss://:$(REDIS_PASSWORD)@cache:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs=/run/secrets/doom_internal_ca_cert" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "$(or $(M),auto)"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
@@ -184,9 +225,10 @@ baseline: ## Regenerate the one baseline migration from models (DESTROYS the dat
 	@set -e; \
 	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
 	docker run --name doom-mig --network doom_internal --user root \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/run/secrets/doom_internal_ca_cert:ro" \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e REDIS_URL="rediss://:$(REDIS_PASSWORD)@cache:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs=/run/secrets/doom_internal_ca_cert" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "baseline schema"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
@@ -300,6 +342,21 @@ verify-secrets: ## Prove no secret value is in any process environment or in doc
 		echo "FAIL: a DSN or raw secret variable is set in PID 1's environment"; exit 1; fi; \
 	echo "  ok: only *_FILE paths reach the process; the DSNs are assembled in-process"; \
 	echo "  clean: secrets are files, and stay files"
+
+.PHONY: verify-internal-tls
+verify-internal-tls: ## Prove db, cache and caddy->web require TLS, verified against our CA
+	@$(COMPOSE) exec -T web python3 - < tools/verify_internal_tls.py
+	@echo "checking caddy -> web (ASVS 5.0.0-12.3.3)..."
+	@docker run --rm --network doom_proxy curlimages/curl \
+		-sS --max-time 3 http://web:8000/healthz >/dev/null 2>&1 \
+		&& { echo "FAIL: web accepted a plaintext connection"; exit 1; } \
+		|| echo "  ok: web refuses a plaintext connection"
+	@docker run --rm --network doom_proxy \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/ca.crt:ro" curlimages/curl \
+		-fsS --max-time 3 --cacert /ca.crt https://web:8000/healthz >/dev/null \
+		&& echo "  ok: web serves a certificate verify-full trusts" \
+		|| { echo "FAIL: caddy's view of web's certificate did not verify against the internal CA"; exit 1; }
+	@echo "clean: every internal hop requires TLS, verified against the CA make init generated"
 
 .PHONY: shell
 shell: ## Shell inside the web container

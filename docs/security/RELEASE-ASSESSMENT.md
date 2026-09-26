@@ -54,23 +54,24 @@ ledger row it closes, with the test that fails if it regresses.
 
 ## What is open
 
-Fifteen findings, none accepted. The three Not met rows are the ones to look
-at first: no TLS between internal services and therefore no internal trust
-decisions to evaluate (`CONTROL-12.3.4`), backend authentication on static
-passwords rather than certificates or short-lived credentials
-(`CONTROL-13.2.1`), and no off-host log shipping or alerting
-(`CONTROL-16.4.3`). Antivirus scanning of uploads, previously the fourth,
-closed as `Met` - see `docs/security/POLICIES.md` §10.
+Twelve findings, none accepted. The two Not met rows are the ones to look at
+first: backend authentication on static passwords rather than certificates or
+short-lived credentials (`CONTROL-13.2.1`), and no off-host log shipping or
+alerting (`CONTROL-16.4.3`). Antivirus scanning of uploads and all three
+internal TLS hops (`CONTROL-12.3.1`, `12.3.3`, `12.3.4`), previously also Not
+met, closed as `Met` - see `docs/security/POLICIES.md` §§9-10 and
+`make verify-internal-tls`.
 
-Of the fifteen, six are deployment or operator obligations that no code in this
-repository can discharge — the publicly trusted certificate, internal TLS and
-its trust configuration, a secrets manager, host time synchronisation, host log
-protection, and off-host shipping. The rest have a shape: certificate-based
-backend authentication, and pinning validated addresses in the barcode lookup
-transport, where DNS rebinding remains open because validation and connection
-resolve the name separately. Keep `BARCODE_LOOKUP_PROVIDER` unset until that is
-closed; the container having no egress route is what currently makes it
-unreachable rather than merely unexploited.
+Of the twelve, five are deployment or operator obligations that no code in
+this repository can discharge — the publicly trusted certificate, a secrets
+manager, host time synchronisation, host log protection, and off-host
+shipping. The rest have a shape: certificate-based backend authentication
+(now that internal TLS exists to present a certificate on - `CONTROL-13.2.1`
+names this dependency directly), and pinning validated addresses in the
+barcode lookup transport, where DNS rebinding remains open because validation
+and connection resolve the name separately. Keep `BARCODE_LOOKUP_PROVIDER`
+unset until that is closed; the container having no egress route is what
+currently makes it unreachable rather than merely unexploited.
 
 ## How the ledger counts
 

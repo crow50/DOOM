@@ -151,8 +151,16 @@ EXPOSE 8000
 # no home and the filesystem is read-only, so every boot logged
 # "[ERROR] Control server error: Read-only file system: '/home/doom'" - an
 # unneeded interface being attempted rather than removed (ASVS 14.2.2).
+#
+# --certfile/--keyfile: gunicorn terminates TLS itself rather than accepting
+# plaintext and trusting the network boundary (ASVS 5.0.0-12.3.1, 12.3.3).
+# Unlike db, gunicorn's TLS stack does not check who owns the key file, only
+# that it can read it - the same host-owned, world-readable secret mount
+# every other file here uses works without db/entrypoint.sh's extra step.
 CMD ["sh", "-c", "exec gunicorn \
       --bind 0.0.0.0:8000 \
+      --certfile /run/secrets/doom_web_tls_cert \
+      --keyfile /run/secrets/doom_web_tls_key \
       --workers ${GUNICORN_WORKERS:-2} \
       --threads ${GUNICORN_THREADS:-4} \
       --worker-tmp-dir /tmp \

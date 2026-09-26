@@ -59,10 +59,11 @@ identify the containers. **Never point it at an operator's stack.**
 Against a running stack:
 
 ```sh
-make verify-db-roles   # the app role cannot ALTER, DROP, or rewrite audit_log
-make verify-secrets    # no secret value in any process environment or docker inspect
-make verify-cert       # the certificate being served is the one you think it is
-make audit-verify      # walk the audit hash chain and print its head
+make verify-db-roles     # the app role cannot ALTER, DROP, or rewrite audit_log
+make verify-secrets      # no secret value in any process environment or docker inspect
+make verify-cert         # the certificate being served is the one you think it is
+make verify-internal-tls # db, cache and caddy->web require TLS and reject a foreign CA
+make audit-verify        # walk the audit hash chain and print its head
 ```
 
 ## Scanning the images

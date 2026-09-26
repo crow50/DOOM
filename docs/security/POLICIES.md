@@ -284,9 +284,9 @@ applicable.
 |---|---|---|---|---|
 | Browser | Caddy | HTTPS | — | every request |
 | An operator's own reverse proxy | Caddy | HTTPS | — | only in the topology where something else terminates public TLS |
-| Caddy | `web:8000` | HTTP over an internal-only Docker network | — | every request |
-| `web` | `db:5432` | PostgreSQL | restricted role + file-mounted password | every request |
-| `web` | `cache:6379` | Redis | file-mounted password | rate-limit checks |
+| Caddy | `web:8000` | HTTPS, verify-full against the internal CA, over an internal-only Docker network | TLS certificate (CN=web) | every request |
+| `web` | `db:5432` | PostgreSQL, TLS required (`hostssl`), verify-full | restricted role + file-mounted password + TLS certificate (CN=db) | every request |
+| `web` | `cache:6379` | Redis, TLS-only (`port 0`), verify-full | file-mounted password + TLS certificate (CN=cache) | rate-limit checks |
 | `web` | a barcode provider | HTTPS | none (public API) | **only** when `BARCODE_LOOKUP_PROVIDER` is set |
 | Caddy | an ACME directory | HTTPS | ACME account key | **only** when `DOOM_DOMAIN` is a public name |
 | `clamav` | database.clamav.net | HTTPS | ClamAV's own CVD signature verification | signature updates, periodic |
@@ -509,7 +509,7 @@ and the reason this section is short.
 | Share handles | 128-bit random (`token_urlsafe(16)`) | naming an entry in one visitor's signed session | confers nothing on its own |
 | Attachment digests | SHA-256 | content addressing, per-owner deduplication | not an integrity guarantee against an attacker with database write access |
 | Audit row hashes | SHA-256 chain | tamper *evidence* | not proof — the application's own role cannot rewrite history, which is evidence of tampering rather than prevention of it |
-| TLS certificates | Caddy-managed by default — internal CA locally, ACME for a public name — or a certificate the operator mounts and names with `tls` | transport to the browser | not used for internal service authentication, which is unencrypted — see `v5.0.0-12.3.1` |
+| TLS certificates | Caddy-managed by default — internal CA locally, ACME for a public name — or a certificate the operator mounts and names with `tls` | transport to the browser | a second, separate internal CA (`make init`) signs db/cache/web's certificates for caddy->web, web->db and web->cache — see `v5.0.0-12.3.1`, `12.3.3` |
 
 All of it comes from `hashlib`, `hmac`, `secrets` and `argon2-cffi`, which is
 to say from OpenSSL and from the Argon2 reference implementation. Nothing

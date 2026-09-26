@@ -102,46 +102,48 @@
     "id": "CONTROL-12.3.1",
     "requirement": "v5.0.0-12.3.1",
     "level": 2,
-    "status": "open",
-    "residual_risk": "medium",
-    "rationale": "Not met literally. Caddy reaches the application over plaintext HTTP, and the application reaches PostgreSQL and Redis over plaintext, on Docker networks that carry nothing else. What has changed since this was assessed is the boundary rather than the encryption: those networks are now all internal, the application container has no route off the host at all, and the only process that touches the outside is Caddy, which terminates TLS. So the plaintext exists inside a boundary that is narrower than it was, and there is no inbound or outbound connection crossing the host unencrypted. That is a mitigation, not the control - an attacker with the Docker host, or a second workload on it, reads this traffic. Recorded as a finding; no exception is approved.",
-    "exploitability": "Requires an attacker to be on the Docker host or in another workload on it - which is to say, to have already crossed a boundary that would give them the database credentials by other means. The traffic never leaves the host: all three internal networks are internal-only, the application container has no egress route, and the only published ports belong to Caddy, which terminates TLS. The exposure is real and the mitigation is containment, not encryption.",
-    "remediation": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
-    "verification": "Issue internal certificates and enable TLS on the Postgres and Redis listeners with the client configured to verify them; put the application behind TLS from Caddy. Until then, confirm no service other than caddy is on the edge network and no port other than Caddy's is published.",
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "caddy->web, web->db and web->cache all run TLS now, each refusing the plaintext alternative outright rather than merely offering encryption (db/init/00-hba.sh's hostssl rule, cache/redis.conf's port 0, gunicorn's own --certfile/--keyfile). See v5.0.0-12.3.1 for the full account.",
+    "exploitability": "Closed: an attacker with a foothold on the Docker host still cannot read this traffic without also defeating verify-full certificate validation, which requires the internal CA's private key.",
+    "remediation": "Implemented: docker-compose.yml, app/doom/config.py, app/Dockerfile, db/entrypoint.sh, db/init/00-hba.sh, caddy/Caddyfile, Makefile's `init` and `verify-internal-tls` targets.",
+    "verification": "make verify-internal-tls, against a live stack.",
     "evidence": [
       "docker-compose.yml",
-      "docs/security/POLICIES.md"
+      "app/doom/config.py",
+      "tools/verify_internal_tls.py"
     ]
   },
   {
     "id": "CONTROL-12.3.3",
     "requirement": "v5.0.0-12.3.3",
     "level": 2,
-    "status": "open",
-    "residual_risk": "medium",
-    "rationale": "Same subject as 12.3.1 and the same disposition: the reverse proxy reaches web:8000 over plaintext HTTP. The compensating position is the network boundary - that hop is on an internal-only Docker network shared by exactly two containers, no port is published for it, and the application has no route off the host - and the honest statement is that this is containment rather than transport encryption.",
-    "exploitability": "Same position as 12.3.1 and narrower: one hop between two containers on an internal-only network that publishes nothing. An attacker able to observe it is already inside the host.",
-    "remediation": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
-    "verification": "Terminate TLS again between Caddy and the application with a certificate Caddy is configured to trust specifically. Until then, confirm the proxy network carries only those two services and publishes nothing.",
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Caddy's reverse_proxy now dials https://web:8000 with a transport http block pinned to the internal CA. See v5.0.0-12.3.3.",
+    "exploitability": "Closed: see v5.0.0-12.3.3.",
+    "remediation": "Implemented: caddy/Caddyfile, app/Dockerfile.",
+    "verification": "make verify-internal-tls, against a live stack.",
     "evidence": [
-      "docker-compose.yml",
       "caddy/Caddyfile",
-      "docs/security/POLICIES.md"
+      "app/Dockerfile",
+      "tools/verify_internal_tls.py"
     ]
   },
   {
     "id": "CONTROL-12.3.4",
     "requirement": "v5.0.0-12.3.4",
     "level": 2,
-    "status": "open",
-    "residual_risk": "low",
-    "rationale": "There is no internal TLS, so there are no internal certificates to trust specifically - and the absence of the transport is exactly why this cannot be Compensating: a trust decision cannot be evaluated where no trust decision is made. It is recorded separately from 12.3.1 and 12.3.3 rather than folded into them, because closing those by issuing certificates would leave this one open unless each consuming service is also configured to trust one specific internal CA rather than any certificate presented.",
-    "exploitability": "No exposure of its own today, because there is no internal TLS whose trust could be misplaced. It is recorded separately so that closing 12.3.1 and 12.3.3 by issuing certificates cannot silently leave consumers trusting any certificate presented, which is the failure this requirement exists to prevent.",
-    "remediation": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
-    "verification": "When internal TLS is introduced, pin each consumer to a named internal CA and a specific certificate, and add a test that a certificate from any other issuer is refused.",
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "Every consumer is pinned to the one internal CA make init generates - sslrootcert/ssl_ca_certs in app/doom/config.py's DSNs, tls_trust_pool in the Caddyfile - none of them accept an arbitrary presented certificate. See v5.0.0-12.3.4.",
+    "exploitability": "Closed: see v5.0.0-12.3.4.",
+    "remediation": "Implemented: app/doom/config.py, caddy/Caddyfile, Makefile.",
+    "verification": "make verify-internal-tls, against a live stack.",
     "evidence": [
-      "docker-compose.yml",
-      "docs/security/POLICIES.md"
+      "app/doom/config.py",
+      "caddy/Caddyfile",
+      "tools/verify_internal_tls.py"
     ]
   },
   {
@@ -152,8 +154,8 @@
     "residual_risk": "medium",
     "rationale": "Backend authentication uses static, file-mounted passwords for PostgreSQL and Redis. They are strong, generated by make init, held in mode-0400 files rather than the environment, and the database role is restricted - none of which is what this requirement asks for. It asks for individual service accounts with short-term tokens or certificate-based authentication, and unchanging credentials are named as the thing not to use. Recorded as Not met rather than compensated, because the mitigations here reduce exposure of the credential without changing its nature.",
     "exploitability": "A static credential does not expire, so a copy taken once stays useful until an operator rotates it. Reaching it requires the host: the files are mode 0400, mounted read-only, read once at startup and absent from every process environment, which make verify-secrets checks rather than assumes. The database role the credential opens is the restricted one, which cannot ALTER, DROP, or rewrite audit_log.",
-    "remediation": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
-    "verification": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. This depends on 12.3.1 being closed first: certificate authentication needs a TLS channel to present a certificate on.",
+    "remediation": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. 12.3.1 is now closed - db already presents and verifies TLS certificates (db/entrypoint.sh, db/init/00-hba.sh) - so the channel this needs to present a client certificate on now exists; what remains is issuing and checking one.",
+    "verification": "Move to certificate-based authentication for the database, or to short-lived credentials issued by a secrets manager, and verify that a captured credential expires. 12.3.1 is now closed - db already presents and verifies TLS certificates (db/entrypoint.sh, db/init/00-hba.sh) - so the channel this needs to present a client certificate on now exists; what remains is issuing and checking one.",
     "evidence": [
       "docker-compose.yml",
       "app/doom/config.py",

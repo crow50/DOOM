@@ -163,7 +163,24 @@ http://{$DOOM_DOMAIN:localhost} {
 	# import, so empty is not an error. See caddy/conf.d/README.md.
 	import /etc/caddy/conf.d/site/*.caddy
 
-	reverse_proxy web:8000 {
+	reverse_proxy https://web:8000 {
+		# gunicorn terminates TLS itself (app/Dockerfile's --certfile/--keyfile)
+		# rather than being trusted on the strength of the internal network
+		# alone (ASVS 5.0.0-12.3.3). tls_server_name matters here as much as
+		# tls_trust_pool does: without it Caddy still requires a valid chain
+		# but checks it against the address in the reverse_proxy line rather
+		# than the name on the certificate, which happens to be the same
+		# string today only because the upstream and the SAN are both "web" -
+		# tls_server_name is what makes that a stated check rather than a
+		# coincidence.
+		transport http {
+			tls
+			tls_trust_pool file {
+				pem_file /run/secrets/doom_internal_ca_cert
+			}
+			tls_server_name web
+		}
+
 		# OVERWRITE, never append (T-07).
 		#
 		# Caddy's default is to append to any inbound X-Forwarded-For.  That

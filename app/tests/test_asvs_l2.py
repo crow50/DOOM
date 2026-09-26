@@ -186,7 +186,10 @@ class TestDsnsAreAssembledInProcess:
         monkeypatch.setenv("POSTGRES_DB", "doom")
         monkeypatch.setenv("APP_DB_PASSWORD_FILE", str(secret))
 
-        assert _database_url() == f"postgresql+psycopg://doom_app:{'f' * 64}@db:5432/doom"
+        assert _database_url() == (
+            f"postgresql+psycopg://doom_app:{'f' * 64}@db:5432/doom"
+            "?sslmode=verify-full&sslrootcert=/run/secrets/doom_internal_ca_cert"
+        )
 
     def test_password_is_url_quoted(self, tmp_path, monkeypatch):
         """A password is data, not URL structure - it cannot add a host or a query."""
@@ -234,4 +237,8 @@ class TestDsnsAreAssembledInProcess:
         monkeypatch.delenv("REDIS_URL", raising=False)
         monkeypatch.setenv("REDIS_PASSWORD_FILE", str(secret))
 
-        assert _redis_url() == f"redis://:{'e' * 64}@cache:6379/0"
+        assert _redis_url() == (
+            f"rediss://:{'e' * 64}@cache:6379/0"
+            "?ssl_cert_reqs=required&ssl_check_hostname=true"
+            "&ssl_ca_certs=/run/secrets/doom_internal_ca_cert"
+        )

@@ -11,7 +11,7 @@ queue, not acceptance on behalf of an owner.
 | P1 | Lookup transport | Application maintainer | Pin actual socket destination to validated public addresses, preserve hostname verification/SNI, refuse redirect/private/IPv6 special addresses and environment proxy bypass; test DNS rebinding and streaming resource limits |
 | P1 | Build/scan/release evidence | CI maintainer | Unfixed/unknown findings remain visible, scan failures/skips never imply clean, fresh candidate source analysis and image scans are retained; publishing promotes the exact verified image |
 | P2 | Account/session gaps | Product and security owners | Specify MFA and recovery, context password screening and session inactivity/concurrency policy from applicable v4/v5 requirements; define misuse tests before choosing APIs/schema |
-| P2 | Deployment gaps | Operator | Produce certificate, storage/backup encryption, restore, clock, centralized log, key rotation and internal TLS evidence; test with restricted DB role and through proxy |
+| P2 | Deployment gaps | Operator | Produce certificate, storage/backup encryption, restore, clock, centralized log and key rotation evidence; test with restricted DB role and through proxy |
 | P2 | ASVS full reassessment | Security reviewer | Complete each Not assessed row independently against full text; recheck historical N/A and mapped/split v5 requirements; met evidence must address every clause |
 
 Lower residual risks need an explicit named owner, approval evidence, expiry and
