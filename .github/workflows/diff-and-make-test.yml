@@ -57,6 +57,13 @@ jobs:
       - run: make build
       - run: make init
 
+      # CI always starts from a clean checkout, so nothing here had ever run
+      # init against secrets/ that a prior run already wrote and chmod 444 -
+      # exactly what upgrading a real deployment to internal TLS requires, to
+      # get the new CA and certs. That second run crashed every redirect in
+      # the secret-writing block with "Permission denied".
+      - run: make init
+
       # Anonymous Docker Hub pulls from GitHub-hosted runners are rate-limited
       # and occasionally reset mid-handshake. That is exactly how this job last
       # failed - "connection reset by peer" fetching the postgres manifest,

@@ -189,6 +189,12 @@ Once: `docker compose rm -sf caddy && docker volume rm doom_caddy_data
 doom_caddy_config`, then `make up`. A new internal CA is generated, so
 re-run `make trust-cert` on any phone that trusted the old one.
 
+**Upgrading from a version without internal TLS.** `make up` and `make
+upgrade` now bind-mount an internal CA and per-service certificates that an
+existing deployment's `secrets/` does not have yet. Run `make init` again
+first - it leaves your existing `.env` and passwords alone and only adds the
+CA and certs that are missing - then `make up && make upgrade` as usual.
+
 **A real domain.** Point `DOOM_DOMAIN` at it and add `email you@example.com`
 to `caddy/Caddyfile`; Caddy handles Let's Encrypt from there.
 

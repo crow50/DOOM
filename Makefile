@@ -81,6 +81,11 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@# .env keeps only non-secret settings plus the values the admin tooling
 	@# needs; the running application reads /run/secrets/* instead.
 	@mkdir -p secrets && chmod 700 secrets
+	@# Existing files are 0444 from a prior run (see the chmod below). Without
+	@# this, re-running init on a deployment that already has secrets - which
+	@# upgrading to internal TLS requires, to get the new CA and certs below -
+	@# fails every redirect in the next block with "Permission denied".
+	@chmod -f u+w secrets/* 2>/dev/null || true
 	@set -a; . ./.env; set +a; \
 	 printf '%s' "$$SECRET_KEY"        > secrets/secret_key; \
 	 printf '%s' "$$POSTGRES_PASSWORD" > secrets/postgres_password; \
