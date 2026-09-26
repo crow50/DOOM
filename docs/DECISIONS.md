@@ -1433,3 +1433,67 @@ that adds a test also edits a document; closing out ASVS Level 1 and 2 paid that
 tax eight times in one sitting. `make test` prints the count, and the ledger
 names the test behind each control, which is the link that was ever worth
 checking.
+
+---
+
+## D-41 — Seven ASVS 4.0.3 issues, closed against the official migration mapping
+
+Filed against the retired `COMPLIANCE.md` (D-40), seven open issues cited
+ASVS 4.0.3 clauses by number: 2.2.3, 2.5.5, 2.4.5, 6.4.2, 11.1.8, 14.2.6, 8.3.6.
+None has a row in `asvs-5.0.0.json`, and a first pass concluded all seven were
+simply dropped in 5.0.0 — the `migration` field this ledger already records for
+every carried-forward requirement (`MOVED FROM`, `SPLIT FROM`, `MERGED FROM`,
+`COVERS`) has no entry for any of the seven. That conclusion was reached from
+absence of evidence in our *own* file, which is the same mistake D-36 already
+made once: reasoning about the standard from memory — or here, from an
+internally-built index of it — instead of the standard itself.
+
+OWASP publishes the actual mapping, machine-readable, at
+`github.com/OWASP/ASVS` → `5.0/mappings/mapping_v4.0.3_to_v5.0.0.yml`. Fetched
+and checked directly (`gh api repos/OWASP/ASVS/contents/...` against `master`),
+it gives a different, more precise answer for four of the seven: they were not
+deleted, they moved, and this ledger's own migration tags were just never
+backfilled for the ones whose destination fell outside L1/L2 and so never
+needed a row here.
+
+**Deleted outright — no ASVS 5.0.0 successor at any level:**
+
+| 4.0.3 | Issue | Official disposition |
+|---|---|---|
+| 11.1.8 (configurable alerting on automated attacks) | #14 | `DELETED, NOT IN SCOPE` |
+| 2.4.5 (pepper / secret-salt iteration) | #16 | `DELETED, INCORRECT` |
+| 8.3.6 (overwrite sensitive data in memory) | #19 | `DELETED, NOT PRACTICAL` |
+
+8.3.6 was deleted for the same reason the issue itself gave: "CPython strings
+cannot be reliably zeroed." OWASP's working group evidently agreed that asking
+for this at L1/L2, in general, was the wrong requirement.
+
+**Moved to Level 3 — out of this ledger's scope, not out of the standard:**
+
+| 4.0.3 | Issue | Official disposition | New ID(s) | Level |
+|---|---|---|---|---|
+| 2.2.3 (notify on auth-detail change) | #9 | `MODIFIED, MOVED TO 6.3.7, SPLIT TO 6.3.5` | 6.3.5, 6.3.7 | 3 |
+| 2.5.5 (notify on factor change) | #10 | `DELETED, COVERED BY 6.3.7` | 6.3.7 | 3 |
+| 6.4.2 (key material in an isolated module) | #17 | `MOVED TO 13.3.3` | 13.3.3 | 3 |
+| 14.2.6 (sandbox third-party libraries) | #18 | `SPLIT TO 15.1.4, 15.2.5` | 15.1.4, 15.2.5 | 3 |
+
+`tools/asvs/5.0.0.csv`, the vendored official 5.0.0 requirement list, confirms
+all four target IDs are `L` = 3. `SUMMARY.md`'s table is exhaustive for L1
+(70/70) and L2 (183/183) and deliberately not for L3 — see "selected L3", five
+rows kept because each was directly relevant to a merged L1/L2 predecessor
+(6.3.3 among them, which is how 2.3.2 closed — see D-36). These four don't meet
+that bar: nothing about the underlying ask changed when the level did, and the
+project has never claimed L3. No new rows go into `asvs-5.0.0.json`; the
+ledger's L1/L2 completeness is unaffected, because these clauses no longer have
+an L1/L2 form for it to be incomplete about.
+
+6.4.2's move is worth stating precisely, because it is easy to misread: it did
+not merge into the already-open `v5.0.0-13.3.1` (secrets management solution,
+L2, Compensating, tracked as `CONTROL-13.3.1`). 13.3.1 stays open on its own
+merits and is a different, adjacent requirement — an operator-run secrets vault
+would help satisfy both, but closing one does not close the other, and 13.3.1
+is not touched by this entry.
+
+**Verification:** `gh api repos/OWASP/ASVS/contents/5.0/mappings/mapping_v4.0.3_to_v5.0.0.yml`
+against `master`, decoded, and checked for the seven IDs above; `tools/asvs/5.0.0.csv`
+for the four L3 levels. Re-run both if OWASP revises the mapping.
