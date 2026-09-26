@@ -270,9 +270,11 @@ sits in. A field that was never passed cannot be rendered by mistake.
 
 ## 3. What the tests pin
 
-`make test` runs the whole suite; the count is published once, in
-[COMPLIANCE.md](COMPLIANCE.md) §6, and `make lint` fails if this file starts
-quoting its own. The tests exist to stop a control regressing silently.
+`make test` runs the whole suite. The count is deliberately written down
+nowhere — it was published in one file and guarded by a check, which meant it
+still had to be hand-edited on every commit that added a test. The tests exist
+to stop a control regressing silently, and the ledger names the test behind
+each control, which is the link that actually matters.
 
 | Area | What is asserted |
 |---|---|
@@ -333,7 +335,8 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
 6. **No TLS between containers** (1.9.1, 1.9.2, 9.2.2). Three internal hops are
    plaintext. The compensating position — an `internal: true` network with no
    route off the host, and passwords on both services — is argued in
-   [COMPLIANCE.md](COMPLIANCE.md) §3, not counted as a pass.
+   the [findings register](security/findings.json) as `CONTROL-12.3.1`, not
+   counted as a pass.
 7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
    collector consumes, but nothing collects it here.
 
@@ -341,5 +344,5 @@ Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
 Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5):
 `sbom-scanning.yml` generates one with syft and scans it with grype on every
 push and PR. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where,
-and [COMPLIANCE.md](COMPLIANCE.md) for the full ledger — these seven are the
-ones worth reading in isolation, not the complete set.
+and the [ASVS 5.0 ledger](security/asvs-5.0.0.json) for the full picture —
+these seven are the ones worth reading in isolation, not the complete set.

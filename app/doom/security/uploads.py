@@ -2,12 +2,19 @@
 
 The pipeline, in order, and every step is load-bearing:
 
-    size cap -> magic-byte sniff -> allowlist -> decode -> re-encode -> store
+    size cap -> magic-byte sniff -> allowlist -> AV scan -> decode -> re-encode -> store
 
 **Nothing the client says about the file is believed.**  The filename, the
 extension and the Content-Type header are all attacker-controlled strings.
 The only trustworthy statement about an uploaded file is what its bytes
 actually are, which is what ``python-magic`` reads.
+
+**The AV scan runs on the bytes as received, before re-encoding** (ASVS
+5.0.0-5.4.3).  For images that is defence in depth - re-encoding already
+destroys polyglots and strips metadata - but a PDF or a text file is stored
+byte for byte, so for those it is the only control.  clamd is asked after the
+type allowlist rather than before, so a rejected type never costs a round
+trip, and before decode, so nothing unscanned is ever handed to Pillow.
 
 **Images are decoded and re-encoded rather than stored as received.**  This is
 the step that does the most work.  It destroys polyglot files - a valid GIF
@@ -38,8 +45,17 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 
 from .. import validation as v
+from . import av
 
 logger = logging.getLogger(__name__)
+
+#: Default clamd endpoint - the hostname docker-compose.yml gives the
+#: scanner, same convention as db/cache in config.py. Callers running inside
+#: the compose network (the app, and the test suite) get a working default
+#: for free; anything else must pass explicit values.
+_CLAMD_HOST = "clamav"
+_CLAMD_PORT = 3310
+_CLAMD_TIMEOUT = 20.0
 
 # A decompression bomb is a few kilobytes that expands into gigabytes of
 # pixels. Pillow refuses anything larger than this rather than exhausting the
@@ -77,6 +93,54 @@ def _safe_original_name(raw: str | None) -> str:
     name = name.replace("\\", "/").split("/")[-1]
     name = "".join(ch for ch in name if ch.isprintable() and ch not in '\r\n\t"<>')
     return name[:255] or "file"
+
+
+def submitted_extension(name: str) -> str:
+    """The lowercased extension the client put on the file, or "".
+
+    Read from the sanitised display name rather than the raw one, so a
+    ``photo.jpg\x00.sh`` style value has already lost its control characters
+    before its last dot is located.
+    """
+    _, dot, extension = name.rpartition(".")
+    if not dot or not extension or len(extension) > v.UPLOAD_EXTENSION_MAX:
+        return ""
+    return f".{extension.lower()}"
+
+
+def _require_extension_matches_content(original_name: str, content_type: str) -> None:
+    """Reject a file whose extension disagrees with its bytes (ASVS 5.2.2).
+
+    This check does not decide what the file *is* - the sniff above already
+    did that, and the stored name is generated from the sniffed type, so a
+    wrong extension could not reach the filesystem even if this function did
+    not exist.  What it adds is the requirement's other half: that the
+    extension presented with the file agrees with its content.
+
+    The value of that is not really in the storage path. It is that a caller
+    which hands over ``invoice.pdf`` containing a JPEG is either confused or
+    probing, and both are worth refusing at the door rather than silently
+    storing under a corrected name. It also keeps the name shown in the UI
+    honest about the bytes behind it: a download offered as ``notes.txt``
+    that a viewer then opens as a PDF is a small lie the application would
+    otherwise be telling on the uploader's behalf.
+    """
+    extension = submitted_extension(original_name)
+    accepted = v.UPLOAD_EXTENSIONS_FOR_TYPE.get(content_type, frozenset())
+
+    if not extension:
+        raise UploadRejected(
+            f"{original_name} has no file extension. Add the extension that "
+            f"matches the file's format and try again."
+        )
+
+    if extension not in accepted:
+        expected = ", ".join(sorted(accepted))
+        raise UploadRejected(
+            f"{original_name} is a {content_type} file, so its extension "
+            f"should be one of: {expected}. Rename it to match its actual "
+            f"format and try again."
+        )
 
 
 def _sniff(data: bytes) -> str:
@@ -120,6 +184,10 @@ def _process_image(data: bytes, content_type: str) -> tuple[bytes, bytes, str, s
     """
     try:
         with Image.open(io.BytesIO(data)) as img:
+            # Pillow only warns at MAX_IMAGE_PIXELS and raises at twice
+            # that value. Enforce our documented ceiling before decoding.
+            if img.width * img.height > v.MAX_IMAGE_PIXELS:
+                raise UploadRejected("That image is too large to process.")
             img.verify()  # structural check before trusting the decoder
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise UploadRejected("That image could not be read.") from exc
@@ -169,10 +237,22 @@ def check_quota(owner_id, incoming_bytes: int) -> None:
     from ..extensions import db
     from ..models import Attachment
 
-    used = db.session.scalar(
-        select(func.coalesce(func.sum(Attachment.byte_size), 0))
-        .where(Attachment.owner_id == owner_id)
-    ) or 0
+    used, count = db.session.execute(
+        select(
+            func.coalesce(func.sum(Attachment.byte_size), 0),
+            func.count(Attachment.id),
+        ).where(Attachment.owner_id == owner_id)
+    ).one()
+    used = used or 0
+
+    # Two ceilings, because one does not imply the other: five thousand
+    # one-kilobyte files sit well inside the byte quota and still cost an
+    # inode, a row and a directory entry each (ASVS 5.0.0-5.2.4).
+    if count >= v.MAX_ATTACHMENTS_PER_OWNER:
+        raise UploadRejected(
+            f"You have reached the limit of {v.MAX_ATTACHMENTS_PER_OWNER:,} "
+            f"stored files. Delete something first."
+        )
 
     if used + incoming_bytes > v.STORAGE_QUOTA_BYTES:
         used_mb = used // (1024 * 1024)
@@ -204,7 +284,37 @@ def _existing_blob(owner_id, digest: str):
     ).scalar_one_or_none()
 
 
-def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None) -> StoredFile:
+def _scan_or_reject(data: bytes, original_name: str, *,
+                     clamd_host: str, clamd_port: int, clamd_timeout: float) -> None:
+    """Run the AV scan, turning any non-clean outcome into UploadRejected.
+
+    Both branches - a match and an unreachable scanner - fail closed. The
+    message told to the uploader is the same generic refusal either way, so
+    it cannot be used to probe whether the scanner is up (T-23 applies to
+    infrastructure state, not just stack traces).
+    """
+    try:
+        av.scan(data, host=clamd_host, port=clamd_port, timeout=clamd_timeout)
+    except av.ScanPositive as exc:
+        logger.warning(
+            "upload_scan_rejected",
+            extra={"extra_fields": {"signature": exc.signature}},
+        )
+        raise UploadRejected(
+            f"{original_name} was flagged by the antivirus scanner and "
+            f"cannot be stored."
+        ) from exc
+    except av.ScanUnavailable as exc:
+        logger.error("upload_scan_unavailable", extra={"extra_fields": {"error": str(exc)}})
+        raise UploadRejected(
+            f"{original_name} could not be scanned right now. Try again "
+            f"shortly."
+        ) from exc
+
+
+def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None,
+                  clamd_host: str = _CLAMD_HOST, clamd_port: int = _CLAMD_PORT,
+                  clamd_timeout: float = _CLAMD_TIMEOUT) -> StoredFile:
     """Validate and persist one uploaded file."""
     if storage is None or not storage.filename:
         raise UploadRejected("No file was selected.")
@@ -225,6 +335,15 @@ def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None) -> Sto
             f"Photos may be JPEG, PNG or WebP; documents may be PDF, "
             f"plain text or Markdown."
         )
+
+    # The bytes are an accepted type; the name must agree with them (5.2.2).
+    _require_extension_matches_content(original_name, content_type)
+
+    # Scanned as received, before anything is decoded (ASVS 5.0.0-5.4.3).
+    _scan_or_reject(
+        data, original_name,
+        clamd_host=clamd_host, clamd_port=clamd_port, clamd_timeout=clamd_timeout,
+    )
 
     is_image = content_type in v.ALLOWED_IMAGE_TYPES
     thumbnail_name: str | None = None

@@ -118,6 +118,24 @@ class User(UUIDMixin, TimestampMixin, db.Model):
     email: Mapped[str | None] = mapped_column(String(v.EMAIL_MAX))
     timezone: Mapped[str | None] = mapped_column(String(v.TIMEZONE_MAX))
 
+    # --- second factor (ASVS 5.0.0-6.3.3) -----------------------------------
+    # The secret is written when enrolment starts and the timestamp only once a
+    # code from it has been verified, which is the whole reason they are two
+    # columns: an account that has scanned a QR code but never proved it can
+    # produce a code must not be locked out of its own login. Until
+    # totp_confirmed_at is set this account is still single-factor and the
+    # pending secret is simply unused.
+    totp_secret: Mapped[str | None] = mapped_column(String(64))
+    totp_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # The last time step a code was accepted for. A drift tolerance is also a
+    # replay window; recording the step consumed is what closes it.
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
+
+    recovery_codes: Mapped[list["RecoveryCode"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
     locations: Mapped[list["Location"]] = relationship(
         back_populates="owner", cascade="all, delete-orphan"
     )
@@ -132,6 +150,11 @@ class User(UUIDMixin, TimestampMixin, db.Model):
         ),
         CheckConstraint("failed_login_count >= 0", name="ck_users_failed_count"),
     )
+
+    @property
+    def has_totp(self) -> bool:
+        """True when a second factor is enrolled *and* proven."""
+        return bool(self.totp_secret) and self.totp_confirmed_at is not None
 
     # --- Flask-Login interface ---------------------------------------------
     @property
@@ -280,6 +303,40 @@ class ShareableMixin:
 # ---------------------------------------------------------------------------
 # Locations
 # ---------------------------------------------------------------------------
+
+class RecoveryCode(UUIDMixin, db.Model):
+    """One single-use way back in when the authenticator is gone.
+
+    Recovery codes are the part of a second factor that decides whether it is
+    adopted or resented. Without them, a lost phone is an account nobody can
+    reach and an operator command somebody has to be awake for; with them, the
+    second factor is something a person will actually turn on.
+
+    They are credentials, so they are stored exactly as passwords are: Argon2id,
+    one row per code, never in the clear after the page that shows them. A code
+    is marked used rather than deleted, so "this account spent its last two
+    recovery codes on Tuesday" survives as evidence - which is what a stolen
+    set looks like from the outside.
+    """
+
+    __tablename__ = "recovery_codes"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    code_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped["User"] = relationship(back_populates="recovery_codes")
+
+    @property
+    def is_spent(self) -> bool:
+        return self.used_at is not None
+
 
 class Location(UUIDMixin, TimestampMixin, ShareableMixin, db.Model):
     """A node in the physical tree: warehouse, zone, rack, shelf, bin or tote.

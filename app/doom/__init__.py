@@ -12,6 +12,7 @@ from .config import Config, ConfigError
 from .extensions import csrf, db, limiter, login_manager, migrate
 from .security import headers as security_headers
 from .security import logging as structured_logging
+from .security import sessions as secure_sessions
 
 __version__ = "0.1.0"
 
@@ -28,6 +29,11 @@ def create_app(config_object: type[Config] = Config) -> Flask:
         raise ConfigError("DEBUG must remain off; refusing to start.")
 
     _apply_proxy_fix(app)
+
+    # Before the extensions: Flask-WTF reads the itsdangerous default when it
+    # first builds a CSRF serializer, and the login manager reads the session
+    # interface on the first request.
+    secure_sessions.init_app(app)
 
     structured_logging.init_app(app)
     _init_extensions(app)
@@ -61,7 +67,9 @@ def _apply_proxy_fix(app: Flask) -> None:
     ``header_up X-Forwarded-For {remote_host}`` line in the Caddyfile, which
     overwrites rather than appends; both halves are required.
     """
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+    # Caddy supplies the port in X-Forwarded-Host. It does not replace an
+    # inbound X-Forwarded-Port, so that separate field must never be trusted.
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=0)
 
 
 def _init_extensions(app: Flask) -> None:

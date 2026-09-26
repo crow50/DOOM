@@ -53,6 +53,18 @@ jobs:
       - name: Build Docker image
         run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
 
+      # Keep the exact candidate config digest and platform with the SBOM and
+      # Grype result; a commit tag alone is not an artifact identity.
+      - name: Record candidate image identity
+        run: docker image inspect doom-organizer:${{ github.sha }} > candidate-image-inspect.json
+
+      - name: Upload candidate image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: doom-organizer-image-${{ github.sha }}
+          path: candidate-image-inspect.json
+          if-no-files-found: error
+
         # ASVS 14.2.5: generate a CycloneDX inventory of every third-party
         # library in the runtime image, and keep it as a retrievable artifact.
       - name: Generate SBOM with syft
@@ -63,11 +75,15 @@ jobs:
           output-file: sbom.cyclonedx.json
           artifact-name: doom-organizer-sbom.cyclonedx.json
 
-        # Scan the SBOM itself, not a second image pull. only-fixed mirrors
-        # Trivy's ignore-unfixed so the ~150 unfixed Debian CVEs already
-        # accepted for this image (see PIPELINE-NOTES.md) don't also redden
-        # this job. grype's SARIF output carries every severity regardless of
-        # fail-build, so one step covers both the gate and the Security tab.
+      # Alpine's package inventory remains accurate at zlib 1.3.2-r0, while
+      # the runtime image replaces its library with an upstream-patched build.
+      # Bind the VEX status to the exact PURL in this image's SBOM; unexpected
+      # distro/package changes fail closed in the generator.
+      - name: Generate exact-PURL VEX for patched runtime zlib
+        run: python3 tools/generate_runtime_vex.py sbom.cyclonedx.json --output runtime-zlib.vex.json
+
+        # No fix-availability filter: an unavailable patch is still a risk.
+        # Keep every severity visible in SARIF; HIGH+ fails until reviewed.
         # Bump this together with sbom-action above: a newer syft writes a newer
         # CycloneDX spec (1.7 from syft 1.51), and an older grype rejects it as
         # "sbom format not recognized", leaving an empty SARIF behind.
@@ -76,9 +92,10 @@ jobs:
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
           sbom: sbom.cyclonedx.json
+          vex: runtime-zlib.vex.json
           fail-build: true
           severity-cutoff: high
-          only-fixed: true
+          only-fixed: false
           output-format: sarif
 
       - name: Upload grype scan results to GitHub Security tab
@@ -103,3 +120,10 @@ jobs:
           update-existing: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Record scanner outcome
+        if: always()
+        env:
+          SCAN_OUTCOME: ${{ steps.grype.outcome }}
+        run: |
+          echo "Scanner gate: $SCAN_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"

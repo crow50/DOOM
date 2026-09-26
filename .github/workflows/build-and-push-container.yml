@@ -39,6 +39,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
 
+      # Evidence completeness is independent of scanner severity thresholds.
+      # Missing review, unaccepted residual risk or failed checks block releases.
+      - name: Verify release assessment
+        if: github.ref_type == 'tag'
+        run: python3 tools/security_assessment.py --release --publish
+
+      - name: Read reviewed artifact identity
+        id: reviewed
+        if: github.ref_type == 'tag'
+        run: |
+          python3 - <<'PY'
+          import json, os
+          with open('docs/security/release-candidate.json') as source:
+              candidate = json.load(source)
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print('ref=' + candidate['registry_ref'], file=output)
+              print('image_id=' + candidate['image_id'], file=output)
+          PY
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
@@ -81,6 +100,7 @@ jobs:
             type=sha,prefix={{branch}}-,enable=${{ github.ref_type == 'branch' }}
 
       - name: Build and push Docker image
+        if: github.ref_type != 'tag'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8  # v6.19.2
         with:
           context: ./app
@@ -92,3 +112,25 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # A release promotes the exact reviewed artifact. Rebuilding after the
+      # assessment could change apt packages, base layers or build tooling.
+      - name: Promote reviewed release image
+        if: github.ref_type == 'tag'
+        env:
+          VERIFIED_IMAGE: ${{ steps.reviewed.outputs.ref }}
+          EXPECTED_IMAGE_ID: ${{ steps.reviewed.outputs.image_id }}
+          RELEASE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          docker pull "$VERIFIED_IMAGE"
+          actual=$(docker image inspect --format '{{.Id}}' "$VERIFIED_IMAGE")
+          test "$actual" = "$EXPECTED_IMAGE_ID" || {
+            echo 'Registry artifact differs from the reviewed image'; exit 1;
+          }
+          args=()
+          while IFS= read -r image_tag; do
+            test -z "$image_tag" || args+=(--tag "$image_tag")
+          done <<< "$RELEASE_TAGS"
+          test "${#args[@]}" -gt 0
+          docker buildx imagetools create --prefer-index=false "${args[@]}" "$VERIFIED_IMAGE"

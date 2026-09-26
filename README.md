@@ -57,7 +57,15 @@ make seed      # optional: a demo account and a small site
 Then open **https://localhost:8443** - the certificate is self-signed by
 Caddy's internal CA, so expect a browser warning on first visit.
 
-Demo account: `demo` / `correct-horse-battery-staple`
+Demo account: `demo`. `make seed` generates its password and prints it once -
+there is no default credential to forget to change (ASVS 5.0.0-6.3.2). It
+refuses to run against a database that already holds other accounts.
+
+Serving this on a real domain, or behind the reverse proxy that already holds
+your certificates? `caddy/conf.d/README.md` covers the three ways to get a
+publicly trusted certificate without rebuilding the image, and
+`make verify-cert` checks that the one you are serving is the one you think
+you are.
 
 > **Set `PUBLIC_BASE_URL` in `.env` before printing labels.** It is encoded
 > into every QR code and NFC tag, and a label printed against the wrong
@@ -101,7 +109,7 @@ documented as carefully as the code.
 | [DECISIONS.md](docs/DECISIONS.md) | Why each limit, algorithm and tradeoff is what it is |
 | [PIPELINE-NOTES.md](docs/PIPELINE-NOTES.md) | DevSecOps tooling roadmap |
 | [DEMO.md](docs/DEMO.md) | Run-of-show for presenting it |
-| [COMPLIANCE.md](docs/COMPLIANCE.md) | Exhaustive control ledger: every ASVS 4.0.3 L1/L2 requirement with a status, evidence and its CWE |
+| [security/](docs/security/) | The ASVS 5.0 ledger, the documented policies it requires, the open findings, and how to verify any of it yourself |
 | [INSPIRATION.md](docs/INSPIRATION.md) | What Sortly, Grocy, Homebox, Snipe-IT and real warehouse systems do differently, and what to borrow |
 
 The threat model was written **before** the code, and every control traces
@@ -161,10 +169,9 @@ make lint           # autoescape bypasses, and the docs against the ledger
 make db-shell-app   # connect as the app's restricted role and try DROP TABLE
 ```
 
-The test count is published in exactly one place — [COMPLIANCE.md](docs/COMPLIANCE.md)
-§6 — and `make lint` fails if a second file starts quoting its own. Four files
-used to quote four different numbers, which is how you end up with a figure
-nobody trusts.
+Run `make test` for the count; it is deliberately not written down anywhere,
+because a number in prose has to be kept in sync by hand and the ledger
+already names the test behind each control.
 
 ---
 
@@ -181,6 +188,12 @@ uid 10002 and cannot read the CA that a root Caddy wrote into `caddy_data`.
 Once: `docker compose rm -sf caddy && docker volume rm doom_caddy_data
 doom_caddy_config`, then `make up`. A new internal CA is generated, so
 re-run `make trust-cert` on any phone that trusted the old one.
+
+**Upgrading from a version without internal TLS.** `make up` and `make
+upgrade` now bind-mount an internal CA and per-service certificates that an
+existing deployment's `secrets/` does not have yet. Run `make init` again
+first - it leaves your existing `.env` and passwords alone and only adds the
+CA and certs that are missing - then `make up && make upgrade` as usual.
 
 **A real domain.** Point `DOOM_DOMAIN` at it and add `email you@example.com`
 to `caddy/Caddyfile`; Caddy handles Let's Encrypt from there.
@@ -204,3 +217,7 @@ codes work everywhere and carry the same URL.
 ## Licence
 
 Personal coursework project. Use it however you like.
+
+Current review: [release security assessment](docs/security/RELEASE-ASSESSMENT.md),
+[ASVS status](docs/security/SUMMARY.md), and [hosted readiness](docs/security/HOSTED-READINESS.md).
+No ASVS level or release readiness is implied by scanner success.

@@ -174,6 +174,15 @@ class ProfileForm(FlaskForm):
         validators=[Optional()],
         description="Used to show timestamps in your local time.",
     )
+    current_password = PasswordField(
+        "Your password",
+        validators=[Optional()],
+        description=(
+            "Required only when you change the email address. An address is "
+            "the field an attacker with a borrowed session would change first "
+            "if it ever became a way back into the account."
+        ),
+    )
     submit = SubmitField("Save profile")
 
     def __init__(self, *args, **kwargs):
@@ -423,6 +432,107 @@ class SharePinForm(FlaskForm):
         "PIN", validators=[InputRequired(), Length(max=v.SHARE_PIN_MAX)]
     )
     submit = SubmitField("Unlock")
+
+
+class ShareTokenForm(FlaskForm):
+    """Carries a share code from the page's URL fragment into the request body.
+
+    The code is a capability - holding it is the whole of the authorisation -
+    so ASVS 5.0.0-14.2.1 does not let it travel in the URL, where it would be
+    kept in browser history, sent in Referer to anything the page links to,
+    and written to every access log between here and the client.  A fragment
+    is never transmitted at all, and this form is what moves the value the
+    fragment carried into the POST body.
+
+    ``Regexp`` rather than ``Length``: a wrong-shaped value is not a lookup
+    that misses, it is a value that was never issued by this application, and
+    it should be refused without a database round trip or an audit row.
+    """
+
+    #: A text field, not a hidden one, and that is the no-JavaScript story:
+    #: the same input the script fills from the fragment is the one a visitor
+    #: types the printed code into when the script never runs.
+    token = StringField(
+        "Share code",
+        validators=[InputRequired(), Regexp(f"^{v.SHARE_TOKEN_PATTERN}$")],
+        render_kw={
+            "autocomplete": "off",
+            "autocapitalize": "off",
+            "autocorrect": "off",
+            "spellcheck": "false",
+        },
+    )
+    submit = SubmitField("Open")
+
+
+class TotpForm(FlaskForm):
+    """The second-factor step of sign-in, or a recovery code instead of one.
+
+    One form with two fields rather than two forms, because the person at the
+    keyboard has one question to answer - "can you prove you are you" - and
+    splitting it across two pages means the one whose phone is dead has to
+    guess which page they want before they can say so.
+    """
+
+    code = StringField(
+        "Authentication code",
+        validators=[Optional(), Length(max=16)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric",
+                   "autocapitalize": "off", "spellcheck": "false"},
+    )
+    recovery_code = StringField(
+        "Recovery code",
+        validators=[Optional(), Length(max=32)],
+        render_kw={"autocomplete": "off", "autocapitalize": "characters",
+                   "spellcheck": "false"},
+    )
+    submit = SubmitField("Verify")
+
+
+class TotpEnrolForm(FlaskForm):
+    """Start enrolment. Re-authenticated, because turning a factor on from a
+    borrowed session is how an attacker locks the owner out of their own
+    account."""
+
+    current_password = PasswordField(
+        "Your password", validators=[InputRequired()],
+        render_kw={"autocomplete": "current-password"},
+    )
+    submit = SubmitField("Set up an authenticator")
+
+
+class TotpConfirmForm(FlaskForm):
+    """Prove the authenticator works before it becomes required."""
+
+    code = StringField(
+        "Code from your authenticator",
+        validators=[InputRequired(), Length(min=6, max=8)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric"},
+    )
+    #: ASVS 5.0.0-7.4.3 - the option, offered rather than imposed.
+    sign_out_others = BooleanField("Sign out my other devices", default=True)
+    submit = SubmitField("Turn on two-factor sign-in")
+
+
+class TotpDisableForm(FlaskForm):
+    """Both factors to remove a factor.
+
+    A password alone would mean a stolen session that has already seen the
+    password can quietly drop the second factor; a code alone would mean a
+    borrowed phone can. Asking for both means removing the protection needs
+    everything protecting it.
+    """
+
+    current_password = PasswordField(
+        "Your password", validators=[InputRequired()],
+        render_kw={"autocomplete": "current-password"},
+    )
+    code = StringField(
+        "Code from your authenticator",
+        validators=[InputRequired(), Length(min=6, max=8)],
+        render_kw={"autocomplete": "one-time-code", "inputmode": "numeric"},
+    )
+    submit = SubmitField("Turn off two-factor sign-in")
 
 
 class RevokeSessionForm(FlaskForm):

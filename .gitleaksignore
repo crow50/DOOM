@@ -1,0 +1,20 @@
+# Fingerprints of confirmed false positives, in gitleaks' own format:
+# <commit>:<file>:<rule-id>:<line>
+#
+# Each one is a fabricated value inside a test that proves log redaction
+# works - the string has to look enough like a secret to trigger the same
+# detector redaction defends against, or the test proves nothing. See
+# docs/security/POLICIES.md for the redaction rules these strings exercise.
+
+# app/tests/test_asvs_l2_closure.py::test_a_labelled_secret_in_a_message_is_redacted
+# One of the parametrized messages in that test reads as a labelled token to
+# gitleaks by design - it is what the test asserts gets redacted. Not
+# reproduced here, deliberately: quoting the flagged text in this comment
+# would just make gitleaks flag this file too (it did, on the first attempt).
+b4de77d550281967fd7d013906867a257029c43d:app/tests/test_asvs_l2_closure.py:generic-api-key:208
+
+# This file's own history: an earlier commit quoted that same fixture text
+# in the comment above before it was reworded to stop doing that. gitleaks
+# scans full history, not just the current tree, so the fingerprint of the
+# now-fixed commit needs suppressing too rather than only the live line.
+7afe57899e0768b3388ee8d78819452d5762aacb:.gitleaksignore:generic-api-key:10

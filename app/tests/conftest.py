@@ -196,34 +196,18 @@ def login(client, username: str, password: str = "a-long-enough-passphrase"):
         follow_redirects=False,
     )
 
-def pytest_collection_modifyitems(session, config, items):
-    """Fail collection if docs/COMPLIANCE.md publishes the wrong test count.
+def open_share(client, token: str, **kwargs):
+    """Open a shared label the way a scanned QR code does.
 
-    An audit found four files claiming four different test counts, none of them
-    right. The count now lives in exactly one place, ``tools/check_docs.py``
-    fails the build if a second file starts quoting one, and this hook keeps
-    the surviving number honest when the suite runs from a source checkout.
+    The code travels in the URL fragment, which the browser keeps to itself,
+    so the request that reaches the server is a POST carrying the code in its
+    body (ASVS 5.0.0-14.2.1). ``follow_redirects`` is on by default because
+    the interesting response is the share page at the end of the 303, not the
+    303 itself - which keeps these assertions reading the way they did when
+    the token was a path segment.
 
-    Inside the test image there is no ``docs/`` (the build context is
-    ``app/``), so here it returns early and does nothing - which is why
-    ``make verify-test-count`` exists and is what CI runs.
+    A miss still surfaces as the 404 it always was: the redirect is only
+    issued once the token has resolved.
     """
-    import re
-
-    ledger = pathlib.Path(__file__).resolve().parents[2] / "docs" / "COMPLIANCE.md"
-    if not ledger.exists():
-        return
-
-    published = re.findall(
-        r"(\d{2,5})\s+tests? pinning", ledger.read_text(encoding="utf-8")
-    )
-    if not published:
-        return
-
-    claimed, actual = int(published[0]), len(items)
-    if claimed != actual:
-        raise pytest.UsageError(
-            f"docs/COMPLIANCE.md claims {claimed} tests, but {actual} were "
-            f"collected. Update the count in COMPLIANCE.md §6 - it is the one "
-            f"place that publishes it."
-        )
+    kwargs.setdefault("follow_redirects", True)
+    return client.post("/t/", data={"token": token}, **kwargs)

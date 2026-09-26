@@ -12,6 +12,7 @@ papers over exactly the behaviour that was broken.
 from __future__ import annotations
 
 import pytest
+from conftest import open_share
 
 
 class TestReferrerPolicy:
@@ -59,7 +60,7 @@ class TestReferrerPolicy:
         alice_item.visibility = "shared"
         db.session.commit()
 
-        response = client.get(f"/t/{alice_item.share_token}")
+        response = open_share(client, alice_item.share_token)
         assert response.status_code == 200
         assert response.headers.get("Referrer-Policy") in self.SAME_ORIGIN_SAFE
 
@@ -95,5 +96,5 @@ class TestCoreHeaders:
         alice_item.visibility = "shared"
         db.session.commit()
 
-        response = client.get(f"/t/{alice_item.share_token}")
+        response = open_share(client, alice_item.share_token)
         assert "noindex" in response.headers.get("X-Robots-Tag", "")

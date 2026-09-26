@@ -109,11 +109,45 @@ class TestProfile:
             "display_name": "Sam Baker",
             "email": "sam@example.com",
             "timezone": "America/New_York",
+            # Changing the email is re-authenticated (ASVS 5.0.0-7.5.1).
+            "current_password": "a-long-enough-passphrase",
         }, follow_redirects=True)
 
         db.session.refresh(alice)
         assert alice.display_name == "Sam Baker"
         assert alice.label == "Sam Baker"
+        assert alice.email == "sam@example.com"
+
+    def test_changing_the_email_without_the_password_changes_nothing(
+        self, client, alice
+    ):
+        """A borrowed session must not be able to rewrite the account's
+        recovery address in one POST - including on the day this deployment
+        grows a recovery flow that uses it."""
+        login(client, "alice")
+        response = client.post("/account/", data={
+            "display_name": "Sam Baker",
+            "email": "attacker@example.com",
+            "timezone": "UTC",
+        })
+
+        assert response.status_code == 200
+        assert b"current password to change the email" in response.data
+        db.session.refresh(alice)
+        assert alice.email is None
+        # Nothing else was written either: the whole submission is refused.
+        assert alice.display_name is None
+
+    def test_editing_other_fields_needs_no_password(self, client, alice):
+        """Re-typing a password to edit a display name teaches people to keep
+        it on the clipboard."""
+        login(client, "alice")
+        client.post("/account/", data={
+            "display_name": "Sam Baker", "email": "", "timezone": "UTC",
+        }, follow_redirects=True)
+
+        db.session.refresh(alice)
+        assert alice.display_name == "Sam Baker"
 
     def test_profile_is_entirely_optional(self, client, alice):
         """None of it is required to use the system.

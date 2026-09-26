@@ -1364,3 +1364,197 @@ publishing a fix and the base image being rebuilt, which is where all twelve of
 these lived. A CVE Debian has not yet fixed is still a CVE in this image, and
 `ignore-unfixed: true` in the Trivy workflow means the scan will not fail the
 build for it — that is the deliberate position (D-36), not an oversight.
+
+---
+
+## D-40 — The evidence directory is deleted; the tests are the evidence
+
+This supersedes the part of D-37 that made `COMPLIANCE.md` an exhaustive ledger,
+and it removes `docs/security/evidence/` entirely — seven megabytes across
+seventy-five files, against an application whose own source is under one.
+
+### The question that ended it
+
+"Evidence for whom?" Every audience was checked and none of them wanted it:
+
+- **The maintainer** already knows what they built. A Trivy report from last
+  Tuesday tells them nothing they would act on.
+- **A self-hoster** wants to know how to run this safely. Seventeen thousand
+  lines of JSON describing an image that no longer exists is not that.
+- **An auditor** does not trust self-reported evidence, which is the whole point
+  of being an auditor. Handed a committed `candidate-trivy.json`, they run Trivy
+  themselves. A stored scan is at best a claim about what somebody once saw.
+
+So the directory answered a question nobody had asked, and it cost every reader
+of the repository attention that the ledger and the tests deserved.
+
+### What was actually in there
+
+| Class | Size | Why it went |
+|---|---|---|
+| Scanner output — Trivy, Grype, SBOMs, CodeQL SARIF, Bandit, Semgrep, Gitleaks | ~6 MB | Re-runnable, and CI already uploads SARIF to the Security tab and SBOMs as build artifacts. Committed copies were duplication that went stale on the next commit. |
+| Snapshots of GitHub's own alert API | ~1 MB | GitHub is the authority on GitHub's alerts. Query it. |
+| Run logs — "453 passed", `make lint` output, gate transcripts | ~80 KB | A green check on a commit is verifiable by anyone. A text file claiming one is not. |
+| Probe transcripts — proxy headers, reproduced before-states | ~10 KB | The conclusions are what matter, and they live in the Caddyfile comments and in tests that fail if the behaviour changes. |
+| `verification.json`'s `source_hashes` | 44 KB, 71% of the file | A SHA-256 of every source file, written as 140 arrays of integers. That is a commit SHA, reimplemented badly. |
+| `alerts.json`'s scanner mirror | ~1 MB, 576 of 601 rows | 312 rows shared the same three sentences verbatim. It was a scanner report transcribed into JSON, frozen against one advisory database. One row now records the published image's dependency posture and tells you to scan it yourself. |
+| `asvs-4.0.3.json` + `COMPLIANCE.md` | ~344 KB | A second ledger against a superseded standard, 81% of it never assessed. |
+
+### The rule that made it worse
+
+A previous pass added a validator check requiring every file in that directory
+to be cited by something. Faced with thirty-seven orphans, the response was to
+invent citations for twenty-five of them so they would pass — optimising for
+"no orphans" instead of asking whether the files should exist. A rule that can
+be satisfied by writing more bookkeeping is a rule that will be.
+
+### What is kept, and why each survives
+
+- **`asvs-5.0.0.json`** — the analysis. One row per requirement, with a status,
+  the reasoning, how to verify it, and the code or test that demonstrates it.
+- **`findings.json`** — twenty-two rows that carry an argument, sixteen of them
+  open. Each names a residual risk somebody has to accept or close.
+- **`POLICIES.md`** — the policies several requirements ask for by name. Read by
+  people, and pointed at by the rows that depend on them.
+- **`README.md`** — how to re-run every check yourself. The method outlives the
+  output, and is the only thing a sceptical reader can use.
+- **`REMEDIATION.md`** — a work queue with acceptance criteria. Forward-looking.
+- **The test suite.** This is the real answer to "evidence for whom": a test
+  fails when the control is removed, it runs on anyone's machine, and it needs
+  no trust in whoever wrote it. Archived output has none of those properties.
+
+### The published test count went with it
+
+`COMPLIANCE.md` §6 published the suite's size, a check enforced that exactly one
+file did so, and a pytest collection hook failed the run when it drifted. The
+control was added because four files once claimed four different numbers — a
+real problem with the wrong fix. Guarding a number in prose means every commit
+that adds a test also edits a document; closing out ASVS Level 1 and 2 paid that
+tax eight times in one sitting. `make test` prints the count, and the ledger
+names the test behind each control, which is the link that was ever worth
+checking.
+
+---
+
+## D-41 — Seven ASVS 4.0.3 issues, closed against the official migration mapping
+
+Filed against the retired `COMPLIANCE.md` (D-40), seven open issues cited
+ASVS 4.0.3 clauses by number: 2.2.3, 2.5.5, 2.4.5, 6.4.2, 11.1.8, 14.2.6, 8.3.6.
+None has a row in `asvs-5.0.0.json`, and a first pass concluded all seven were
+simply dropped in 5.0.0 — the `migration` field this ledger already records for
+every carried-forward requirement (`MOVED FROM`, `SPLIT FROM`, `MERGED FROM`,
+`COVERS`) has no entry for any of the seven. That conclusion was reached from
+absence of evidence in our *own* file, which is the same mistake D-36 already
+made once: reasoning about the standard from memory — or here, from an
+internally-built index of it — instead of the standard itself.
+
+OWASP publishes the actual mapping, machine-readable, at
+`github.com/OWASP/ASVS` → `5.0/mappings/mapping_v4.0.3_to_v5.0.0.yml`. Fetched
+and checked directly (`gh api repos/OWASP/ASVS/contents/...` against `master`),
+it gives a different, more precise answer for four of the seven: they were not
+deleted, they moved, and this ledger's own migration tags were just never
+backfilled for the ones whose destination fell outside L1/L2 and so never
+needed a row here.
+
+**Deleted outright — no ASVS 5.0.0 successor at any level:**
+
+| 4.0.3 | Issue | Official disposition |
+|---|---|---|
+| 11.1.8 (configurable alerting on automated attacks) | #14 | `DELETED, NOT IN SCOPE` |
+| 2.4.5 (pepper / secret-salt iteration) | #16 | `DELETED, INCORRECT` |
+| 8.3.6 (overwrite sensitive data in memory) | #19 | `DELETED, NOT PRACTICAL` |
+
+8.3.6 was deleted for the same reason the issue itself gave: "CPython strings
+cannot be reliably zeroed." OWASP's working group evidently agreed that asking
+for this at L1/L2, in general, was the wrong requirement.
+
+**Moved to Level 3 — out of this ledger's scope, not out of the standard:**
+
+| 4.0.3 | Issue | Official disposition | New ID(s) | Level |
+|---|---|---|---|---|
+| 2.2.3 (notify on auth-detail change) | #9 | `MODIFIED, MOVED TO 6.3.7, SPLIT TO 6.3.5` | 6.3.5, 6.3.7 | 3 |
+| 2.5.5 (notify on factor change) | #10 | `DELETED, COVERED BY 6.3.7` | 6.3.7 | 3 |
+| 6.4.2 (key material in an isolated module) | #17 | `MOVED TO 13.3.3` | 13.3.3 | 3 |
+| 14.2.6 (sandbox third-party libraries) | #18 | `SPLIT TO 15.1.4, 15.2.5` | 15.1.4, 15.2.5 | 3 |
+
+`tools/asvs/5.0.0.csv`, the vendored official 5.0.0 requirement list, confirms
+all four target IDs are `L` = 3. `SUMMARY.md`'s table is exhaustive for L1
+(70/70) and L2 (183/183) and deliberately not for L3 — see "selected L3", five
+rows kept because each was directly relevant to a merged L1/L2 predecessor
+(6.3.3 among them, which is how 2.3.2 closed — see D-36). These four don't meet
+that bar: nothing about the underlying ask changed when the level did, and the
+project has never claimed L3. No new rows go into `asvs-5.0.0.json`; the
+ledger's L1/L2 completeness is unaffected, because these clauses no longer have
+an L1/L2 form for it to be incomplete about.
+
+6.4.2's move is worth stating precisely, because it is easy to misread: it did
+not merge into the already-open `v5.0.0-13.3.1` (secrets management solution,
+L2, Compensating, tracked as `CONTROL-13.3.1`). 13.3.1 stays open on its own
+merits and is a different, adjacent requirement — an operator-run secrets vault
+would help satisfy both, but closing one does not close the other, and 13.3.1
+is not touched by this entry.
+
+**Verification:** `gh api repos/OWASP/ASVS/contents/5.0/mappings/mapping_v4.0.3_to_v5.0.0.yml`
+against `master`, decoded, and checked for the seven IDs above; `tools/asvs/5.0.0.csv`
+for the four L3 levels. Re-run both if OWASP revises the mapping.
+
+---
+
+## D-42 — Internal TLS: caddy->web, web->db, web->cache
+
+Three hops were plaintext behind a network-isolation argument (`CONTROL-12.3.1`,
+`12.3.3`, `12.3.4` — issues #11, #12, #13): Caddy to the application, the
+application to Postgres, the application to Redis. All three now run TLS,
+verified against one internal CA `make init` generates alongside the existing
+password secrets.
+
+**A second CA, not Caddy's own.** Caddy already runs an internal CA for the
+edge (`make trust-cert`), but that CA exists to issue a certificate for
+`DOOM_DOMAIN` to browsers - a different audience with a different lifecycle.
+Reusing it for db/cache/web would mean every internal client trusts whatever
+Caddy's ACME-adjacent machinery decides to issue, for a purpose that machinery
+was never written for. A CA scoped to exactly three server certificates,
+generated by the same `openssl` idiom the rest of `make init` already uses, is
+smaller and easier to reason about than making the edge CA do double duty.
+
+**Postgres refused the key file every other secret's mount pattern uses.**
+Every secret in this stack is a host-owned, world-readable (0444) file - see
+`make init`'s own comment on why. Postgres refuses that outright for
+`ssl_key_file`: *"private key file ... must be owned by the database user or
+root"*, checked and confirmed by testing rather than assumed. Redis and
+gunicorn's TLS stacks do not perform this check; only Postgres does. The fix
+is `db/entrypoint.sh`, which runs before the official entrypoint (as root,
+this image's unchanged default) and copies the mounted key into a path it
+creates itself - which makes the copy postgres-owned - before anything
+postgres-related starts. The alternative, loosening the file's permissions
+further, does not exist: 0444 is already as loose as a file gets, and
+postgres's check is about the *owner*, not the mode. Redis and web needed no
+equivalent workaround.
+
+**No client certificates.** These three hops authenticate the client the way
+they already did - a database role's password, Redis's `requirepass`, Caddy's
+network position as the only thing on `proxy` - and TLS adds encryption and
+*server* authentication on top. Full mutual TLS would additionally prove the
+client's identity by certificate, which none of 12.3.1/12.3.3/12.3.4 asks for
+and which `CONTROL-13.2.1` (backend authentication on static passwords,
+still open) is the honest place to track as future work now that a TLS
+channel exists to present a client certificate on.
+
+**`hostssl`, not `host`.** Postgres's default `pg_hba.conf` permits the
+catch-all network rule to authenticate over either plaintext or TLS - a
+client that does not ask for TLS gets plaintext, silently. `db/init/00-hba.sh`
+rewrites that one rule to `hostssl`, which refuses a connection outright
+rather than merely accepting an encrypted one; every other rule initdb wrote
+(local and loopback trust, used only by tooling running inside the same
+container) is left untouched. Redis's equivalent is `port 0` in the generated
+`redis.conf` - the plaintext listener does not exist to fall back to at all,
+which is a stronger statement than "refuses" for a listener with no
+authentication step to refuse at.
+
+**`make verify-internal-tls`** (`tools/verify_internal_tls.py`) is the
+reproducible half: it proves both directions from a running stack - web
+reaches db and cache over verify-full TLS, and each refuses a plaintext
+connection; a plaintext request to web:8000 also gets no reply, and an
+HTTPS one verifying against the internal CA succeeds. Verified against a
+real stack during development, not asserted: a wrong CA was confirmed refused
+by hand for all three hops before this was written down as Met.

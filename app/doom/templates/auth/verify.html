@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}Two-factor sign-in{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>One more step</h1>
+  <p class="muted">
+    Enter the six-digit code from your authenticator app. Codes change every
+    30 seconds and each one works only once.
+  </p>
+
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    {{ field(form.code, autofocus=true, placeholder="123456") }}
+
+    <details class="muted">
+      <summary>Lost your authenticator?</summary>
+      <p class="small">
+        Use one of the recovery codes you saved when you turned this on. Each
+        one works once, and using one does not turn two-factor sign-in off.
+      </p>
+      {{ field(form.recovery_code, placeholder="XXXX-XXXX-XXXX") }}
+    </details>
+
+    {{ submit(form.submit) }}
+  </form>
+
+  <p class="muted small">
+    <a href="{{ url_for('auth.login') }}">Start again</a>
+  </p>
+</section>
+{% endblock %}

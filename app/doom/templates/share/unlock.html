@@ -1,0 +1,33 @@
+{% extends "share/_base.html" %}
+{% block title %}Open a shared label{% endblock %}
+
+{% block share_content %}
+<h1>Open a shared label</h1>
+
+{# Scanning a label lands here with the code in the URL fragment. The script
+   at the bottom moves it into this form and submits, so the code reaches the
+   server in the request body and never in the URL (ASVS 14.2.1).
+
+   The form is written out here, visible and usable, rather than built by the
+   script. With JavaScript unavailable the page still works: the code printed
+   on the label is typed into the same field the script would have filled.
+   The script's only job is to save that typing, and it hides the field when
+   it is about to submit. #}
+<p class="muted" id="share-status">Enter the code printed on the label.</p>
+
+<form method="post" action="{{ url_for('share.open_share') }}" novalidate id="share-form">
+  {{ form.hidden_tag() }}
+  <div class="field" id="share-manual">
+    {{ form.token.label }}
+    {{ form.token(class="input", autofocus=true) }}
+    {% if form.token.errors %}
+      <ul class="field-errors">
+        {% for error in form.token.errors %}<li>{{ error }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+  {{ form.submit(class="button") }}
+</form>
+
+<script src="{{ url_for('static', filename='js/share-unlock.js') }}" defer></script>
+{% endblock %}

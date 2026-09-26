@@ -14,7 +14,11 @@ COMPOSE := docker compose
 # Migrations run as the schema OWNER, never as the application role.
 # doom_app holds DML only and cannot ALTER TABLE or CREATE EXTENSION, so
 # pointing alembic at the app DSN would fail by design (T-35).
-ADMIN_DSN := postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/$(POSTGRES_DB)
+#
+# sslmode=verify-full: this DSN crosses the network inside a `web` one-off
+# container (db/init/00-hba.sh refuses that hop over anything else), which
+# already has the internal CA mounted for config.py's own DSNs.
+ADMIN_DSN := postgresql+psycopg://$(POSTGRES_ADMIN_USER):$(POSTGRES_PASSWORD)@db:5432/$(POSTGRES_DB)?sslmode=verify-full&sslrootcert=/run/secrets/doom_internal_ca_cert
 
 BACKUP_DIR := backups
 STAMP      := $(shell date +%Y%m%d-%H%M%S)
@@ -77,6 +81,11 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	@# .env keeps only non-secret settings plus the values the admin tooling
 	@# needs; the running application reads /run/secrets/* instead.
 	@mkdir -p secrets && chmod 700 secrets
+	@# Existing files are 0444 from a prior run (see the chmod below). Without
+	@# this, re-running init on a deployment that already has secrets - which
+	@# upgrading to internal TLS requires, to get the new CA and certs below -
+	@# fails every redirect in the next block with "Permission denied".
+	@chmod -f u+w secrets/* 2>/dev/null || true
 	@set -a; . ./.env; set +a; \
 	 printf '%s' "$$SECRET_KEY"        > secrets/secret_key; \
 	 printf '%s' "$$POSTGRES_PASSWORD" > secrets/postgres_password; \
@@ -84,7 +93,43 @@ init: ## Create .env and generate strong secrets (safe to re-run)
 	 printf '%s' "$$REDIS_PASSWORD"    > secrets/redis_password; \
 	 { echo "requirepass $$REDIS_PASSWORD"; \
 	   echo "save \"\""; \
-	   echo "appendonly no"; } > secrets/redis.conf
+	   echo "appendonly no"; \
+	   echo "port 0"; \
+	   echo "tls-port 6379"; \
+	   echo "tls-cert-file /run/secrets/doom_cache_tls_cert"; \
+	   echo "tls-key-file /run/secrets/doom_cache_tls_key"; \
+	   echo "tls-auth-clients no"; \
+	   echo "tls-protocols \"TLSv1.2 TLSv1.3\""; \
+	 } > secrets/redis.conf
+	@# --- internal TLS: a private CA for caddy->web, web->db, web->cache -----
+	@# (ASVS 5.0.0-12.3.1, 12.3.3, 12.3.4). One CA; three leaf certs, one per
+	@# hostname a client on the internal network actually dials. Idempotent
+	@# like the secrets above - an existing CA and its issued certs are left
+	@# alone, so re-running `make init` does not invalidate certificates
+	@# already trusted by a running stack.
+	@test -f secrets/internal_ca.key || { \
+		openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+			-keyout secrets/internal_ca.key -out secrets/internal_ca.crt \
+			-subj "/CN=DOOM internal CA" \
+			-addext "basicConstraints=critical,CA:true" \
+			-addext "keyUsage=critical,keyCertSign,cRLSign" 2>/dev/null; \
+		echo "  generated secrets/internal_ca.{key,crt} (10-year validity)"; \
+	}
+	@for svc in db cache web; do \
+		test -f secrets/$${svc}_tls.key || { \
+			tmp=$$(mktemp -d); \
+			openssl req -newkey rsa:2048 -sha256 -nodes \
+				-keyout secrets/$${svc}_tls.key -out $$tmp/$${svc}.csr \
+				-subj "/CN=$${svc}" 2>/dev/null; \
+			printf 'subjectAltName=DNS:%s\n' "$${svc}" > $$tmp/$${svc}.ext; \
+			openssl x509 -req -in $$tmp/$${svc}.csr -CA secrets/internal_ca.crt \
+				-CAkey secrets/internal_ca.key -CAcreateserial -days 825 -sha256 \
+				-extfile $$tmp/$${svc}.ext -out secrets/$${svc}_tls.crt 2>/dev/null; \
+			rm -rf "$$tmp"; \
+			echo "  generated secrets/$${svc}_tls.{key,crt} (signed for CN=$${svc})"; \
+		}; \
+	done
+	@rm -f secrets/internal_ca.srl
 	@# Mode 0444, not 0400.
 	@#
 	@# Compose bind-mounts file-based secrets with their host permissions, and
@@ -134,9 +179,10 @@ migrate: ## Generate a migration from model changes (M="message")
 	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
 	before=$$(ls app/migrations/versions/*.py 2>/dev/null | sort); \
 	docker run --name doom-mig --network doom_internal --user root \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/run/secrets/doom_internal_ca_cert:ro" \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e REDIS_URL="rediss://:$(REDIS_PASSWORD)@cache:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs=/run/secrets/doom_internal_ca_cert" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "$(or $(M),auto)"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/; \
@@ -184,9 +230,10 @@ baseline: ## Regenerate the one baseline migration from models (DESTROYS the dat
 	@set -e; \
 	trap 'docker rm -f doom-mig >/dev/null 2>&1 || true' EXIT; \
 	docker run --name doom-mig --network doom_internal --user root \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/run/secrets/doom_internal_ca_cert:ro" \
 		-e DATABASE_URL="$(ADMIN_DSN)" \
 		-e SECRET_KEY="$(SECRET_KEY)" \
-		-e REDIS_URL="redis://:$(REDIS_PASSWORD)@cache:6379/0" \
+		-e REDIS_URL="rediss://:$(REDIS_PASSWORD)@cache:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs=/run/secrets/doom_internal_ca_cert" \
 		-e PUBLIC_BASE_URL="$(PUBLIC_BASE_URL)" \
 		doom-web flask db migrate -m "baseline schema"; \
 	docker cp doom-mig:/srv/doom/migrations/versions ./app/migrations/
@@ -234,7 +281,7 @@ db-shell-app: ## psql as the RESTRICTED app role - use this to prove least privi
 # instead of writing a probe row, because the app role cannot clean up after
 # itself on audit_log by design.
 #
-# Each assertion below is the executable evidence for a row in COMPLIANCE.md.
+# Each assertion below is the executable evidence for a row in the ASVS ledger.
 .PHONY: verify-db-roles
 verify-db-roles: ## Prove the app role exists and is properly restricted
 	@set -e; \
@@ -289,7 +336,7 @@ verify-secrets: ## Prove no secret value is in any process environment or in doc
 	environs=$$($(COMPOSE) exec -T web sh -c 'for p in /proc/[0-9]*; do cat $$p/environ 2>/dev/null; echo; done | tr "\\0" "\\n"'); \
 	for f in app_db_password redis_password secret_key; do \
 		val=$$(cat secrets/$$f); \
-		if docker inspect doom-web-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
+		if docker inspect $$($(COMPOSE) ps -q web) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep -qF "$$val"; then \
 			echo "FAIL: the value of secrets/$$f appears in docker inspect"; exit 1; fi; \
 		if printf '%s' "$$environs" | grep -qF "$$val"; then \
 			echo "FAIL: the value of secrets/$$f is in a process environment inside web"; exit 1; fi; \
@@ -300,6 +347,21 @@ verify-secrets: ## Prove no secret value is in any process environment or in doc
 		echo "FAIL: a DSN or raw secret variable is set in PID 1's environment"; exit 1; fi; \
 	echo "  ok: only *_FILE paths reach the process; the DSNs are assembled in-process"; \
 	echo "  clean: secrets are files, and stay files"
+
+.PHONY: verify-internal-tls
+verify-internal-tls: ## Prove db, cache and caddy->web require TLS, verified against our CA
+	@$(COMPOSE) exec -T web python3 - < tools/verify_internal_tls.py
+	@echo "checking caddy -> web (ASVS 5.0.0-12.3.3)..."
+	@docker run --rm --network doom_proxy curlimages/curl \
+		-sS --max-time 3 http://web:8000/healthz >/dev/null 2>&1 \
+		&& { echo "FAIL: web accepted a plaintext connection"; exit 1; } \
+		|| echo "  ok: web refuses a plaintext connection"
+	@docker run --rm --network doom_proxy \
+		-v "$(CURDIR)/secrets/internal_ca.crt:/ca.crt:ro" curlimages/curl \
+		-fsS --max-time 3 --cacert /ca.crt https://web:8000/healthz >/dev/null \
+		&& echo "  ok: web serves a certificate verify-full trusts" \
+		|| { echo "FAIL: caddy's view of web's certificate did not verify against the internal CA"; exit 1; }
+	@echo "clean: every internal hop requires TLS, verified against the CA make init generated"
 
 .PHONY: shell
 shell: ## Shell inside the web container
@@ -330,24 +392,6 @@ test: ## Run the test suite
 	$(COMPOSE) --profile test build --quiet test
 	$(COMPOSE) --profile test run --rm test python -m pytest -p no:cacheprovider -q
 
-# The test image has no docs/ (the build context is app/), so the collection
-# hook in tests/conftest.py cannot see COMPLIANCE.md from inside it.  This target bridges the two: it counts
-# what pytest collects in the container and compares against the one number the
-# documentation publishes.  Four files once published four different counts, none
-# of them right; this is what makes the surviving one checkable in CI.
-.PHONY: verify-test-count
-verify-test-count: ## Check COMPLIANCE.md's test count against what pytest collects
-	@claimed=$$(grep -oE '[0-9]+ tests pinning' docs/COMPLIANCE.md | head -1 | cut -d' ' -f1); \
-	$(COMPOSE) --profile test build --quiet test; \
-	actual=$$($(COMPOSE) --profile test run --rm -T test python -m pytest -p no:cacheprovider --collect-only -q 2>/dev/null \
-		| grep -oE '^[0-9]+ tests? collected' | cut -d' ' -f1); \
-	if [ -z "$$actual" ]; then echo "FAIL: could not collect tests"; exit 1; fi; \
-	if [ "$$claimed" != "$$actual" ]; then \
-		echo "FAIL: docs/COMPLIANCE.md claims $$claimed tests, pytest collects $$actual"; \
-		exit 1; \
-	fi; \
-	echo "  clean: docs/COMPLIANCE.md and pytest agree on $$actual tests"
-
 .PHONY: audit-verify
 audit-verify: ## Verify the audit hash chain and print the head hash
 	$(COMPOSE) run --rm web flask audit-verify
@@ -365,7 +409,7 @@ lint: ## Template safety grep - fails if user data could bypass autoescaping
 		exit 1; \
 	fi
 	@echo "  clean: no autoescape bypasses"
-	@python3 tools/check_docs.py
+	@python3 tools/security_assessment.py
 
 .PHONY: verify-version
 verify-version: ## Check a release tag agrees with __version__ (TAG=v1.2.3, or HEAD's tag)
@@ -398,6 +442,61 @@ passwords-corpus: ## Regenerate the breach corpus in security/data/
 	@python3 tools/build_password_corpus.py
 
 ## ------------------------------------------------------------------- certs
+.PHONY: verify-cert
+verify-cert: ## Check the served certificate, and that a renewed file was picked up
+	@set -e; \
+	command -v openssl >/dev/null 2>&1 \
+		|| { echo "SKIP: openssl is not on this host, so the served certificate cannot be read"; exit 0; }; \
+	host=$${DOOM_DOMAIN:-localhost}; port=$${HTTPS_PORT:-443}; \
+	echo "checking the certificate served on 127.0.0.1:$$port for $$host..."; \
+	served=$$(openssl s_client -connect 127.0.0.1:$$port -servername $$host </dev/null 2>/dev/null \
+		| openssl x509 2>/dev/null); \
+	test -n "$$served" \
+		|| { echo "FAIL: nothing answered TLS on 127.0.0.1:$$port - is the stack up?"; exit 1; }; \
+	printf '%s\n' "$$served" | openssl x509 -noout -subject -issuer -enddate | sed 's/^/  /'; \
+	\
+	configured=$$(cat caddy/conf.d/site/*.caddy 2>/dev/null \
+		| sed -n 's/^[[:space:]]*tls[[:space:]]\{1,\}\([^[:space:]]*\).*/\1/p' | head -1); \
+	\
+	if [ -z "$$configured" ]; then \
+		if printf '%s\n' "$$served" | openssl x509 -noout -checkend 0 >/dev/null 2>&1; then \
+			echo "  ok: Caddy is managing this certificate itself, and it is valid"; \
+			echo "      A short expiry here is normal and not a finding: Caddy's"; \
+			echo "      internal CA issues 12-hour leaves and renews them itself."; \
+			exit 0; \
+		fi; \
+		echo "FAIL: the served certificate has expired and Caddy manages it, so"; \
+		echo "      renewal is broken rather than merely due. Check the caddy logs."; \
+		exit 1; \
+	fi; \
+	\
+	if printf '%s\n' "$$served" | openssl x509 -noout -checkend $$((21*86400)) >/dev/null 2>&1; then \
+		echo "  ok: more than 21 days of validity left"; \
+	else \
+		echo "FAIL: this certificate comes from a file, so nothing here renews it,"; \
+		echo "      and it expires within 21 days (or already has)."; exit 1; \
+	fi; \
+	\
+	onhost=caddy/certs/$${configured##*/}; \
+	test -f "$$onhost" \
+		|| { echo "FAIL: $$configured is configured but $$onhost does not exist"; exit 1; }; \
+	disk=$$(openssl x509 -noout -fingerprint -sha256 -in "$$onhost" 2>/dev/null | cut -d= -f2); \
+	wire=$$(printf '%s\n' "$$served" | openssl x509 -noout -fingerprint -sha256 | cut -d= -f2); \
+	if [ "$$disk" = "$$wire" ]; then \
+		echo "  ok: the file on disk is the certificate being served"; \
+	else \
+		echo "FAIL: $$onhost has been replaced but Caddy is still serving the old"; \
+		echo "      certificate. Caddy reads a 'tls <file>' certificate once, at"; \
+		echo "      config load, and does not watch the file - so a renewal in"; \
+		echo "      place takes effect only on restart:"; \
+		echo; \
+		echo "          docker compose restart caddy"; \
+		echo; \
+		echo "      Hook that onto your renewal (acme.sh --reloadcmd, certbot"; \
+		echo "      --deploy-hook) so this cannot happen again."; \
+		exit 1; \
+	fi
+
 .PHONY: trust-cert
 trust-cert: ## Export Caddy's root CA for installing on a demo phone
 	@mkdir -p certs

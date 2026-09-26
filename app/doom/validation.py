@@ -57,6 +57,26 @@ PASSWORD_MAX = 128
 #: Share PINs protect a capability URL that is already unguessable, so they
 #: defend against shoulder-surfing and casual forwarding rather than offline
 #: cracking.  They are still Argon2id-hashed, never stored in the clear.
+#: Words that must not appear in a password (ASVS 5.0.0-6.1.2 / 6.2.11).
+#:
+#: The breach corpus in ``security/data/common_passwords.txt`` screens what
+#: the world has already guessed.  This screens what *this* system makes
+#: obvious: an attacker who knows they are looking at a DOOM inventory starts
+#: with the product's own vocabulary, and "doominventory2024" is in no breach
+#: list yet.
+#:
+#: Substring matching, case-folded, so "MyDoomPassphrase" is caught as well as
+#: "doom".  Deployments with their own organisation and site names should
+#: extend this list; docs/security/POLICIES.md says so and says why.
+CONTEXT_WORDS = (
+    "doom",
+    "inventory",
+    "warehouse",
+    "organizer",
+    "organiser",
+    "storage",
+)
+
 SHARE_PIN_MIN = 4
 SHARE_PIN_MAX = 32
 
@@ -158,6 +178,12 @@ LOOKUP_RATE_LIMIT = "20 per hour"
 #: path, which is an availability problem however well-formed each file is.
 STORAGE_QUOTA_BYTES = 2 * 1024 * 1024 * 1024
 
+#: A byte ceiling alone does not stop the other half of the same attack: a
+#: million one-kilobyte files fit comfortably inside the quota above and still
+#: cost an inode each, a row each, and a directory listing that no longer
+#: completes (ASVS 5.0.0-5.2.4).
+MAX_ATTACHMENTS_PER_OWNER = 5_000
+
 #: How many recently-used locations to offer at the top of a filing dropdown.
 #: The fix for "filing is hard" is fewer decisions, not encouragement.
 RECENT_LOCATION_COUNT = 5
@@ -246,6 +272,32 @@ ALLOWED_DOC_TYPES = {
 
 ALLOWED_UPLOAD_TYPES = {**ALLOWED_IMAGE_TYPES, **ALLOWED_DOC_TYPES}
 
+#: Which submitted filename extensions may accompany each accepted content type.
+#:
+#: The stored file's extension is generated from the sniffed type and never
+#: from this table - see ``security/uploads.py``.  This is the separate check
+#: ASVS 5.0.0-5.2.2 asks for: that the extension the *client* put on the file
+#: agrees with what the bytes actually are.  A ``report.pdf`` that is really a
+#: JPEG is not dangerous here, but it is a lie about the file, and the cheapest
+#: place to notice a caller that lies is before the bytes are stored.
+#:
+#: Markdown is the reason ``text/plain`` accepts ``.md``: libmagic cannot
+#: distinguish Markdown from any other plain text, so it reports ``text/plain``
+#: for both and a strict one-extension-per-type table would reject every
+#: ``.md`` upload the allowlist above deliberately permits.
+UPLOAD_EXTENSIONS_FOR_TYPE = {
+    "image/jpeg": {".jpg", ".jpeg", ".jpe"},
+    "image/png": {".png"},
+    "image/webp": {".webp"},
+    "application/pdf": {".pdf"},
+    "text/plain": {".txt", ".text", ".md", ".markdown"},
+    "text/markdown": {".md", ".markdown", ".txt"},
+}
+
+#: Longest extension this will consider.  Past this it is not an extension,
+#: it is the tail of a filename with a dot in it.
+UPLOAD_EXTENSION_MAX = 10
+
 #: Deliberately absent, with reasons - see docs/DECISIONS.md:
 #:
 #:   image/svg+xml  SVG is an XSS vector.  It is a document format that can
@@ -326,6 +378,40 @@ LOCKOUT_BACKOFF_SECONDS = (60, 300, 900)
 LOCKOUT_MAX_SECONDS = 900
 
 SESSION_LIFETIME_HOURS = 12
+
+#: Idle timeout.  A session that has not been used for this long is ended even
+#: though the absolute lifetime above has not expired (ASVS 5.0.0-7.3.1).
+#:
+#: One hour rather than the fifteen minutes a banking application would use.
+#: The documented risk position is in docs/security/POLICIES.md: the realistic
+#: exposure here is an unattended phone or a shared terminal, and the data is a
+#: map to physical property rather than money or health records.  A warehouse
+#: user genuinely does put the phone in a pocket and walk for twenty minutes
+#: between scans, and a timeout they keep tripping over is one they work
+#: around - by never signing out, on a device that never locks.
+SESSION_IDLE_MINUTES = 60
+
+#: How many devices may hold a live session for one account at once
+#: (ASVS 5.0.0-7.1.2).  Reaching the limit ends the least recently used
+#: session rather than refusing the new sign-in: locking someone out of the
+#: device in their hand because of a session they forgot about on a machine
+#: they no longer own is the wrong failure.  Every session is listed and
+#: individually revocable on the account page.
+MAX_CONCURRENT_SESSIONS = 10
+
+#: How long a half-finished sign-in may sit between the password step and the
+#: second factor (ASVS 5.0.0-6.3.3).
+#:
+#: Five minutes. Long enough to find a phone, unlock it and read six digits;
+#: short enough that a pending state left on a shared machine is not a standing
+#: invitation. The pending marker is not an authenticated session - it grants
+#: nothing on its own - but it does name an account, so it should not outlive
+#: the person standing at the keyboard.
+MFA_PENDING_SECONDS = 300
+
+#: Rate limit on the second-factor step. Tighter than the password step,
+#: because the search space is a million codes rather than a passphrase.
+MFA_RATE_LIMIT = "10 per 15 minutes"
 
 # ---------------------------------------------------------------------------
 # Profile

@@ -4,6 +4,12 @@ Everything a QR code or NFC tag points at lands here.  This is the only part
 of DOOM an unauthenticated stranger can reach with real data behind it, so the
 rules are tighter than anywhere else:
 
+* the token never appears in a URL (ASVS 14.2.1).  A label encodes it in the
+  fragment - ``https://host/t/#<token>`` - which browsers do not transmit, and
+  the unlock page moves it into a POST body.  What the address bar, the browser
+  history, the Referer header and every access log in between then hold is
+  ``/t/`` and a per-session handle that is worthless without this visitor's
+  own signed cookie
 * the token identifies, it does not authorize (T-36)
 * responses are built from reduced serializers, never from ORM objects (T-20)
 * nothing links upward or sideways - a shared page is a leaf, not a doorway
@@ -21,13 +27,26 @@ from __future__ import annotations
 
 import logging
 import re
+import hashlib
+import hmac
+import secrets
 
-from flask import Blueprint, Response, abort, render_template, request, session
+from flask import (
+    Blueprint,
+    Response,
+    abort,
+    current_app,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from sqlalchemy import select
 
 from .. import validation as v
 from ..extensions import db, limiter
-from ..forms import SharePinForm
+from ..forms import SharePinForm, ShareTokenForm
 from ..models import Attachment, DocLink, Item, Location
 from ..security.audit import record_audit
 from ..security.passwords import verify_share_pin
@@ -39,6 +58,32 @@ bp = Blueprint("share", __name__, url_prefix="/t")
 
 #: Session key prefix recording which shares this visitor has unlocked.
 _PIN_OK = "_share_ok:"
+
+#: Session key holding ``[[handle, token], ...]`` for this visitor, oldest first.
+#:
+#: The handle is what goes in the URL once the token has been posted. It is
+#: not a secret and confers nothing: it only names an entry in *this* visitor's
+#: signed session cookie, so the same handle in anyone else's hands addresses
+#: nothing at all.
+#:
+#: A list of pairs rather than the obvious ``{handle: token}`` dict, because
+#: the eviction below has to drop the *oldest* entry and a dict cannot carry
+#: that information through the cookie: Flask serialises session values with
+#: ``json.dumps(..., sort_keys=True)``, so a dict comes back in alphabetical
+#: order of its keys - which, for random handles, is an arbitrary order. The
+#: first version of this evicted whichever handle happened to sort first and
+#: left the genuinely oldest one live; the cap held, the ordering did not, and
+#: only the test that walked past the cap noticed.
+_SHARE_HANDLES = "_share_handles"
+
+#: How many labels one visitor may hold open at once.
+#:
+#: The session is a cookie, and a cookie that grows past roughly 4 KB is
+#: silently dropped by the browser - which would log the visitor out of every
+#: share at once and look like a server fault. Eight handles plus their PIN
+#: approvals stay an order of magnitude inside that, and walking round a
+#: warehouse scanning labels must not be able to fill it.
+_MAX_HANDLES = 8
 
 
 @bp.after_request
@@ -103,28 +148,148 @@ def _resolve(token: str):
     abort(404)
 
 
+def _pin_approval(node) -> str:
+    """Bind approval to current credentials without exposing the PIN hash.
+
+    Flask sessions are signed, not encrypted. A plain hash of a PIN hash
+    would provide a verifier for guesses; use a server-keyed MAC instead.
+    Changing either credential invalidates previously issued approvals.
+    """
+    key = current_app.secret_key
+    if isinstance(key, str):
+        key = key.encode()
+    message = f"share-pin:{node.id}:{node.share_token}:{node.share_pin_hash}"
+    return hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+
+
 def _pin_required(node) -> bool:
     if not node.share_pin_hash:
         return False
-    return session.get(f"{_PIN_OK}{node.id}") is not True
+    approval = session.get(f"{_PIN_OK}{node.id}")
+    return not (isinstance(approval, str) and hmac.compare_digest(approval, _pin_approval(node)))
 
 
-@bp.route("/<token>", methods=["GET", "POST"])
+def _remember(token: str) -> str:
+    """Store a validated token in this visitor's session and name it.
+
+    Re-scanning the same label returns the handle already issued for it rather
+    than minting a second one, so refreshing a share page is stable and a
+    warehouse round does not churn through the cap below.
+    """
+    held = _held()
+
+    for existing, value in held:
+        if hmac.compare_digest(value, token):
+            return existing
+
+    # 16 bytes, not 12: a handle is not a credential - it is useless without
+    # the signed cookie that holds its entry - but sizing it at 128 bits means
+    # nobody has to be persuaded of that before they can read the next line.
+    handle = secrets.token_urlsafe(16)
+    held.append([handle, token])
+
+    # Oldest out first. The list is append-ordered, so this really is a queue.
+    del held[:-_MAX_HANDLES]
+
+    session[_SHARE_HANDLES] = held
+    return handle
+
+
+def _held() -> list[list[str]]:
+    """This visitor's ``[handle, token]`` pairs, ignoring anything malformed.
+
+    The session is signed, so a malformed entry is not an attacker's doing -
+    it is this application's own older format, or a half-written value. Either
+    way it is dropped rather than trusted.
+    """
+    raw = session.get(_SHARE_HANDLES)
+    if not isinstance(raw, list):
+        return []
+    return [
+        [entry[0], entry[1]] for entry in raw
+        if isinstance(entry, (list, tuple)) and len(entry) == 2
+        and isinstance(entry[0], str) and isinstance(entry[1], str)
+    ]
+
+
+def _token_for(handle: str) -> str:
+    """The token this visitor's session filed under ``handle``, or 404.
+
+    A handle nobody issued, a handle from somebody else's session, and a
+    handle whose entry has aged out of the cap are the same answer, for the
+    same reason every other miss in this application is a 404: the response
+    must not distinguish "wrong" from "gone".
+    """
+    # hmac.compare_digest raises TypeError on a non-ASCII str, and a path
+    # segment can carry any UTF-8 the client likes. Shape-checking first keeps
+    # a hand-typed URL on the same 404 as every other miss instead of turning
+    # it into a 500 (D-06).
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", handle):
+        abort(404)
+
+    for existing, token in _held():
+        if hmac.compare_digest(existing, handle) and re.fullmatch(
+            v.SHARE_TOKEN_PATTERN, token
+        ):
+            return token
+    abort(404)
+
+
+@bp.route("/", methods=["GET"])
+def unlock():
+    """The page every label points at.
+
+    It carries no data of its own and lists nothing: there is still no route
+    that enumerates shares. Its whole job is to take the token out of the
+    fragment - which the browser kept to itself - and put it in a POST body.
+    """
+    return render_template("share/unlock.html", form=ShareTokenForm())
+
+
+@bp.route("/", methods=["POST"])
 @limiter.limit(v.SHARE_RATE_LIMIT)
-def view(token: str):
+def open_share():
+    """Exchange a posted share code for a session handle.
+
+    303 rather than rendering the page directly, so the browser lands on a GET
+    it can refresh, bookmark and go back to without re-submitting the code -
+    and so the code is not sitting in a form resubmission prompt.
+    """
+    form = ShareTokenForm()
+
+    if not form.validate_on_submit():
+        # A malformed code never reaches _resolve, so it is neither a database
+        # lookup nor an audit row - exactly the split _resolve already makes
+        # between a plausible miss and garbage.
+        form.token.errors = ["That is not a valid share code."]
+        return render_template("share/unlock.html", form=form), 400
+
+    token = form.token.data.strip()
+    _resolve(token)  # 404s, and audits a well-formed miss, before anything is stored
+    return redirect(url_for("share.view", handle=_remember(token)), code=303)
+
+
+@bp.route("/v/<handle>", methods=["GET", "POST"])
+@limiter.limit(v.SHARE_RATE_LIMIT)
+def view(handle: str):
     """Render a shared item or container.
 
     Rate limited hard. A 256-bit token is not guessable, but limits also cap
     what an attacker holding a handful of leaked tokens can harvest, and make
     bulk crawling of this surface impractical.
+
+    The node is resolved from the token on every request rather than cached
+    alongside the handle: unsharing, rotating the token or changing the PIN
+    then takes effect on the visitor's next page view instead of whenever
+    their session happens to end.
     """
-    node = _resolve(token)
+    node = _resolve(_token_for(handle))
     form = SharePinForm()
 
     if _pin_required(node):
         if form.validate_on_submit():
             if verify_share_pin(node.share_pin_hash, form.pin.data):
-                session[f"{_PIN_OK}{node.id}"] = True
+                session[f"{_PIN_OK}{node.id}"] = _pin_approval(node)
                 record_audit(
                     action="share_pin_accepted",
                     object_type=type(node).__name__.lower(),
@@ -163,8 +328,10 @@ def _render_item(item: Item):
 
     # A dict, not the ORM object. The template cannot reach item.owner or
     # item.location even by accident, because they are not in what it is given.
+    # No token in the template context. Nothing in share/ renders it, and a
+    # value a template cannot reach is a value a template cannot leak (T-20).
     view_model = public_item(item, attachments=attachments, links=links)
-    return render_template("share/item.html", node=view_model, token=item.share_token)
+    return render_template("share/item.html", node=view_model)
 
 
 def _render_location(location: Location):
@@ -189,6 +356,4 @@ def _render_location(location: Location):
     view_model = public_location(
         location, items=items, attachments=attachments, links=links
     )
-    return render_template(
-        "share/location.html", node=view_model, token=location.share_token
-    )
+    return render_template("share/location.html", node=view_model)

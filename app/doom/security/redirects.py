@@ -40,7 +40,12 @@ def is_safe_redirect(target: str | None) -> bool:
     if not target:
         return False
 
-    target = target.strip()
+    # Validate the exact value that will be returned. Browsers, URL parsers
+    # and response encoders normalize whitespace/backslashes differently.
+    if target != target.strip() or "\\" in target:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 for char in target):
+        return False
 
     if not target.startswith("/"):
         return False
@@ -49,7 +54,10 @@ def is_safe_redirect(target: str | None) -> bool:
     if target.startswith("//") or target.startswith("/\\"):
         return False
 
-    parsed = urlparse(target)
+    try:
+        parsed = urlparse(target)
+    except ValueError:
+        return False
 
     # A relative path has neither of these. Anything that does is absolute.
     if parsed.scheme or parsed.netloc:

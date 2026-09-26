@@ -42,6 +42,7 @@ jobs:
       - run: cp app/requirements-dev.txt /tmp/requirements-dev-hashed.txt
       - run: pip-compile --generate-hashes app/requirements-dev.in -o /tmp/requirements-dev-hashed.txt
       - run: diff -I '^#' /tmp/requirements-dev-hashed.txt app/requirements-dev.txt
+      - run: python3 -m unittest discover -s tools/tests -v
       - run: make lint
 
   test:
@@ -54,6 +55,13 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
       - run: make build
+      - run: make init
+
+      # CI always starts from a clean checkout, so nothing here had ever run
+      # init against secrets/ that a prior run already wrote and chmod 444 -
+      # exactly what upgrading a real deployment to internal TLS requires, to
+      # get the new CA and certs. That second run crashed every redirect in
+      # the secret-writing block with "Permission denied".
       - run: make init
 
       # Anonymous Docker Hub pulls from GitHub-hosted runners are rate-limited
@@ -98,7 +106,6 @@ jobs:
       - run: make test
       # The published test count is only checkable where the container and the
       # docs/ tree are both present, which is here and not in the lint job.
-      - run: make verify-test-count
 
       # Connects as the restricted role and proves the two-role split is real:
       # it exists, it can read and write rows, and it can do neither DDL nor

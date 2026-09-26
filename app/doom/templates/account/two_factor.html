@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "_macros.html" import field, submit %}
+{% block title %}Two-factor sign-in{% endblock %}
+
+{% block content %}
+<section class="panel panel-narrow">
+  <h1>Two-factor sign-in</h1>
+
+  {% if current_user.has_totp %}
+    <p>
+      <strong>On.</strong> Signing in asks for a code from your authenticator
+      after your password.
+    </p>
+    <p class="muted small">
+      {{ remaining }} unused recovery code{{ '' if remaining == 1 else 's' }}
+      remaining.
+    </p>
+
+    <h2>New recovery codes</h2>
+    <p class="muted small">
+      Generating a new set invalidates the old one. Do this if you think your
+      saved codes have been seen.
+    </p>
+    <form method="post" action="{{ url_for('account.regenerate_recovery_codes') }}" novalidate>
+      {{ enrol_form.hidden_tag() }}
+      {{ field(enrol_form.current_password) }}
+      <button class="button" type="submit">Generate new recovery codes</button>
+    </form>
+
+    <h2>Turn it off</h2>
+    <p class="muted small">
+      Both your password and a current code, because removing the protection
+      should need everything that protects it.
+    </p>
+    <form method="post" action="{{ url_for('account.two_factor_disable') }}" novalidate>
+      {{ disable_form.hidden_tag() }}
+      {{ field(disable_form.current_password) }}
+      {{ field(disable_form.code, placeholder="123456") }}
+      {{ submit(disable_form.submit, variant="quiet") }}
+    </form>
+
+  {% elif pending %}
+    <p>Scan this with an authenticator app, then enter the code it shows.</p>
+
+    {# Rendered inline as a data: URI, which the CSP allows for images. #}
+    <p><img class="qr" src="{{ qr }}" alt="Enrolment QR code" width="240" height="240"></p>
+
+    <p class="muted small">
+      Cannot scan? Enter this key by hand:<br>
+      <code>{{ secret }}</code>
+    </p>
+
+    <form method="post" action="{{ url_for('account.two_factor_confirm') }}" novalidate>
+      {{ confirm_form.hidden_tag() }}
+      {{ field(confirm_form.code, autofocus=true, placeholder="123456") }}
+      <label class="check">
+        {{ confirm_form.sign_out_others() }} {{ confirm_form.sign_out_others.label.text }}
+      </label>
+      {{ submit(confirm_form.submit) }}
+    </form>
+
+  {% else %}
+    <p>
+      <strong>Off.</strong> Your password is currently the only thing between
+      somebody who has it and everything in your inventory.
+    </p>
+    <p class="muted small">
+      You will need an authenticator app on your phone. Any of them will do -
+      this uses the standard TOTP scheme, not a proprietary one.
+    </p>
+    <form method="post" action="{{ url_for('account.two_factor_begin') }}" novalidate>
+      {{ enrol_form.hidden_tag() }}
+      {{ field(enrol_form.current_password) }}
+      {{ submit(enrol_form.submit) }}
+    </form>
+  {% endif %}
+
+  <p class="muted small"><a href="{{ url_for('account.profile') }}">Back to your account</a></p>
+</section>
+{% endblock %}

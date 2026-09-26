@@ -18,9 +18,11 @@ from sqlalchemy import select
 
 from .. import validation as v
 from ..extensions import db, limiter, login_manager
-from ..forms import ChangePasswordForm, LoginForm, RegisterForm
+from ..forms import ChangePasswordForm, LoginForm, RegisterForm, TotpForm
 from ..models import User, UserSession, utcnow
 from ..security.audit import record_audit
+from ..security import mfa
+from ..security import totp
 from ..security.passwords import hash_password, needs_rehash, verify_password
 from ..security.redirects import safe_redirect_target
 
@@ -39,6 +41,15 @@ SESSION_VERSION_KEY = "_doom_sv"
 #: Session key holding this device's UserSession id, so a single device can be
 #: revoked without touching the others (ASVS 3.3.4).
 SESSION_ID_KEY = "_doom_sid"
+
+#: Session key holding a half-finished sign-in: the password has been accepted
+#: and the second factor has not.
+#:
+#: This is deliberately NOT an authenticated session. Flask-Login has no user,
+#: @login_required still refuses, and the only route that reads this key is the
+#: one that finishes the sign-in. It holds an account id, a timestamp and the
+#: post-login destination, and nothing that is worth anything on its own.
+PENDING_KEY = "_doom_pending"
 
 
 @login_manager.user_loader
@@ -84,9 +95,50 @@ def load_user(user_id: str):
                 extra={"extra_fields": {"user_id": str(user.id)}},
             )
             return None
+
+        # Inactivity timeout (ASVS 5.0.0-7.3.1). The absolute lifetime on the
+        # cookie caps how long a session can live; this caps how long an
+        # abandoned one stays usable, which is the case that actually happens -
+        # a phone left on a bench, a browser left open on a shared terminal.
+        #
+        # Revoked rather than merely refused, so the account page stops listing
+        # it and a stolen cookie cannot be retried after the fact.
+        if _expired(record):
+            _revoke(record, "idle timeout")
+            logger.info(
+                "session_idle_timeout",
+                extra={"extra_fields": {"user_id": str(user.id)}},
+            )
+            return None
+
         _touch(record)
 
     return user
+
+
+def _expired(record) -> bool:
+    """True when this session has gone unused past the idle limit."""
+    idle = utcnow() - record.last_seen_at
+    return idle.total_seconds() > v.SESSION_IDLE_MINUTES * 60
+
+
+def _revoke(record, reason: str) -> None:
+    """End one session, tolerating a database that will not take the write.
+
+    A failed revocation must not turn into a 500 on an ordinary page load:
+    the caller is about to refuse the request anyway, so the safe outcome is
+    "this request is unauthenticated" rather than "the site is down".
+    """
+    try:
+        record.revoked_at = utcnow()
+        db.session.commit()
+        record_audit(
+            action="session_revoked", object_type="user",
+            object_id=str(record.user_id), detail=reason, commit=True,
+        )
+    except Exception:
+        db.session.rollback()
+        logger.exception("session_revoke_failed")
 
 
 def _touch(record) -> None:
@@ -183,6 +235,8 @@ def login():
         # the same time as a known one.
         stored = user.password_hash if user else None
         if verify_password(stored, form.password.data) and user is not None:
+            if user.has_totp:
+                return _begin_second_factor(user)
             _finish_login(user, form.password.data)
             return redirect(safe_redirect_target("locations.index"))
 
@@ -195,26 +249,140 @@ def login():
     return render_template("auth/login.html", form=form)
 
 
-def _finish_login(user: User, plaintext: str) -> None:
+def _begin_second_factor(user: User):
+    """Park the sign-in and ask for the code.
+
+    session.clear() first, for the same reason _finish_login does it: whatever
+    was in the pre-login session was put there by somebody who had not proved
+    who they were, and this is the point at which that stops being true for the
+    first half of the credentials.
+    """
+    session.clear()
+    session[PENDING_KEY] = {
+        "uid": str(user.id),
+        "at": utcnow().timestamp(),
+        "next": safe_redirect_target("locations.index"),
+    }
+    record_audit(
+        action="login_password_accepted", object_type="user",
+        object_id=str(user.id), detail="awaiting second factor", commit=True,
+    )
+    return redirect(url_for("auth.verify"))
+
+
+def _pending_user() -> User | None:
+    """The account a half-finished sign-in belongs to, if it is still valid."""
+    pending = session.get(PENDING_KEY)
+    if not isinstance(pending, dict):
+        return None
+
+    issued = pending.get("at")
+    if not isinstance(issued, (int, float)):
+        return None
+    if utcnow().timestamp() - issued > v.MFA_PENDING_SECONDS:
+        session.pop(PENDING_KEY, None)
+        return None
+
+    try:
+        user = db.session.get(User, pending.get("uid"))
+    except Exception:
+        logger.exception("pending_user_lookup_failed")
+        return None
+
+    # Re-checked rather than trusted from the cookie: the account may have been
+    # locked, deactivated or had its second factor removed in the interval.
+    if user is None or not user.is_active or user.is_locked or not user.has_totp:
+        session.pop(PENDING_KEY, None)
+        return None
+    return user
+
+
+@bp.route("/login/verify", methods=["GET", "POST"])
+@limiter.limit(v.MFA_RATE_LIMIT, methods=["POST"])
+def verify():
+    """Second factor, or a recovery code instead of one.
+
+    A wrong code counts toward the same lockout the password step uses. Without
+    that, the second factor would be the one credential in the system an
+    attacker could grind at a million guesses without consequence.
+    """
+    if current_user.is_authenticated:
+        return redirect(url_for("locations.index"))
+
+    user = _pending_user()
+    if user is None:
+        flash("That sign-in expired. Start again.", "info")
+        return redirect(url_for("auth.login"))
+
+    form = TotpForm()
+
+    if form.validate_on_submit():
+        destination = (session.get(PENDING_KEY) or {}).get("next")
+        recovery = (form.recovery_code.data or "").strip()
+
+        if recovery:
+            if mfa.consume(user, recovery):
+                _finish_login(user, None)
+                remaining = mfa.remaining(user)
+                record_audit(
+                    action="login_recovery_code", object_type="user",
+                    object_id=str(user.id), detail=f"{remaining} remaining",
+                    commit=True,
+                )
+                flash(
+                    f"Signed in with a recovery code. {remaining} left - "
+                    f"generate a new set from your account page.",
+                    "warning" if remaining <= 2 else "info",
+                )
+                return redirect(destination or url_for("locations.index"))
+        else:
+            step = totp.verify(
+                user.totp_secret, form.code.data or "",
+                last_step=user.totp_last_step,
+            )
+            if step is not None:
+                # Recorded before the session exists, so a code cannot be
+                # replayed into a second session even in the same time step.
+                user.totp_last_step = step
+                _finish_login(user, None)
+                return redirect(destination or url_for("locations.index"))
+
+        _record_failure(user)
+        record_audit(
+            action="login_second_factor_failed", object_type="user",
+            object_id=str(user.id), commit=True,
+        )
+        form.code.errors.append(
+            "That code was not accepted. Codes expire after 30 seconds and "
+            "each one works only once."
+        )
+
+    return render_template("auth/verify.html", form=form)
+
+
+def _finish_login(user: User, plaintext: str | None) -> None:
     """Establish an authenticated session."""
     # Session fixation defence (T-04): discard anything an attacker may have
     # planted in the pre-login session before writing the authenticated
     # identity into it.
-    session.clear()
+    session.clear()          # drops the pending marker along with everything else
 
     user.failed_login_count = 0
     user.locked_until = None
     user.last_login_at = utcnow()
 
-    # The plaintext is available only here. If the cost parameters have been
-    # raised since this hash was written, upgrade it now - no reset email, no
-    # forced rotation, the user notices nothing.
-    if needs_rehash(user.password_hash):
+    # The plaintext is available only here, and only when the second factor
+    # was a code rather than a recovery code - a recovery-code sign-in never
+    # sees the password, so there is nothing to rehash from and the upgrade
+    # simply waits for the next ordinary sign-in.
+    if plaintext is not None and needs_rehash(user.password_hash):
         user.password_hash = hash_password(plaintext)
         logger.info(
             "password_hash_upgraded",
             extra={"extra_fields": {"user_id": str(user.id)}},
         )
+
+    _enforce_session_cap(user)
 
     record = UserSession(
         user_id=user.id,
@@ -233,6 +401,31 @@ def _finish_login(user: User, plaintext: str) -> None:
         action="login", object_type="user", object_id=str(user.id), actor_id=user.id
     )
     db.session.commit()
+
+
+def _enforce_session_cap(user: User) -> None:
+    """Keep one account inside its concurrent-session limit (ASVS 7.1.2).
+
+    The least recently used sessions are ended to make room, rather than the
+    new sign-in being refused. Refusing would mean an account that has
+    accumulated forgotten sessions on machines its owner no longer has locks
+    them out of the device in their hand, and the only way back would be an
+    operator - which is a support burden that ends in the limit being raised
+    until it means nothing.
+    """
+    live = db.session.execute(
+        select(UserSession)
+        .where(UserSession.user_id == user.id, UserSession.revoked_at.is_(None))
+        .order_by(UserSession.last_seen_at.desc())
+    ).scalars().all()
+
+    # -1 because the session about to be created needs a place too.
+    for stale in live[max(v.MAX_CONCURRENT_SESSIONS - 1, 0):]:
+        stale.revoked_at = utcnow()
+        record_audit(
+            action="session_revoked", object_type="user", object_id=str(user.id),
+            detail="concurrent session limit", actor_id=user.id,
+        )
 
 
 def _record_failure(user: User) -> None:
@@ -281,7 +474,26 @@ def logout():
     logout_user()
     session.clear()
     flash("Signed out.", "info")
-    return redirect(url_for("main.index"))
+
+    response = redirect(url_for("main.index"))
+
+    # ASVS 14.3.1 - tell the browser to drop what it cached for this origin,
+    # not just the cookie. Dropping the cookie ends the *session*; it leaves
+    # the rendered inventory sitting in the back/forward cache, in localStorage
+    # and in the HTTP cache of whatever machine this was. On a shared computer
+    # that is the whole disclosure.
+    #
+    # "executionContexts" is deliberately not requested. It reloads every open
+    # tab on this origin, and browsers disagree about whether that happens
+    # before or after the redirect completes, which has produced reload loops.
+    # The three categories below are the durable state; the volatile DOM goes
+    # with the navigation that follows.
+    #
+    # Browsers honour this header only over HTTPS, which production is and the
+    # test client is not - so the assertion that it is present is a header
+    # test, and the isolated container review is what shows it taking effect.
+    response.headers["Clear-Site-Data"] = '"cache", "cookies", "storage"'
+    return response
 
 
 @bp.route("/account/password", methods=["GET", "POST"])

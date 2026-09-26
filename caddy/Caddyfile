@@ -9,13 +9,31 @@
 	# that need it through `make trust-cert`.
 	skip_install_trust
 
-	# Deploying against a real public domain? Add your ACME contact here:
+	# Operator TLS settings, if there are any.
+	#
+	# A glob that matches nothing is not an error, so this is how an optional
+	# block is spelled in a Caddyfile - there are no conditionals. Anything an
+	# operator drops in caddy/conf.d/*.caddy is merged into these global
+	# options.
+	#
+	# The obvious alternative does not work, and the failure is a parse error
+	# at boot rather than a no-op: `email {$ACME_EMAIL}` with the variable
+	# unset expands to a bare `email` with no argument. That is why the
+	# ACME_EMAIL variable that compose used to pass in here did nothing at all
+	# - it was read by no one. The two things an operator actually wants to
+	# set when moving to a public domain are in caddy/conf.d/README.md:
 	#
 	#     email you@example.com
+	#     acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
 	#
-	# It is left out by default because DOOM_DOMAIN=localhost is served by
-	# Caddy's internal CA, which needs no ACME account - and an empty `email`
-	# directive is a parse error rather than a no-op.
+	# The second is the one that saves a weekend. Let's Encrypt rate-limits
+	# failed validations, and a misconfigured first attempt burns that budget
+	# while you are still working out why. Point at staging until a
+	# certificate is issued, then remove the line.
+	#
+	# None of this is needed for DOOM_DOMAIN=localhost, which Caddy serves
+	# from its internal CA without an ACME account at all.
+	import /etc/caddy/conf.d/*.caddy
 
 	# HTTP/1.1 and HTTP/2 only.  With h3 on, every response carried
 	# `alt-svc: h3=":443"` - a UDP port compose never publishes, and the wrong
@@ -36,7 +54,12 @@
 #   - the `-Server` below applies inside a site block, and the automatic
 #     redirect is generated outside any, so it still said "Server: Caddy".
 http://{$DOOM_DOMAIN:localhost} {
-	header -Server
+	header {
+		defer
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+	}
 	redir https://{host}:{$HTTPS_PORT:443}{uri} 308
 }
 
@@ -53,24 +76,132 @@ http://{$DOOM_DOMAIN:localhost} {
 		max_size 12MB
 	}
 
-	header {
-		-Server
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	# Only TLS 1.2 and 1.3 are offered (ASVS 12.1.1).  Caddy's default minimum
+	# is already 1.2, so this changes no behaviour - it states the policy in
+	# the configuration instead of inheriting it, so a future default cannot
+	# quietly lower it and so the setting is reviewable without knowing which
+	# Caddy version shipped which default.
+	tls {
+		protocols tls1.2 tls1.3
+	}
+
+	# The edge's own copy of the security header set (ASVS 3.4.x).
+	#
+	# The application sets all of these itself, and for every response the
+	# application produces that is where they come from.  This block exists for
+	# the responses it does NOT produce: during a container replacement Caddy
+	# answered a request with its own 502, and that response carried no CSP, no
+	# nosniff, no HSTS and even kept `Server: Caddy`, because a non-deferred
+	# `header` block is applied on the way in and an error response never gets
+	# that far.  A header set that is present on every response except the ones
+	# generated when something is already wrong is not a header set.
+	#
+	# Two details make this work rather than break the application:
+	#
+	#   the operations are evaluated when the response is written, which is
+	#   the only point at which the upstream's own headers exist to be
+	#   inspected;
+	#
+	#   `?` means "set only if absent" - Caddy's equivalent of the
+	#   `setdefault` the application uses.  Without it this block would
+	#   overwrite the app's real CSP with the restrictive placeholder below and
+	#   take every stylesheet and script down with it.
+	#
+	# The `?` operations are written one per directive, and that is load-bearing
+	# rather than a style choice.  Collected into a single `header { ... }`
+	# block, the Caddyfile adapter merges them into one handler with one
+	# `require` matcher listing every field, so the whole set applies only when
+	# *none* of those headers is present.  Because the application does send
+	# some of them, the matcher never matched and not one default was added -
+	# a block that reads exactly like this one and silently did nothing.
+	# One directive per field gives each its own matcher, which is the
+	# behaviour the comment above describes.  Verified in
+	# evidence/proxy-edge-headers.txt.
+	#
+	# `defer` is not written here: the adapter already marks a delete
+	# operation deferred, and a `require` matcher makes Caddy evaluate the
+	# remaining operations against the finished response for the same reason.
+	# (Spelled as a bare `header defer` it is not a modifier at all - it parses
+	# as a field named "Defer" and emits an empty header of that name.)
+	header -Server
+	header ?Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	header ?X-Content-Type-Options "nosniff"
+	header ?X-Frame-Options "DENY"
+	header ?Referrer-Policy "same-origin"
+	header ?Cross-Origin-Opener-Policy "same-origin"
+	header ?Cross-Origin-Resource-Policy "same-origin"
+	header ?Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+	# Error responses Caddy generates on its own - 502 while the app restarts,
+	# 413 from the body limit above, a TLS-level refusal - are routed here so
+	# they leave with the same headers and a body that says nothing about what
+	# failed.  `handle_errors` is a separate route, which is exactly why the
+	# header block above cannot reach it on its own.
+	handle_errors {
+		header {
+			defer
+			-Server
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			X-Content-Type-Options "nosniff"
+			X-Frame-Options "DENY"
+			Referrer-Policy "same-origin"
+			Cross-Origin-Opener-Policy "same-origin"
+			Cross-Origin-Resource-Policy "same-origin"
+			Content-Security-Policy "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+			Cache-Control "no-store"
+		}
+		respond "{err.status_code} {err.status_text}" {err.status_code}
 	}
 
 	# The uploads volume is deliberately NOT mounted here.  A file_server
 	# directive for it would bypass every ownership check in the application
 	# (T-24).  Files are only ever served through an authenticated handler.
 
-	reverse_proxy web:8000 {
+	# Site-scoped operator settings: a `tls` line naming a certificate this
+	# deployment did not issue itself, most often a wildcard from whatever
+	# already manages certificates on the network. Empty by default, glob
+	# import, so empty is not an error. See caddy/conf.d/README.md.
+	import /etc/caddy/conf.d/site/*.caddy
+
+	reverse_proxy https://web:8000 {
+		# gunicorn terminates TLS itself (app/Dockerfile's --certfile/--keyfile)
+		# rather than being trusted on the strength of the internal network
+		# alone (ASVS 5.0.0-12.3.3). tls_server_name matters here as much as
+		# tls_trust_pool does: without it Caddy still requires a valid chain
+		# but checks it against the address in the reverse_proxy line rather
+		# than the name on the certificate, which happens to be the same
+		# string today only because the upstream and the SAN are both "web" -
+		# tls_server_name is what makes that a stated check rather than a
+		# coincidence.
+		transport http {
+			tls
+			tls_trust_pool file {
+				pem_file /run/secrets/doom_internal_ca_cert
+			}
+			tls_server_name web
+		}
+
 		# OVERWRITE, never append (T-07).
 		#
 		# Caddy's default is to append to any inbound X-Forwarded-For.  That
 		# would let a client seed the chain with a forged address and, paired
 		# with ProxyFix trusting one hop, hand every attacker a fresh
-		# rate-limit bucket.  Pinning the header to the real peer address is
-		# what makes per-IP limiting mean anything.
-		header_up X-Forwarded-For {remote_host}
+		# rate-limit bucket.  Pinning the header to one value we chose is what
+		# makes per-IP limiting mean anything.
+		#
+		# {client_ip}, not {remote_host}, and the two are the same value until
+		# an operator says otherwise. With no `trusted_proxies` configured -
+		# the default - {client_ip} IS the direct peer and a forged
+		# X-Forwarded-For is ignored exactly as before. Declaring an upstream
+		# proxy trusted, which a homelab running Traefik or its own Caddy in
+		# front of this needs to do, makes {client_ip} resolve the real client
+		# out of the chain that proxy wrote.
+		#
+		# Without this, putting any reverse proxy in front collapses every
+		# visitor into one rate-limit bucket and writes the proxy's address
+		# into every audit row - a failure that looks like nothing until the
+		# day it matters.
+		header_up X-Forwarded-For {client_ip}
 		header_up X-Forwarded-Proto {scheme}
 
 		# {hostport}, NOT {host}: the bare {host} placeholder drops the port.

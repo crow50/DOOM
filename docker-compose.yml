@@ -15,21 +15,39 @@ services:
       - "${HTTPS_PORT:-443}:443"
     environment:
       DOOM_DOMAIN: ${DOOM_DOMAIN:-localhost}
-      ACME_EMAIL: ${ACME_EMAIL:-}
       # The plaintext listener redirects to https://host:HTTPS_PORT.  Caddy's
       # automatic redirect targets the bare site address, which on the
       # unprivileged default ports sent visitors to :443 where nothing
       # listens.
       HTTPS_PORT: ${HTTPS_PORT:-443}
+    # Verifies gunicorn's certificate for the caddy->web hop (ASVS
+    # 5.0.0-12.3.3, 12.3.4) - see the Caddyfile's reverse_proxy block, which
+    # is where this is actually used.
+    secrets:
+      - doom_internal_ca_cert
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Optional operator TLS settings - an ACME contact address, or the
+      # staging CA while a first certificate is being sorted out. Empty by
+      # default, and the Caddyfile imports it with a glob, so empty is not an
+      # error. This replaces an ACME_EMAIL environment variable that compose
+      # passed in and the Caddyfile never read.
+      - ./caddy/conf.d:/etc/caddy/conf.d:ro
+      # Certificates this deployment did not issue. Empty by default; a
+      # homelab that already runs a certificate manager mounts its wildcard
+      # here, or replaces this line with the volume that manager writes to.
+      - ./caddy/certs:/etc/caddy/certs:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
       web:
         condition: service_healthy
     networks:
+      # edge for inbound traffic from the LAN, proxy to reach the application.
+      # Caddy is the only service on both, which is what makes `web` reachable
+      # without giving `web` a route back out.
       - edge
+      - proxy
     # --- container hardening (T-34) ---
     # The same posture as `web`, and it matters more here: this is the one
     # process that parses bytes straight off the network.  Until an audit
@@ -83,6 +101,9 @@ services:
       - doom_secret_key
       - doom_app_db_password
       - doom_redis_password
+      - doom_internal_ca_cert
+      - doom_web_tls_cert
+      - doom_web_tls_key
     environment:
       SECRET_KEY_FILE: /run/secrets/doom_secret_key
       # The app gets the RESTRICTED role.  It never holds admin credentials,
@@ -102,13 +123,35 @@ services:
       # Writable island in an otherwise read-only filesystem.
       - uploads:/var/lib/doom/uploads:rw
     networks:
-      - edge
+      # NOT `edge`. The application has no route off this host at all: it can
+      # reach the database and the cache on `internal`, and Caddy can reach it
+      # on `proxy`, and that is the entire set of destinations that exist for
+      # it. This is the server-level outbound allowlist ASVS 5.0.0-13.2.4 and
+      # 13.2.5 ask for, expressed as a deny-all, which is the only version of
+      # an allowlist that cannot be incomplete.
+      #
+      # It also means an SSRF in the application has nowhere to go. That is
+      # worth more than the validation in security/lookup.py, because it holds
+      # even when the validation is wrong.
+      #
+      # Enabling BARCODE_LOOKUP_PROVIDER needs outbound HTTPS and therefore
+      # needs `edge` added back here. That is a deliberate, reviewable change
+      # rather than the default posture - see docs/security/POLICIES.md §9.
+      - proxy
       - internal
     depends_on:
       db:
         condition: service_healthy
       cache:
         condition: service_healthy
+      # Not condition: service_healthy - clamd's first boot downloads a
+      # multi-million-signature database and can take minutes, and gating
+      # the whole application on that would make one slow dependency block
+      # every route, not just uploads. Uploads themselves fail closed
+      # (app/doom/security/av.py) if clamd is not answering yet, which is
+      # the behaviour that actually matters here.
+      clamav:
+        condition: service_started
     # --- container hardening (T-34) ---
     read_only: true
     tmpfs:
@@ -121,7 +164,11 @@ services:
     # must fit here with headroom, or concurrent logins OOM the container (T-30).
     mem_limit: 1g
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)"]
+      # https, and by the service name rather than 127.0.0.1: gunicorn now
+      # terminates TLS itself (ASVS 5.0.0-12.3.3), and verifying the
+      # certificate needs the name it was actually issued for - "web" - which
+      # a loopback address is not.
+      test: ["CMD", "python", "-c", "import ssl,urllib.request,sys; ctx=ssl.create_default_context(cafile='/run/secrets/doom_internal_ca_cert'); sys.exit(0 if urllib.request.urlopen('https://web:8000/healthz', timeout=3, context=ctx).status == 200 else 1)"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -141,15 +188,24 @@ services:
       target: test
     image: doom-web-test
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_ADMIN_USER:-doom_admin}:${POSTGRES_PASSWORD}@db:5432/doom_test
-      REDIS_URL: redis://:${REDIS_PASSWORD}@cache:6379/9
+      # Same TLS requirements as `web`'s config.py DSNs (ASVS 5.0.0-12.3.1) -
+      # db and cache refuse anything else, so the test suite is not exempt.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_ADMIN_USER:-doom_admin}:${POSTGRES_PASSWORD}@db:5432/doom_test?sslmode=verify-full&sslrootcert=/run/secrets/doom_internal_ca_cert
+      REDIS_URL: rediss://:${REDIS_PASSWORD}@cache:6379/9?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs=/run/secrets/doom_internal_ca_cert
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://test.invalid}
+    secrets:
+      - doom_internal_ca_cert
     networks:
       - internal
     depends_on:
       db:
         condition: service_healthy
       cache:
+        condition: service_healthy
+      # Here, unlike `web`, health-gated: TestAntivirusScanning asserts a
+      # specific clean/FOUND/unavailable outcome, and a scanner that is only
+      # half up would make those tests flaky rather than honest.
+      clamav:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -167,11 +223,14 @@ services:
   # db - postgres.  No published port; internal network only.
   # ---------------------------------------------------------------------------
   db:
-    image: postgres:18.6-alpine
+    build:
+      context: ./db
     restart: unless-stopped
     secrets:
       - doom_postgres_password
       - doom_app_db_password
+      - doom_db_tls_cert
+      - doom_db_tls_key
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-doom}
       POSTGRES_USER: ${POSTGRES_ADMIN_USER:-doom_admin}
@@ -183,6 +242,15 @@ services:
       # Which is why this one is read by db/init/01-roles.sh itself.  It was not,
       # once, and the application role was silently never created.
       APP_DB_PASSWORD_FILE: /run/secrets/doom_app_db_password
+    # ASVS 5.0.0-12.3.1: the network hop from `web` must be TLS, and refuse
+    # anything else - db/init/00-hba.sh is the other half, requiring TLS in
+    # pg_hba.conf rather than merely offering it. ssl_key_file does NOT point
+    # at the mounted secret directly: see db/entrypoint.sh for why postgres
+    # refuses that file as mounted, and what copies it somewhere postgres is
+    # willing to read it from.
+    command: ["postgres", "-c", "ssl=on",
+              "-c", "ssl_cert_file=/run/secrets/doom_db_tls_cert",
+              "-c", "ssl_key_file=/var/lib/postgresql/tls/key.pem"]
     volumes:
       - pgdata:/var/lib/postgresql
       - ./db/init:/docker-entrypoint-initdb.d:ro
@@ -215,7 +283,17 @@ services:
     # requirepass lives in a mounted config file, not on the command line.
     # A command-line password is visible to anything that can read `ps` inside
     # the container, and to `docker inspect` outside it (ASVS 6.4.1).
+    #
+    # The plaintext port is off entirely (`port 0` in redis.conf) rather than
+    # left open alongside the TLS one - ASVS 5.0.0-12.3.1 asks that a
+    # connection not fall back to unencrypted, and a port that does not exist
+    # cannot be fallen back to. `make init` writes the TLS directives into
+    # this same generated file.
     command: ["redis-server", "/etc/redis/redis.conf"]
+    secrets:
+      - doom_cache_tls_cert
+      - doom_cache_tls_key
+      - doom_internal_ca_cert
     volumes:
       - ./secrets/redis.conf:/etc/redis/redis.conf:ro
     # Start as the unprivileged redis user directly.  The stock entrypoint
@@ -223,6 +301,11 @@ services:
     # and CAP_SETGID - impossible under cap_drop: ALL.  Starting unprivileged
     # skips that step entirely, so we keep zero capabilities AND a non-root
     # process instead of trading one for the other.
+    #
+    # Unlike postgres, redis does not check who owns its TLS key file - only
+    # that the process can read it - so the same host-owned, world-readable
+    # mount every other secret in this stack uses works here without the
+    # copy-and-rechown step db/entrypoint.sh needs.
     user: "redis"
     networks:
       - internal
@@ -237,19 +320,82 @@ services:
       - no-new-privileges:true
     healthcheck:
       # Reads the password from the same config file rather than repeating it
-      # on a command line the process table would show.
-      test: ["CMD-SHELL", "redis-cli -a \"$$(grep -m1 '^requirepass' /etc/redis/redis.conf | cut -d' ' -f2)\" ping | grep -q PONG"]
+      # on a command line the process table would show. --cacert, not
+      # --insecure: the healthcheck verifies the same certificate chain a
+      # real client would, rather than merely confirming the process answers.
+      test: ["CMD-SHELL", "redis-cli --tls --cacert /run/secrets/doom_internal_ca_cert -a \"$$(grep -m1 '^requirepass' /etc/redis/redis.conf | cut -d' ' -f2)\" ping | grep -q PONG"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  # ---------------------------------------------------------------------------
+  # clamav - scans uploads before they are stored (ASVS 5.0.0-5.4.3).
+  #
+  # No authentication on the socket to `web`: clamd's wire protocol has none
+  # to offer, and `internal` - no route off the host - is the same trust
+  # model docker-compose.yml already gives db and cache for that side.
+  #
+  # Unlike db and cache, this container also needs a real route out: signature
+  # updates come from database.clamav.net, and a scanner running forever on
+  # the day-one database is not meaningfully scanning. `clamav_updates` is a
+  # second, narrow exception to the no-egress-by-default posture - the same
+  # shape as BARCODE_LOOKUP_PROVIDER's use of `edge` (docs/security/POLICIES.md
+  # §9), scoped to this one container and this one destination class rather
+  # than opened stack-wide.
+  # ---------------------------------------------------------------------------
+  clamav:
+    build:
+      context: ./clamav
+    restart: unless-stopped
+    volumes:
+      # Signature updates persist across restarts. Without this, every
+      # restart re-downloads the full database instead of an incremental one.
+      - clamav_db:/var/lib/clamav
+    networks:
+      - internal
+      - clamav_updates
+    user: "clamav"
+    read_only: true
+    tmpfs:
+      - /run/clamav:mode=1777,size=8m
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Same-container ping over the local socket - cheaper than a network
+      # round trip and exercises the same "is the engine actually loaded"
+      # question a TCP scan would.
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      # A cold engine loading several million signatures on constrained
+      # hardware (this fleet includes Raspberry Pi) has taken several minutes
+      # in testing. A short start_period would flap the container into
+      # "unhealthy" while it is still doing legitimate first-boot work.
+      start_period: 300s
+
 networks:
   edge:
     driver: bridge
+  proxy:
+    # Caddy to the application, and nothing else. `internal: true` means no
+    # route off the host, so being on this network gives the application
+    # reachability without giving it egress.
+    internal: true
   internal:
     # No route off the host.  db and cache cannot be reached from the LAN even
     # if a port were published by mistake.
     internal: true
+  clamav_updates:
+    # A real route out, unlike every other network here - clamd's only
+    # destination on it is database.clamav.net for signature updates. Nothing
+    # but the clamav service is ever placed on this network; no port is
+    # published from it either, so it grants egress without granting LAN
+    # reachability.
+    driver: bridge
 
 secrets:
   doom_secret_key:
@@ -260,9 +406,26 @@ secrets:
     file: ./secrets/app_db_password
   doom_redis_password:
     file: ./secrets/redis_password
+  # Internal TLS (ASVS 5.0.0-12.3.1, 12.3.3, 12.3.4) - one CA, one leaf
+  # keypair per internal hostname. `make init` generates all four.
+  doom_internal_ca_cert:
+    file: ./secrets/internal_ca.crt
+  doom_db_tls_cert:
+    file: ./secrets/db_tls.crt
+  doom_db_tls_key:
+    file: ./secrets/db_tls.key
+  doom_cache_tls_cert:
+    file: ./secrets/cache_tls.crt
+  doom_cache_tls_key:
+    file: ./secrets/cache_tls.key
+  doom_web_tls_cert:
+    file: ./secrets/web_tls.crt
+  doom_web_tls_key:
+    file: ./secrets/web_tls.key
 
 volumes:
   pgdata:
   uploads:
   caddy_data:
   caddy_config:
+  clamav_db:

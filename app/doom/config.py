@@ -23,6 +23,13 @@ class ConfigError(RuntimeError):
     """Raised when the environment cannot support a safe boot."""
 
 
+#: Where every internal TLS client in this stack finds the CA that signed
+#: db, cache and web's certificates (ASVS 5.0.0-12.3.1, 12.3.4). Fixed by
+#: docker-compose.yml's secret mount, the same way `db` and `cache` are
+#: fixed hostnames rather than something an operator would configure.
+INTERNAL_CA_PATH = "/run/secrets/doom_internal_ca_cert"
+
+
 #: Values that mean "nobody has set this yet".
 _PLACEHOLDERS = {
     "",
@@ -111,7 +118,19 @@ def _database_url() -> str:
     # quote() rather than trusting `make init`'s hex: a password that arrives
     # from somewhere else must not be able to smuggle a host or a query string
     # into the DSN.
-    return f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}@db:5432/{quote(name, safe='')}"
+    #
+    # sslmode=verify-full, not require: `require` encrypts but accepts any
+    # certificate, which is encryption without authentication - a
+    # person-in-the-middle with any certificate at all would pass it. Only
+    # verify-full checks the presented certificate is signed by our CA AND
+    # names the host being dialled (ASVS 5.0.0-12.3.1, 12.3.4). db/init/00-hba.sh
+    # is the other half: pg_hba.conf refuses a connection that isn't TLS at all.
+    ca_path = quote(INTERNAL_CA_PATH, safe="/")
+    return (
+        f"postgresql+psycopg://{quote(user, safe='')}:{quote(password, safe='')}"
+        f"@db:5432/{quote(name, safe='')}"
+        f"?sslmode=verify-full&sslrootcert={ca_path}"
+    )
 
 
 def _redis_url() -> str:
@@ -120,7 +139,16 @@ def _redis_url() -> str:
     if explicit:
         return explicit
     password = _require("REDIS_PASSWORD", min_length=16)
-    return f"redis://:{quote(password, safe='')}@cache:6379/0"
+    # rediss://, not redis://: cache/redis.conf (written by `make init`) turns
+    # the plaintext listener off entirely (`port 0`), so a scheme that asks
+    # for TLS is the only one that connects at all. ssl_check_hostname
+    # verifies the presented certificate names "cache", the same verify-full
+    # property the database DSN asks for above.
+    ca_path = quote(INTERNAL_CA_PATH, safe="/")
+    return (
+        f"rediss://:{quote(password, safe='')}@cache:6379/0"
+        f"?ssl_cert_reqs=required&ssl_check_hostname=true&ssl_ca_certs={ca_path}"
+    )
 
 
 def _flag(name: str, default: bool = False) -> bool:
@@ -185,6 +213,17 @@ class Config:
     # upload costs almost nothing to reject (T-28).
     MAX_CONTENT_LENGTH = v.UPLOAD_MAX_BYTES
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/var/lib/doom/uploads")
+
+    # --- antivirus scanning (ASVS 5.0.0-5.4.3) -------------------------------
+    # Same trust model as db and cache: clamd sits on the internal,
+    # no-route-off-host network, so its hostname is fixed by
+    # docker-compose.yml rather than exposed as something an operator would
+    # ever legitimately point elsewhere. The timeout is the one knob that
+    # varies by hardware - a cold engine on constrained CPU scans slower - so
+    # it alone is configurable.
+    CLAMD_HOST = "clamav"
+    CLAMD_PORT = 3310
+    CLAMD_SCAN_TIMEOUT = float(os.environ.get("CLAMD_SCAN_TIMEOUT", "20"))
 
     # --- barcode lookup (opt-in, off by default) ----------------------------
     # The application's only outbound call, and a deliberate, narrow exception

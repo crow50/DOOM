@@ -430,3 +430,38 @@ input[type="date"] { color-scheme: dark; }
 @media (prefers-reduced-motion: reduce) {
   .pw-meter-fill { transition: none; }
 }
+
+/* --- second factor ------------------------------------------------------- */
+
+/* Recovery codes are read off a screen and typed on a phone, so they are set
+   in a monospace face at a size that survives a bad angle, and spaced far
+   enough apart that nobody loses their place halfway down the list. */
+.code-list {
+  list-style: none;
+  padding: 0;
+  margin: 1rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.4rem 1rem;
+}
+
+.code-list code {
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+}
+
+/* Used once, on the page that shows recovery codes, where the whole point is
+   that the reader does not scroll past it. */
+.warn {
+  border-left: 4px solid var(--warn, #b45309);
+  background: var(--warn-bg, rgba(180, 83, 9, 0.08));
+  padding: 0.75rem 1rem;
+  border-radius: 0 4px 4px 0;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}

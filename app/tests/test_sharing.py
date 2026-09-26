@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from conftest import login
+from conftest import login, open_share
 from doom.extensions import db
 from doom.models import Item, Location, new_share_token
 from doom.security.serializers import public_item, public_location
@@ -70,23 +70,23 @@ class TestShareRoutes:
         alice_item.share_token = new_share_token()
         alice_item.visibility = "private"
         db.session.commit()
-        assert client.get(f"/t/{alice_item.share_token}").status_code == 404
+        assert open_share(client, alice_item.share_token).status_code == 404
 
     def test_shared_node_resolves_anonymously(self, client, alice_item):
         token = _share(alice_item)
-        response = client.get(f"/t/{token}")
+        response = open_share(client, token)
         assert response.status_code == 200
         assert b"Cordless drill" in response.data
 
     def test_share_page_carries_noindex(self, client, alice_item):
         """A leaked link must not become a search result (T-21)."""
         token = _share(alice_item)
-        response = client.get(f"/t/{token}")
+        response = open_share(client, token)
         assert "noindex" in response.headers.get("X-Robots-Tag", "")
 
     def test_share_page_does_not_leak_owner(self, client, alice, alice_item):
         token = _share(alice_item)
-        response = client.get(f"/t/{token}")
+        response = open_share(client, token)
         assert b"alice" not in response.data.lower()
 
     def test_shared_bin_does_not_leak_parent_chain(self, client, alice):
@@ -101,7 +101,7 @@ class TestShareRoutes:
         db.session.commit()
 
         token = _share(tote)
-        response = client.get(f"/t/{token}")
+        response = open_share(client, token)
         assert response.status_code == 200
         assert b"Tote 7" in response.data
         assert b"Elm Street Warehouse" not in response.data
@@ -110,18 +110,30 @@ class TestShareRoutes:
 
     def test_rotation_kills_the_old_link(self, client, alice_item):
         old = _share(alice_item)
-        assert client.get(f"/t/{old}").status_code == 200
+        assert open_share(client, old).status_code == 200
 
         alice_item.share_token = new_share_token()
         db.session.commit()
-        assert client.get(f"/t/{old}").status_code == 404
+        assert open_share(client, old).status_code == 404
 
     def test_no_public_index_route_exists(self, client):
         """There is nothing to enumerate.
 
-        A listing route would turn one leaked token into a catalogue.
+        /t/ is now a real page - it is where a scanned label lands so the code
+        can move from the fragment into a POST body - but it is still not a
+        listing. It renders one empty form and names no share at all, so a
+        leaked token buys a catalogue no more than it did when this route was
+        a 404.
         """
-        assert client.get("/t/").status_code in (404, 405)
+        response = client.get("/t/")
+        assert response.status_code == 200
+        assert b"Cordless drill" not in response.data
+        body = response.data.lower()
+        # No route to a share, no list to read one out of, and nothing that
+        # names a stored label.
+        assert b"/t/v/" not in body
+        assert b"<table" not in body
+        assert b"<ul" not in body
 
 
 class TestRobots:
@@ -147,7 +159,7 @@ class TestShareMissesAreAudited:
 
     def test_well_formed_miss_is_recorded_without_the_token(self, client):
         token = new_share_token()
-        assert client.get(f"/t/{token}").status_code == 404
+        assert open_share(client, token).status_code == 404
 
         rows = self._denials()
         assert len(rows) == 1
@@ -161,15 +173,22 @@ class TestShareMissesAreAudited:
         alice_item.visibility = "private"
         db.session.commit()
 
-        assert client.get(f"/t/{token}").status_code == 404
+        assert open_share(client, token).status_code == 404
         assert len(self._denials()) == 1
 
     def test_garbage_is_a_404_and_not_recorded(self, client):
+        """A code this application could not have issued is refused by shape.
+
+        It never reaches the lookup, so it is neither a database round trip
+        nor an audit row - and because the form rejects it rather than the
+        router, the answer is 400 where it used to be a 404. Both say "no"
+        without saying whether anything is there.
+        """
         for junk in ("garbage", "x" * 42, "x" * 44, "has space" + "a" * 34, "a" * 43 + "/extra"):
-            assert client.get(f"/t/{junk}").status_code == 404
+            assert open_share(client, junk).status_code == 400
         assert self._denials() == []
 
     def test_a_valid_token_is_not_a_miss(self, client, alice_item):
         token = _share(alice_item)
-        assert client.get(f"/t/{token}").status_code == 200
+        assert open_share(client, token).status_code == 200
         assert self._denials() == []

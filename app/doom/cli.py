@@ -10,13 +10,16 @@ recorded in docs/DECISIONS.md.
 
 from __future__ import annotations
 
+import secrets
+
 import click
 from flask import Flask
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import validation as v
 from .extensions import db
-from .models import Item, Location, User, utcnow
+from .models import Item, Location, User, UserSession, utcnow
+from .security.audit import record_audit
 from .security.passwords import (
     PasswordPolicyError,
     check_policy,
@@ -48,6 +51,61 @@ def register_cli(app: Flask) -> None:
         user.locked_until = None
         db.session.commit()
         click.echo(f"Unlocked {name}.")
+
+    @app.cli.command("revoke-sessions")
+    @click.argument("username", required=False)
+    @click.option("--all-users", is_flag=True,
+                  help="Every account, not one. For a suspected key compromise.")
+    def revoke_sessions(username: str | None, all_users: bool) -> None:
+        """End every active session for one user, or for everybody.
+
+        ASVS 5.0.0-7.4.5. There is no administrative surface inside the
+        application - deliberately, because an in-application admin role is a
+        privilege-escalation target reachable over HTTP - so this lives where
+        the other operator verbs do: a command run against the container by
+        somebody who already has the host.
+
+        Both halves are done, because either alone leaves a way back in:
+        session_version is bumped, which invalidates every cookie ever issued
+        for the account, and the UserSession rows are marked revoked, which is
+        what the account page reads and what the per-request check consults.
+        """
+        if all_users == bool(username):
+            raise click.UsageError("Name one user, or pass --all-users.")
+
+        if all_users:
+            users = db.session.execute(select(User)).scalars().all()
+        else:
+            name = v.normalize_username(username)
+            user = db.session.execute(
+                select(User).where(User.username == name)
+            ).scalar_one_or_none()
+            if user is None:
+                raise click.ClickException(f"No such user: {username}")
+            users = [user]
+
+        ended = 0
+        for user in users:
+            user.session_version += 1
+            rows = db.session.execute(
+                select(UserSession).where(
+                    UserSession.user_id == user.id,
+                    UserSession.revoked_at.is_(None),
+                )
+            ).scalars().all()
+            for row in rows:
+                row.revoked_at = utcnow()
+            ended += len(rows)
+            record_audit(
+                action="sessions_revoked_by_operator", object_type="user",
+                object_id=str(user.id), detail=f"{len(rows)} session(s)",
+            )
+
+        db.session.commit()
+        click.echo(
+            f"Ended {ended} session(s) across {len(users)} account(s). "
+            f"Every previously issued cookie is now invalid."
+        )
 
     @app.cli.command("set-password")
     @click.argument("username")
@@ -162,7 +220,20 @@ def register_cli(app: Flask) -> None:
 
     @app.cli.command("seed")
     def seed() -> None:
-        """Create a demo account and a small warehouse tree."""
+        """Create a demo account and a small warehouse tree.
+
+        The password is generated here and printed once.  It used to be the
+        constant ``correct-horse-battery-staple``, which made ``demo`` a
+        default account with a published credential - ASVS 5.0.0-6.3.2 asks
+        that those not exist, and "it is only for demos" is exactly the
+        reasoning behind every shipped ``admin/admin``.  A value nobody can
+        know in advance costs the demo nothing.
+
+        Refusing to run against a database that already holds other accounts
+        is the second half.  Demo data belongs in an empty instance; a
+        populated one is somebody's real inventory, and adding a throwaway
+        login to it is not a demo, it is a back door.
+        """
         existing = db.session.execute(
             select(User).where(User.username == "demo")
         ).scalar_one_or_none()
@@ -171,9 +242,23 @@ def register_cli(app: Flask) -> None:
             click.echo("Demo data already present.")
             return
 
+        others = db.session.scalar(
+            select(func.count()).select_from(User).where(User.username != "demo")
+        )
+        if others:
+            raise click.ClickException(
+                f"This database already has {others} account(s). `flask seed` "
+                f"only populates an empty instance - it will not add a demo "
+                f"login to a system already in use."
+            )
+
+        # token_urlsafe(24) is 32 characters, well past PASSWORD_MIN, and is
+        # drawn from the same CSPRNG as every other secret in this codebase.
+        password = secrets.token_urlsafe(24)
+
         user = User(
             username="demo",
-            password_hash=hash_password("correct-horse-battery-staple"),
+            password_hash=hash_password(password),
             last_login_at=utcnow(),
         )
         db.session.add(user)
@@ -260,4 +345,7 @@ def register_cli(app: Flask) -> None:
         db.session.commit()
         click.echo("Seeded demo account.")
         click.echo("  username: demo")
-        click.echo("  password: correct-horse-battery-staple")
+        click.echo(f"  password: {password}")
+        click.echo("")
+        click.echo("This password is shown once and is not stored anywhere in")
+        click.echo("plaintext. Run `flask set-password demo` if you lose it.")

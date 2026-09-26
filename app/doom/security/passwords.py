@@ -121,6 +121,18 @@ def check_policy(password: str, *, username: str | None = None) -> None:
                 "Your password must not contain your username."
             )
 
+    # The context screen (ASVS 5.0.0-6.1.2 / 6.2.11). The breach corpus above
+    # covers what the world has already guessed; this covers what *this*
+    # system suggests to someone who knows what they are looking at.
+    lowered = password.lower()
+    for word in v.CONTEXT_WORDS:
+        if word in lowered:
+            raise PasswordPolicyError(
+                f"Your password must not contain {word!r}. Words connected to "
+                f"this application are the first thing an attacker who knows "
+                f"what it is will try."
+            )
+
 
 def hash_password(password: str) -> str:
     """Hash a password for storage.
