@@ -21,6 +21,8 @@ from __future__ import annotations
 import logging
 import secrets
 
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
+
 from ..extensions import db
 from ..models import RecoveryCode, utcnow
 from .passwords import _hasher
@@ -115,7 +117,19 @@ def consume(user, candidate: str) -> bool:
         try:
             if _hasher.verify(row.code_hash, cleaned) and matched is None:
                 matched = row
-        except Exception:
+        except VerifyMismatchError:
+            continue
+        except InvalidHashError:
+            # Same distinction verify_password() draws: a mismatch is this
+            # row not being the one, expected on every failed guess. A
+            # malformed hash is data corruption, not a wrong guess, and
+            # silently treating the two alike would hide the difference
+            # between "no recovery code matched" and "a stored one is
+            # unreadable" behind an identical False.
+            logger.error(
+                "invalid_recovery_code_hash",
+                extra={"extra_fields": {"user_id": str(user.id)}},
+            )
             continue
 
     if matched is None:

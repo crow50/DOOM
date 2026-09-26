@@ -1,0 +1,12 @@
+# Fingerprints of confirmed false positives, in gitleaks' own format:
+# <commit>:<file>:<rule-id>:<line>
+#
+# Each one is a fabricated value inside a test that proves log redaction
+# works - the string has to look enough like a secret to trigger the same
+# detector redaction defends against, or the test proves nothing. See
+# docs/security/POLICIES.md for the redaction rules these strings exercise.
+
+# app/tests/test_asvs_l2_closure.py::test_a_labelled_secret_in_a_message_is_redacted
+# "upstream said token: abc123def456" - not a credential, a fixture for
+# TestLogRedaction asserting labelled secrets never reach a log line.
+b4de77d550281967fd7d013906867a257029c43d:app/tests/test_asvs_l2_closure.py:generic-api-key:208
