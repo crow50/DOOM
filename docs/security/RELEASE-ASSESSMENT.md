@@ -1,14 +1,15 @@
 # Release security assessment
 
-**Last reviewed 2026-09-25. Release recommendation: blocked. No ASVS level is
+**Last reviewed 2026-09-26. Release recommendation: blocked. No ASVS level is
 claimed.**
 
 Every ASVS 5.0 Level 1 and Level 2 requirement is now assessed — no row is left
-`Not assessed` — and that is not the same as a release. Four Level 2 rows are
-Not met, eight more are Compensating, none of the sixteen open findings has an
-approved risk acceptance, and the candidate artifact has not been rebuilt or
-rescanned since the changes that closed the ledger. `SUMMARY.md` is the
-scoreboard; `findings.json` is what somebody has to decide about.
+`Not assessed` — and that is not the same as a release. Two Level 2 rows are
+Not met, six more are Compensating, none of the twelve open findings has an
+approved risk acceptance (`exceptions.json` is empty), and the candidate
+artifact has not been rebuilt or rescanned since the changes that closed the
+ledger. `SUMMARY.md` is the scoreboard; `findings.json` is what somebody has to
+decide about.
 
 ## Scope
 
@@ -102,14 +103,18 @@ nobody who was not already persuaded.
 
 ## What this does not establish
 
-- **No ASVS level.** Four Not met rows and sixteen unaccepted risks. An L2 claim
+- **No ASVS level.** Two Not met rows and twelve unaccepted risks. An L2 claim
   needs them closed or formally accepted with an owner and an expiry.
-- **The candidate is not verified as an artifact.** The 453-test suite passes on
-  the review host against real PostgreSQL 16, and the migration applies,
-  reverses and reapplies with no drift from the models. The containerised run,
-  the image scans and the deployment probes all predate these changes and need
-  repeating — `README.md` says how. CI is the authority for whether a gate
-  passed on a given commit; this document does not restate it.
+- **The candidate is not verified as an artifact.** The 457-test suite passes
+  in the containerised `test` service against real PostgreSQL 18.6, and the
+  image scans (Trivy, Grype, Semgrep, Bandit, gitleaks, CodeQL, SBOM) are
+  current as of the latest commit - CI is the authority for whether a gate
+  passed on a given commit, and this document does not restate it, only names
+  which of the manual deployment probes have and have not been re-run since:
+  `make verify-internal-tls` (added with the internal-TLS work) has;
+  `make verify-db-roles`, `make verify-secrets`, `make verify-cert`, and the
+  isolated deployment review in `tools/run_security_review.py` have not, and
+  none of those four were touched by these changes.
 - **The published release is untouched.** Scan it yourself for its current
   state; a report frozen against an old advisory database is worse than no
   report, because it looks like an answer.

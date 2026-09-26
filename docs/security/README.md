@@ -10,7 +10,7 @@ Read in this order:
 |---|---|
 | [SUMMARY.md](SUMMARY.md) | The scoreboard. Generated; twenty lines. |
 | [asvs-5.0.0.json](asvs-5.0.0.json) | One row per ASVS 5.0 requirement: status, the reasoning, how to verify it, and the code or test that demonstrates it. |
-| [findings.json](findings.json) | What is open. Sixteen rows, each with a residual risk somebody has to accept or close. |
+| [findings.json](findings.json) | What is open. Twenty-two rows, twelve of them open, each with a residual risk somebody has to accept or close. |
 | [RELEASE-ASSESSMENT.md](RELEASE-ASSESSMENT.md) | The release decision and the conditions attached to it. |
 | [POLICIES.md](POLICIES.md) | The policies several requirements ask for by name — validation rules, anti-automation, session limits, key lifecycle, remediation deadlines. |
 | [REMEDIATION.md](REMEDIATION.md) | The work queue, with acceptance criteria per batch. |
