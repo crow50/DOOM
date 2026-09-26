@@ -7,6 +7,8 @@
 # docs/security/POLICIES.md for the redaction rules these strings exercise.
 
 # app/tests/test_asvs_l2_closure.py::test_a_labelled_secret_in_a_message_is_redacted
-# "upstream said token: abc123def456" - not a credential, a fixture for
-# TestLogRedaction asserting labelled secrets never reach a log line.
+# One of the parametrized messages in that test reads as a labelled token to
+# gitleaks by design - it is what the test asserts gets redacted. Not
+# reproduced here, deliberately: quoting the flagged text in this comment
+# would just make gitleaks flag this file too (it did, on the first attempt).
 b4de77d550281967fd7d013906867a257029c43d:app/tests/test_asvs_l2_closure.py:generic-api-key:208
