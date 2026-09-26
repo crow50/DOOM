@@ -289,6 +289,8 @@ applicable.
 | `web` | `cache:6379` | Redis | file-mounted password | rate-limit checks |
 | `web` | a barcode provider | HTTPS | none (public API) | **only** when `BARCODE_LOOKUP_PROVIDER` is set |
 | Caddy | an ACME directory | HTTPS | ACME account key | **only** when `DOOM_DOMAIN` is a public name |
+| `clamav` | database.clamav.net | HTTPS | ClamAV's own CVD signature verification | signature updates, periodic |
+| `web` | `clamav:3310` | clamd `INSTREAM` protocol over an internal-only Docker network | — | every upload |
 
 The second row is optional and operator-chosen: a homelab that already runs
 Traefik or its own Caddy as the thing holding certificates can put it in front
@@ -327,6 +329,15 @@ always present and merely unused. Until DNS rebinding is closed in the lookup
 path — address validation and connection perform separate resolutions — the
 recommendation in the release assessment stands: leave it unset.
 
+**`clamav` is the one exception that is not operator-opt-in.** It sits on its
+own `clamav_updates` network — a real route off the host, unlike every other
+network in this stack — because a scanner that never updates its signatures
+is not meaningfully scanning. That network carries only `clamav`, reaches only
+`database.clamav.net`, and publishes no port, so it grants egress without
+granting LAN reachability. `web` still cannot reach the internet: it talks to
+`clamav` over `internal`, the same no-route-off-host network it already shares
+with `db` and `cache`.
+
 ## 10. Upload rules — v5.0.0-5.1.1
 
 | | |
@@ -347,17 +358,20 @@ coordinates that would otherwise publish the address of the building a photo of
 a shelf was taken in. Stored names are generated UUIDs; the submitted name is
 kept for display only and never joined to a path.
 
-**What happens when a malicious file is detected.** There is no malware
-scanner, and that is an open gap recorded as `v5.0.0-5.4.3`, not a decision.
-What exists instead: SVG and archives are refused outright as types; anything
-that is not an image is served with `Content-Disposition: attachment`,
+**What happens when a malicious file is detected.** clamd scans the raw bytes
+of every upload - image or document - before anything is decoded
+(`v5.0.0-5.4.3`, `app/doom/security/av.py`). A match is refused with a generic
+message and audited with the scanner's signature name; so is a scanner that
+does not answer, times out, or replies with something this client does not
+recognise - the scan fails closed rather than degrading to "allow" when clamd
+is unreachable. This sits alongside, not instead of, the controls that
+predate it: SVG and archives are refused outright as types; anything that is
+not an image is served with `Content-Disposition: attachment`,
 `Content-Security-Policy: default-src 'none'; sandbox` and `nosniff`, so a
-document cannot execute in this origin; downloads are owner-authorised only, so
-a malicious file one account uploads is not reachable by another; and a
-rejected upload is audited with the reason. A PDF containing an exploit for the
-reader on the owner's own machine would be stored and served back to that owner
-unchanged. That is the residual risk, and it is why the row is Not met rather
-than compensated.
+document cannot execute in this origin; and downloads are owner-authorised
+only, so a malicious file one account uploads is not reachable by another.
+`app/tests/test_uploads.py::TestAntivirusScanning` exercises the clean, the
+EICAR-positive and the scanner-unavailable cases.
 
 ## 11. Data classification — v5.0.0-14.1.1, v5.0.0-14.1.2, v5.0.0-14.2.4
 

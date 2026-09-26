@@ -2,12 +2,19 @@
 
 The pipeline, in order, and every step is load-bearing:
 
-    size cap -> magic-byte sniff -> allowlist -> decode -> re-encode -> store
+    size cap -> magic-byte sniff -> allowlist -> AV scan -> decode -> re-encode -> store
 
 **Nothing the client says about the file is believed.**  The filename, the
 extension and the Content-Type header are all attacker-controlled strings.
 The only trustworthy statement about an uploaded file is what its bytes
 actually are, which is what ``python-magic`` reads.
+
+**The AV scan runs on the bytes as received, before re-encoding** (ASVS
+5.0.0-5.4.3).  For images that is defence in depth - re-encoding already
+destroys polyglots and strips metadata - but a PDF or a text file is stored
+byte for byte, so for those it is the only control.  clamd is asked after the
+type allowlist rather than before, so a rejected type never costs a round
+trip, and before decode, so nothing unscanned is ever handed to Pillow.
 
 **Images are decoded and re-encoded rather than stored as received.**  This is
 the step that does the most work.  It destroys polyglot files - a valid GIF
@@ -38,8 +45,17 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from werkzeug.datastructures import FileStorage
 
 from .. import validation as v
+from . import av
 
 logger = logging.getLogger(__name__)
+
+#: Default clamd endpoint - the hostname docker-compose.yml gives the
+#: scanner, same convention as db/cache in config.py. Callers running inside
+#: the compose network (the app, and the test suite) get a working default
+#: for free; anything else must pass explicit values.
+_CLAMD_HOST = "clamav"
+_CLAMD_PORT = 3310
+_CLAMD_TIMEOUT = 20.0
 
 # A decompression bomb is a few kilobytes that expands into gigabytes of
 # pixels. Pillow refuses anything larger than this rather than exhausting the
@@ -268,7 +284,37 @@ def _existing_blob(owner_id, digest: str):
     ).scalar_one_or_none()
 
 
-def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None) -> StoredFile:
+def _scan_or_reject(data: bytes, original_name: str, *,
+                     clamd_host: str, clamd_port: int, clamd_timeout: float) -> None:
+    """Run the AV scan, turning any non-clean outcome into UploadRejected.
+
+    Both branches - a match and an unreachable scanner - fail closed. The
+    message told to the uploader is the same generic refusal either way, so
+    it cannot be used to probe whether the scanner is up (T-23 applies to
+    infrastructure state, not just stack traces).
+    """
+    try:
+        av.scan(data, host=clamd_host, port=clamd_port, timeout=clamd_timeout)
+    except av.ScanPositive as exc:
+        logger.warning(
+            "upload_scan_rejected",
+            extra={"extra_fields": {"signature": exc.signature}},
+        )
+        raise UploadRejected(
+            f"{original_name} was flagged by the antivirus scanner and "
+            f"cannot be stored."
+        ) from exc
+    except av.ScanUnavailable as exc:
+        logger.error("upload_scan_unavailable", extra={"extra_fields": {"error": str(exc)}})
+        raise UploadRejected(
+            f"{original_name} could not be scanned right now. Try again "
+            f"shortly."
+        ) from exc
+
+
+def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None,
+                  clamd_host: str = _CLAMD_HOST, clamd_port: int = _CLAMD_PORT,
+                  clamd_timeout: float = _CLAMD_TIMEOUT) -> StoredFile:
     """Validate and persist one uploaded file."""
     if storage is None or not storage.filename:
         raise UploadRejected("No file was selected.")
@@ -292,6 +338,12 @@ def store_upload(storage: FileStorage, upload_dir: str, *, owner_id=None) -> Sto
 
     # The bytes are an accepted type; the name must agree with them (5.2.2).
     _require_extension_matches_content(original_name, content_type)
+
+    # Scanned as received, before anything is decoded (ASVS 5.0.0-5.4.3).
+    _scan_or_reject(
+        data, original_name,
+        clamd_host=clamd_host, clamd_port=clamd_port, clamd_timeout=clamd_timeout,
+    )
 
     is_image = content_type in v.ALLOWED_IMAGE_TYPES
     thumbnail_name: str | None = None

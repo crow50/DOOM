@@ -309,7 +309,12 @@ def quick():
         upload_dir = current_app.config["UPLOAD_DIR"]
         for storage in files[:5]:
             try:
-                result = store_upload(storage, upload_dir, owner_id=current_user.id)
+                result = store_upload(
+                    storage, upload_dir, owner_id=current_user.id,
+                    clamd_host=current_app.config["CLAMD_HOST"],
+                    clamd_port=current_app.config["CLAMD_PORT"],
+                    clamd_timeout=current_app.config["CLAMD_SCAN_TIMEOUT"],
+                )
             except UploadRejected as exc:
                 flash(str(exc), "error")
                 continue

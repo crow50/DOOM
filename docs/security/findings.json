@@ -20,16 +20,17 @@
     "id": "CONTROL-5.4.3",
     "requirement": "v5.0.0-5.4.3",
     "level": 2,
-    "status": "open",
-    "residual_risk": "medium",
-    "rationale": "No antivirus or malware scanning exists. Image re-encoding destroys polyglots and strips metadata, and it is not a substitute: a PDF or a text file is stored exactly as received. The serving controls are real but address a different threat - attachment disposition, a sandbox CSP and nosniff stop a file executing in this origin, and owner-only authorisation means one account's upload is not reachable by another - so what remains is that a malicious document is served back to the owner who uploaded it, unchanged, to open in their own reader. Recorded honestly; no exception is approved, and the absence of a demonstrated cross-account path does not close it.",
-    "exploitability": "Requires the account's own owner to upload a malicious document and later open it in their own reader; there is no cross-account path, because downloads are owner-authorised and per-owner deduplication keeps blobs separate. Serving controls stop it executing in this origin. What remains is a storage-and-return path for malware that the application does not inspect, which is a real gap for a user who treats their inventory as a safe place to keep documents.",
-    "remediation": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
-    "verification": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "clamd now scans every upload's raw bytes before decode (app/doom/security/av.py, app/doom/security/uploads.py), fail-closed on a match, a timeout, or an unreachable/unrecognised scanner. Image re-encoding remains the primary control for photos; scanning is what now also covers PDF and text uploads, which are stored byte for byte.",
+    "exploitability": "Closed: a malicious document served back to its own uploader, unchanged, is the scenario the scanner now intercepts before the bytes ever reach disk.",
+    "remediation": "Implemented: clamav/ (a clamd container on the internal network) plus app/doom/security/av.py's INSTREAM client, wired into store_upload().",
+    "verification": "app/tests/test_uploads.py::TestAntivirusScanning - clean, EICAR-positive and scanner-unreachable cases.",
     "evidence": [
-      "docs/security/POLICIES.md",
+      "app/doom/security/av.py",
       "app/doom/security/uploads.py",
-      "app/doom/blueprints/files.py"
+      "clamav/Dockerfile",
+      "app/tests/test_uploads.py"
     ]
   },
   {

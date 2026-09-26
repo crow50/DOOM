@@ -1192,19 +1192,20 @@
       "id": "v5.0.0-5.4.3",
       "level": 2,
       "requirement": "Verify that files obtained from untrusted sources are scanned by antivirus scanners to prevent serving of known malicious content.",
-      "status": "Not met",
-      "rationale": "No antivirus or malware scanning exists. Image re-encoding destroys polyglots and strips metadata, and it is not a substitute: a PDF or a text file is stored exactly as received. The serving controls are real but address a different threat - attachment disposition, a sandbox CSP and nosniff stop a file executing in this origin, and owner-only authorisation means one account's upload is not reachable by another - so what remains is that a malicious document is served back to the owner who uploaded it, unchanged, to open in their own reader. Recorded honestly; no exception is approved, and the absence of a demonstrated cross-account path does not close it.",
+      "status": "Met",
+      "rationale": "clamd scans every upload's raw bytes over its INSTREAM protocol before anything is decoded (app/doom/security/av.py), on the internal, no-route-off-host network docker-compose.yml already trusts db and cache with. A match or an unreachable/timed-out/unrecognised scanner both reject the upload - the scanner fails closed rather than degrading to \"allow\". This is a genuine addition, not a reclassification of the re-encoding control already credited elsewhere: re-encoding only ever protected images, and a PDF or text file was previously stored unscanned.",
       "evidence": [
-        "docs/security/POLICIES.md",
+        "app/doom/security/av.py",
         "app/doom/security/uploads.py",
-        "app/doom/blueprints/files.py"
+        "clamav/Dockerfile",
+        "clamav/clamd.conf",
+        "docker-compose.yml",
+        "app/tests/test_uploads.py"
       ],
-      "verification": "Add a scanner in the upload path - ClamAV as a compose service is the usual shape - fail closed when it is unreachable, and add a test that an EICAR test file is refused. Until then the row stays Not met.",
+      "verification": "Run app/tests/test_uploads.py::TestAntivirusScanning - a clean text file is stored, an EICAR test string is refused, and a scan against an unreachable host/port is refused rather than silently accepted. Against a running stack, `docker compose exec web python3 -c \"...\"` an upload with the EICAR string through the real HTTP endpoint and confirm it is rejected.",
       "exception": null,
       "migration": "tag-v4.0.3: MODIFIED, MOVED FROM v4.0.3-12.4.2",
-      "finding_ids": [
-        "CONTROL-5.4.3"
-      ]
+      "finding_ids": []
     },
     {
       "id": "v5.0.0-6.1.1",
@@ -3977,10 +3978,10 @@
     }
   ],
   "totals": {
-    "Met": 168,
+    "Met": 169,
     "N/A": 75,
     "Compensating": 8,
-    "Not met": 4,
+    "Not met": 3,
     "Partial": 3
   }
 }

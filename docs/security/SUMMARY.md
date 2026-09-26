@@ -9,16 +9,16 @@ risk decision: see [findings](findings.json) for what is open and
 | Scope | Met | Partial | Compensating | Not met | N/A | Not assessed |
 |---|---:|---:|---:|---:|---:|---:|
 | L1 | 58 | 0 | 1 | 0 | 11 | 0 |
-| L2 | 108 | 0 | 7 | 4 | 64 | 0 |
+| L2 | 109 | 0 | 7 | 3 | 64 | 0 |
 | selected L3 | 2 | 3 | 0 | 0 | 0 | 0 |
 
 ## Findings
 
-16 open, 6 closed.
+15 open, 7 closed.
 
 | Residual risk | Open |
 |---|---:|
-| medium | 9 |
+| medium | 8 |
 | low | 7 |
 
 No ASVS level is claimed.

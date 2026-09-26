@@ -136,6 +136,14 @@ services:
         condition: service_healthy
       cache:
         condition: service_healthy
+      # Not condition: service_healthy - clamd's first boot downloads a
+      # multi-million-signature database and can take minutes, and gating
+      # the whole application on that would make one slow dependency block
+      # every route, not just uploads. Uploads themselves fail closed
+      # (app/doom/security/av.py) if clamd is not answering yet, which is
+      # the behaviour that actually matters here.
+      clamav:
+        condition: service_started
     # --- container hardening (T-34) ---
     read_only: true
     tmpfs:
@@ -177,6 +185,11 @@ services:
       db:
         condition: service_healthy
       cache:
+        condition: service_healthy
+      # Here, unlike `web`, health-gated: TestAntivirusScanning asserts a
+      # specific clean/FOUND/unavailable outcome, and a scanner that is only
+      # half up would make those tests flaky rather than honest.
+      clamav:
         condition: service_healthy
     read_only: true
     tmpfs:
@@ -270,6 +283,55 @@ services:
       timeout: 5s
       retries: 10
 
+  # ---------------------------------------------------------------------------
+  # clamav - scans uploads before they are stored (ASVS 5.0.0-5.4.3).
+  #
+  # No authentication on the socket to `web`: clamd's wire protocol has none
+  # to offer, and `internal` - no route off the host - is the same trust
+  # model docker-compose.yml already gives db and cache for that side.
+  #
+  # Unlike db and cache, this container also needs a real route out: signature
+  # updates come from database.clamav.net, and a scanner running forever on
+  # the day-one database is not meaningfully scanning. `clamav_updates` is a
+  # second, narrow exception to the no-egress-by-default posture - the same
+  # shape as BARCODE_LOOKUP_PROVIDER's use of `edge` (docs/security/POLICIES.md
+  # §9), scoped to this one container and this one destination class rather
+  # than opened stack-wide.
+  # ---------------------------------------------------------------------------
+  clamav:
+    build:
+      context: ./clamav
+    restart: unless-stopped
+    volumes:
+      # Signature updates persist across restarts. Without this, every
+      # restart re-downloads the full database instead of an incremental one.
+      - clamav_db:/var/lib/clamav
+    networks:
+      - internal
+      - clamav_updates
+    user: "clamav"
+    read_only: true
+    tmpfs:
+      - /run/clamav:mode=1777,size=8m
+      - /tmp:mode=1777,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Same-container ping over the local socket - cheaper than a network
+      # round trip and exercises the same "is the engine actually loaded"
+      # question a TCP scan would.
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      # A cold engine loading several million signatures on constrained
+      # hardware (this fleet includes Raspberry Pi) has taken several minutes
+      # in testing. A short start_period would flap the container into
+      # "unhealthy" while it is still doing legitimate first-boot work.
+      start_period: 300s
+
 networks:
   edge:
     driver: bridge
@@ -282,6 +344,13 @@ networks:
     # No route off the host.  db and cache cannot be reached from the LAN even
     # if a port were published by mistake.
     internal: true
+  clamav_updates:
+    # A real route out, unlike every other network here - clamd's only
+    # destination on it is database.clamav.net for signature updates. Nothing
+    # but the clamav service is ever placed on this network; no port is
+    # published from it either, so it grants egress without granting LAN
+    # reachability.
+    driver: bridge
 
 secrets:
   doom_secret_key:
@@ -298,3 +367,4 @@ volumes:
   uploads:
   caddy_data:
   caddy_config:
+  clamav_db:

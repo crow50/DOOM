@@ -186,6 +186,17 @@ class Config:
     MAX_CONTENT_LENGTH = v.UPLOAD_MAX_BYTES
     UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/var/lib/doom/uploads")
 
+    # --- antivirus scanning (ASVS 5.0.0-5.4.3) -------------------------------
+    # Same trust model as db and cache: clamd sits on the internal,
+    # no-route-off-host network, so its hostname is fixed by
+    # docker-compose.yml rather than exposed as something an operator would
+    # ever legitimately point elsewhere. The timeout is the one knob that
+    # varies by hardware - a cold engine on constrained CPU scans slower - so
+    # it alone is configurable.
+    CLAMD_HOST = "clamav"
+    CLAMD_PORT = 3310
+    CLAMD_SCAN_TIMEOUT = float(os.environ.get("CLAMD_SCAN_TIMEOUT", "20"))
+
     # --- barcode lookup (opt-in, off by default) ----------------------------
     # The application's only outbound call, and a deliberate, narrow exception
     # to D-13. Unset means no network access is attempted at all.

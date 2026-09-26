@@ -99,6 +99,65 @@ class TestReEncoding:
         assert (tmp_path / result.thumbnail_name).exists()
 
 
+class TestAntivirusScanning:
+    """clamd scans raw bytes before decode (ASVS 5.0.0-5.4.3).
+
+    These run against the real clamd the `test` compose service depends on
+    (health-gated - see docker-compose.yml) rather than a mock, matching how
+    the rest of this suite runs against real PostgreSQL instead of SQLite.
+    """
+
+    # The standard EICAR test string: harmless bytes every AV engine is
+    # built to flag on sight, used to test detection without a real sample.
+    _EICAR = (
+        rb"X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+    )
+
+    def test_clean_file_is_accepted(self, tmp_path):
+        result = store_upload(
+            _storage(b"nothing malicious here, just notes", "notes.txt", "text/plain"),
+            str(tmp_path),
+        )
+        assert result.kind == "document"
+
+    def test_eicar_test_file_is_rejected(self, tmp_path):
+        with pytest.raises(UploadRejected):
+            store_upload(
+                _storage(self._EICAR, "notes.txt", "text/plain"), str(tmp_path)
+            )
+
+    def test_image_uploads_are_scanned_too(self, tmp_path, monkeypatch):
+        """The scan gate applies to every accepted type, not just documents.
+
+        Monkeypatches the scanner rather than embedding EICAR in a JPEG and
+        asking clamd to find it: EICAR's signature is a file-start match, and
+        does not reliably fire on a string appended after real image bytes -
+        that is a property of the test string, not of this pipeline. What
+        needs proving is that ``store_upload`` does not skip the scan for
+        ``is_image`` content before Pillow ever sees it, which this does
+        directly.
+        """
+        from doom.security import av
+
+        def _positive(data, **kwargs):
+            raise av.ScanPositive("Test-Signature")
+
+        monkeypatch.setattr(av, "scan", _positive)
+        with pytest.raises(UploadRejected):
+            store_upload(_storage(_jpeg_bytes(), "p.jpg", "image/jpeg"), str(tmp_path))
+
+    def test_unreachable_scanner_fails_closed(self, tmp_path):
+        """No scanner answering must refuse the upload, not silently allow it."""
+        with pytest.raises(UploadRejected):
+            store_upload(
+                _storage(b"harmless content", "notes.txt", "text/plain"),
+                str(tmp_path),
+                clamd_host="127.0.0.1",
+                clamd_port=1,
+                clamd_timeout=2,
+            )
+
+
 class TestStoredNames:
     def test_stored_name_is_generated_not_derived(self, tmp_path):
         """No user-controlled string reaches the filesystem.

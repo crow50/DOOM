@@ -70,7 +70,12 @@ def upload(node_type: str, node_id: str):
 
     for storage in files[:10]:
         try:
-            result = store_upload(storage, upload_dir, owner_id=current_user.id)
+            result = store_upload(
+                storage, upload_dir, owner_id=current_user.id,
+                clamd_host=current_app.config["CLAMD_HOST"],
+                clamd_port=current_app.config["CLAMD_PORT"],
+                clamd_timeout=current_app.config["CLAMD_SCAN_TIMEOUT"],
+            )
         except UploadRejected as exc:
             # The message names what was wrong with the file, never anything
             # about the server's filesystem or configuration.
