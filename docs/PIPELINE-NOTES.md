@@ -156,22 +156,6 @@ it nearly free.
 
 ---
 
-## Not shipped
-
-One item, real, and recorded as a gap in
-[findings.json](security/findings.json) as `CONTROL-5.4.3` rather than
-described here as future work.
-
-### Antivirus scanning of uploads — ASVS 12.4.2, **Not met**
-
-ClamAV as a sidecar, called from `security/uploads.py` before the store step.
-Worth being precise about why the current position is not enough: images are fully
-decoded and re-encoded, which destroys an embedded payload more reliably than a
-signature scanner finds it — but PDF, text and Markdown uploads are stored byte
-for byte, and 12.4.2 is a **Level 1** requirement that says "antivirus scanners".
-
----
-
 ## Deliberately not added
 
 - **Coverage gates.** A percentage target rewards testing what is easy to reach.
