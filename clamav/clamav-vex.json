@@ -1,0 +1,36 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "urn:doom:security:vex:clamav-image:2026-09-27",
+  "author": "DOOM security review",
+  "timestamp": "2026-09-27T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {"name": "CVE-2016-1405"},
+      "products": [
+        {"@id": "pkg:apk/alpine/clamav@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2"},
+        {"@id": "pkg:apk/alpine/clamav-clamdscan@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2&upstream=clamav"},
+        {"@id": "pkg:apk/alpine/clamav-daemon@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2&upstream=clamav"},
+        {"@id": "pkg:apk/alpine/clamav-libs@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2&upstream=clamav"},
+        {"@id": "pkg:apk/alpine/clamav-scanner@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2&upstream=clamav"},
+        {"@id": "pkg:apk/alpine/freshclam@1.4.6-r0?arch=x86_64&distro=alpine-3.24.2&upstream=clamav"}
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_present",
+      "impact_statement": "NVD's own CPE record for this CVE carries no version constraint at all (grype reports 'versionConstraint: none (unknown)'), so it matches every ClamAV version that has ever existed, including current upstream 1.5.4 - it cannot be cleared by any version bump. The advisory describes a 2016 denial-of-service in Cisco's AMP integration on ESA/WSA appliances ('crafted document' causing 'AMP process restart'), a Cisco-specific integration this image does not contain; nothing in this build's own code traces to it.",
+      "action_statement": "Re-evaluate if NVD ever publishes a version-bounded correction to this CPE record, or if a future advisory ties this CVE to code that does exist in this image.",
+      "timestamp": "2026-09-27T00:00:00Z"
+    },
+    {
+      "vulnerability": {"name": "CVE-2026-85091"},
+      "products": [
+        {"@id": "pkg:apk/alpine/zlib@1.3.2-r0?arch=x86_64&distro=alpine-3.24.2"}
+      ],
+      "status": "not_affected",
+      "justification": "vulnerable_code_not_in_execute_path",
+      "impact_statement": "The vulnerable path is zlib's gz_vacate(), reached only through gzwrite()/gzprintf()/gzvprintf() while using a non-blocking, caller-managed output buffer after a write stall - confirmed against the published NVD description, not assumed from the CVE id. Every call site of that function family in ClamAV 1.4.6's own source (grep across the full tree) is a single function, tar_addfile() in common/tar.c, called only from sigtool (not installed in this image) and freshclam's own database-mirroring code in libfreshclam_internal.c, packaging freshclam's own local files - never attacker-supplied bytes, and never through clamd's scan path. That one caller also uses plain blocking gzwrite(), not the non-blocking pattern the CVE requires. This differs from app/Dockerfile's zlib VEX (CONTROL there: the code path was reachable and the fix is a verified upstream-patched build); here the call graph itself never reaches the vulnerable function, so no rebuild was made - see D-43.",
+      "action_statement": "Re-run this trace against any future ClamAV version bump before renewing this statement - a new release could add a caller of the gzwrite family that this analysis did not see.",
+      "timestamp": "2026-09-27T00:00:00Z"
+    }
+  ]
+}

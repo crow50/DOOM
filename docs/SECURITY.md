@@ -161,6 +161,22 @@ too often. Hence: private by default, no upward links, nothing to enumerate.
 for `script`. Stored filenames are UUIDs at mode `0600`; the original name
 lives only in the database.
 
+**The scanner's own image is scanned too.** `clamav`'s image was outside
+CI's reach until a review found it - no workflow ever built it, so a change
+under `clamav/` triggered no vulnerability scan at all, on push, PR, or the
+weekly cron. `sbom-scanning.yml` and `trivy-image-scanning.yaml` now build
+and scan it alongside app's. Doing so found twelve HIGH findings against the
+pinned ClamAV package (CVE-2026-20213 through -20217, -20243, -20244,
+-20339, and -20345 through -20348); bumping to Alpine 3.24's
+`clamav-daemon 1.4.6-r0` - cross-checked against ClamAV's own changelogs,
+not assumed - closed all twelve. Two findings remain and are recorded as not
+applicable in `clamav/clamav-vex.json` rather than chased further: CVE-2016-1405
+carries no version constraint in NVD's own CPE record, so no version could
+ever clear it, and CVE-2026-85091 (zlib) traces to a code path - a
+non-blocking `gzwrite()`/`gzprintf()` pattern - that a full source trace of
+ClamAV 1.4.6 shows nothing in this image's call graph ever reaches. Full
+reasoning in D-43.
+
 ### Account, activity, and export
 
 | Threat | Control | Where |
@@ -327,22 +343,22 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
    know. Bounded, not eliminated.
 4. **A compromised account exposes that user's whole inventory.** There is no
    inner boundary below the account.
-5. **No antivirus scanning of uploads** (ASVS 12.4.2, Level 1). Images are
-   decoded and re-encoded, which destroys an embedded payload — but PDF, text
-   and Markdown uploads are stored byte for byte. Files are never executed and
-   always served as attachments with `nosniff`. ClamAV is the answer and it is
-   not implemented.
-6. **No TLS between containers** (1.9.1, 1.9.2, 9.2.2). Three internal hops are
-   plaintext. The compensating position — an `internal: true` network with no
-   route off the host, and passwords on both services — is argued in
-   the [findings register](security/findings.json) as `CONTROL-12.3.1`, not
-   counted as a pass.
-7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
+5. **clamd's own wire protocol is plaintext.** `web` -> `clamav:3310` carries
+   no TLS - clamd's `INSTREAM` protocol has none to offer - unlike the
+   caddy->web, web->db and web->cache hops, which now require TLS verified
+   against an internal CA. `internal: true`, no route off the host, is the
+   compensating position for this one remaining hop.
+6. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
    collector consumes, but nothing collects it here.
 
 Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
-Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5):
-`sbom-scanning.yml` generates one with syft and scans it with grype on every
-push and PR. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where,
-and the [ASVS 5.0 ledger](security/asvs-5.0.0.json) for the full picture —
-these seven are the ones worth reading in isolation, not the complete set.
+Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5).
+Nor is antivirus scanning of uploads (12.4.2): clamd scans every upload's raw
+bytes before anything is decoded, failing closed on a match, a timeout, or a
+scanner that does not answer. Nor is TLS between containers (1.9.1, 1.9.2,
+9.2.2): caddy->web, web->db and web->cache all require it now, verified
+against an internal CA (`make verify-internal-tls`) - only clamd's own hop,
+above, remains. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs
+where, and the [ASVS 5.0 ledger](security/asvs-5.0.0.json) for the full
+picture — these six are the ones worth reading in isolation, not the complete
+set.

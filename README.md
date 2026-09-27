@@ -78,15 +78,20 @@ you are.
 ## Architecture
 
 ```
-[browser / phone] ──HTTPS──▶ caddy ──HTTP──▶ web (gunicorn + flask)
-                                               │
-                                               ├──▶ db     (postgres)
-                                               ├──▶ cache  (redis)
-                                               └──▶ uploads volume
+[browser / phone] ──HTTPS──▶ caddy ──TLS──▶ web (gunicorn + flask)
+                                            │
+                                            ├──TLS───▶ db      (postgres)
+                                            ├──TLS───▶ cache   (redis)
+                                            ├─plain──▶ clamav  (clamd)
+                                            └───────▶ uploads volume
 ```
 
-Only Caddy publishes a port. `db` and `cache` sit on an internal Docker
-network with no route off the host.
+Only Caddy publishes a port. `db`, `cache` and `clamav` sit on an internal
+Docker network with no route off the host - `clamav` alone has one narrow,
+permanent exception to reach `database.clamav.net` for signature updates.
+caddy→web, web→db and web→cache all require TLS, verified against an internal
+CA; clamd's `INSTREAM` protocol has none to offer, so that one hop stays
+plaintext behind the network boundary (see [SECURITY.md](docs/SECURITY.md) §4).
 
 TLS is a functional requirement rather than polish: Web NFC only runs in a
 secure context, and a phone reaching this host by LAN IP is not one.
@@ -195,8 +200,12 @@ existing deployment's `secrets/` does not have yet. Run `make init` again
 first - it leaves your existing `.env` and passwords alone and only adds the
 CA and certs that are missing - then `make up && make upgrade` as usual.
 
-**A real domain.** Point `DOOM_DOMAIN` at it and add `email you@example.com`
-to `caddy/Caddyfile`; Caddy handles Let's Encrypt from there.
+**A real domain.** Point `DOOM_DOMAIN` at it and set `PUBLIC_BASE_URL` to
+match; Caddy switches from its internal CA to Let's Encrypt on its own - there
+is no setting here to turn that on. `caddy/conf.d/README.md` covers the ACME
+contact address, the staging CA (use it for the first issuance), and the two
+other ways to get a publicly trusted certificate without exposing this host to
+the internet at all.
 
 **Backups.** `make backup` covers the database *and* the uploads volume. A
 database dump alone is not a backup - every photo and document lives in the

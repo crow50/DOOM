@@ -306,14 +306,18 @@ viable attack - on availability. See D-04.
 **"Can't someone guess a share token?"** - 256 bits. The realistic attack is
 scraping leaked tokens, which is what the rate limits and `noindex` address.
 
-**"What would you add next?"** - TLS between the containers (ASVS 1.9.1 and
-9.2.2, the largest remaining L2 gap), then ClamAV on uploads for 12.4.2.
-`gitleaks`, `bandit`, `pip-audit`, `semgrep`, `hadolint`, Trivy, syft/grype and
-Renovate are already running — PIPELINE-NOTES.md says which trigger on what.
+**"What would you add next?"** - Certificate-based backend authentication now
+that internal TLS exists to present a certificate on (`CONTROL-13.2.1`), and
+off-host log shipping (`CONTROL-16.4.3`) - the two rows still Not met.
+TLS between the containers and ClamAV on uploads, previously the largest gaps,
+both closed. `gitleaks`, `bandit`, `pip-audit`, `semgrep`, `hadolint`, Trivy,
+syft/grype and Renovate are already running — PIPELINE-NOTES.md says which
+trigger on what.
 
 **"What's still weak?"** - Registration reveals whether a username is taken; a
-compromised account exposes that user's whole inventory; no antivirus scanning of
-uploads; no TLS between containers. The accepted risks are written up in
+compromised account exposes that user's whole inventory; backend services
+authenticate each other with a password over TLS rather than a certificate;
+logs aren't shipped off-host. The accepted risks are written up in
 SECURITY.md §4, and the complete picture is
 [docs/security/SUMMARY.md](security/SUMMARY.md) — twelve requirements that are
 not a clean pass out of 258, each with a finding in
@@ -321,13 +325,14 @@ not a clean pass out of 258, each with a finding in
 
 **"You claim ASVS Level 2. Do you meet it?"** - No, and the ledger says so. Every
 Level 1 and Level 2 requirement of ASVS 5.0 is assessed: L1 is 58 met, 11 not
-applicable and one compensating; L2 is 108 met, 64 not applicable, seven
-compensating and four not met. Four not met is four too many for a claim.
+applicable and one compensating; L2 is 112 met, 64 not applicable, five
+compensating and two not met. Two not met is two too many for a claim.
 
 An earlier revision claimed L1 "met in full" and L2 "met with two compensating
 controls"; both were overstated, an audit said so, and the ledger was rebuilt to
-enumerate every requirement rather than curate the ones that passed. The four
-that are still not met — antivirus, internal TLS and its trust decisions,
-certificate-based backend authentication, off-host log shipping — are named in
-[findings.json](security/findings.json) with what it would take to close each.
-Being able to give that answer is worth more than the claim was.
+enumerate every requirement rather than curate the ones that passed. Antivirus
+and internal TLS were two of the four originally Not met and have since closed.
+The two that remain — certificate-based backend authentication, off-host log
+shipping — are named in [findings.json](security/findings.json) with what it
+would take to close each. Being able to give that answer is worth more than the
+claim was.

@@ -13,6 +13,10 @@ name: Trivy Container Scan
 # nothing in the diff to explain it (see PIPELINE-NOTES.md). Without a cron,
 # that is only discovered when somebody happens to touch app/**, which on a
 # finished image can be never.
+#
+# 'clamav/**' was missing here too, same gap and same fix as sbom-scanning.yml:
+# neither this workflow nor that one had ever built or scanned clamav's image,
+# so a change under clamav/ triggered no image scan at all, on any schedule.
 on:
   schedule:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC
@@ -20,12 +24,14 @@ on:
     paths:
       - 'app/**'
       - 'caddy/**'
+      - 'clamav/**'
       - 'db/**'
       - '.github/workflows/trivy-image-scanning.yaml'
   pull_request:
     paths:
       - 'app/**'
       - 'caddy/**'
+      - 'clamav/**'
       - 'db/**'
       - '.github/workflows/trivy-image-scanning.yaml'
 
@@ -50,39 +56,53 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
 
-        # Building the Docker image to be scanned
+        # Building the Docker images to be scanned
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
-      - name: Build Docker image
-        run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
+      - name: Build app image
+        run: docker build -f app/Dockerfile --target runtime -t doom-organizer-app:${{ github.sha }} ./app
+
+      - name: Build clamav image
+        run: docker build -f clamav/Dockerfile -t doom-organizer-clamav:${{ github.sha }} ./clamav
 
       # Store the exact image config digest and platform next to the scan
       # workflow run so the tag does not stand in for artifact identity.
-      - name: Record candidate image identity
-        run: docker image inspect doom-organizer:${{ github.sha }} > candidate-image-inspect.json
+      - name: Record candidate image identities
+        run: |
+          docker image inspect doom-organizer-app:${{ github.sha }} > candidate-image-inspect-app.json
+          docker image inspect doom-organizer-clamav:${{ github.sha }} > candidate-image-inspect-clamav.json
 
-      - name: Upload candidate image identity
+      - name: Upload candidate app image identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: doom-organizer-image-${{ github.sha }}
-          path: candidate-image-inspect.json
+          name: doom-organizer-app-image-${{ github.sha }}
+          path: candidate-image-inspect-app.json
           if-no-files-found: error
 
-      - name: Generate runtime SBOM for exact-PURL VEX
+      - name: Upload candidate clamav image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: doom-organizer-clamav-image-${{ github.sha }}
+          path: candidate-image-inspect-clamav.json
+          if-no-files-found: error
+
+      - name: Generate app-image SBOM for exact-PURL VEX
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
         with:
-          image: doom-organizer:${{ github.sha }}
+          image: doom-organizer-app:${{ github.sha }}
           format: cyclonedx-json
-          output-file: sbom.cyclonedx.json
+          output-file: sbom-app.cyclonedx.json
           upload-artifact: false
 
-      # The package inventory remains at Alpine zlib 1.3.2-r0, but the image
-      # ships the verified upstream-patched library. The generated statement
-      # is bound to the exact PURL from this image's SBOM and fails closed on
-      # any distro/version change.
-      - name: Generate exact-PURL VEX for patched runtime zlib
-        run: python3 tools/generate_runtime_vex.py sbom.cyclonedx.json --output runtime-zlib.vex.json
+      # The package inventory remains at Alpine zlib 1.3.2-r0, but the app
+      # image ships the verified upstream-patched library. The generated
+      # statement is bound to the exact PURL from this image's SBOM and fails
+      # closed on any distro/version change. clamav gets a separate, static
+      # VEX below (clamav/clamav-vex.json) - it isn't pointed at this one,
+      # since it covers different findings for a different reason (D-43).
+      - name: Generate exact-PURL VEX for patched app-image zlib
+        run: python3 tools/generate_runtime_vex.py sbom-app.cyclonedx.json --output runtime-zlib.vex.json
 
       - name: Configure Trivy to consume the exact-PURL VEX
         run: |
@@ -92,40 +112,98 @@ jobs:
               - ./runtime-zlib.vex.json
           EOF
 
-        # Scanning the Docker image with Trivy
-        # Step will normally fail if CRITICAL or HIGH severity vulnerabilities are found
-      - name: Run Trivy scan
-        id: security_gate
+        # clamav/clamav-vex.json is committed, not generated - both findings
+        # it covers are source-verified dead ends (D-43), not a build-specific
+        # patch, so there is nothing here to compute per run.
+      - name: Configure Trivy to consume clamav's VEX
+        run: |
+          cat > trivy-vex-clamav.yaml <<'EOF'
+          vulnerability:
+            vex:
+              - clamav/clamav-vex.json
+          EOF
+
+        # Scanning both images with Trivy. continue-on-error on both gate
+        # steps is deliberate: without it, the app image's step failing on a
+        # CRITICAL/HIGH finding would skip the clamav build and scan entirely -
+        # the "Fail if either image's scan gated" step below is what actually
+        # fails the job (and this workflow's checks) on either image's finding.
+      - name: Run Trivy scan on app image
+        id: security_gate_app
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          image-ref: doom-organizer:${{ github.sha }}
+          image-ref: doom-organizer-app:${{ github.sha }}
           format: table
           exit-code: '1'
           ignore-unfixed: 'false'
           severity: 'CRITICAL,HIGH'
           trivy-config: trivy-vex.yaml
 
-        # Generating SARIF report with Trivy
-      - name: Run Trivy and generate SARIF report
+      - name: Run Trivy scan on clamav image
+        id: security_gate_clamav
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          image-ref: doom-organizer-clamav:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: 'false'
+          severity: 'CRITICAL,HIGH'
+          trivy-config: trivy-vex-clamav.yaml
+
+        # Generating SARIF reports with Trivy, every severity, for the
+        # Security tab - independent of the gate steps' outcome above.
+      - name: Run Trivy and generate SARIF report for app image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         if: always()
         with:
-          image-ref: doom-organizer:${{ github.sha }}
+          image-ref: doom-organizer-app:${{ github.sha }}
           format: 'sarif'
-          output: 'trivy-container-results.sarif'
+          output: 'trivy-app-results.sarif'
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
           ignore-unfixed: 'false'
           exit-code: '0'
           skip-setup-trivy: 'true' # Reuse Trivy binary from the action's cache to speed up setup
           trivy-config: trivy-vex.yaml
 
-        # Uploading SARIF report to GitHub Security tab
-      - name: Upload Trivy scan results to GitHub Security tab
+      - name: Run Trivy and generate SARIF report for clamav image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        if: always()
+        with:
+          image-ref: doom-organizer-clamav:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-clamav-results.sarif'
+          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
+          ignore-unfixed: 'false'
+          exit-code: '0'
+          skip-setup-trivy: 'true'
+          trivy-config: trivy-vex-clamav.yaml
+
+        # Uploading SARIF reports to GitHub Security tab
+      - name: Upload app Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
         if: always()
         with:
-          sarif_file: 'trivy-container-results.sarif'
-          category: 'trivy-container-scan'
+          sarif_file: 'trivy-app-results.sarif'
+          category: 'trivy-container-scan-app'
+
+      - name: Upload clamav Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        if: always()
+        with:
+          sarif_file: 'trivy-clamav-results.sarif'
+          category: 'trivy-container-scan-clamav'
+
+      - name: Fail if either image's scan gated
+        if: always()
+        run: |
+          echo "app scan: ${{ steps.security_gate_app.outcome }}"
+          echo "clamav scan: ${{ steps.security_gate_clamav.outcome }}"
+          if [ "${{ steps.security_gate_app.outcome }}" != "success" ] || [ "${{ steps.security_gate_clamav.outcome }}" != "success" ]; then
+            echo "At least one image has a CRITICAL/HIGH finding (or failed to scan)." >&2
+            exit 1
+          fi
 
       # Only on the scheduled run. On a push or a pull request the red check is
       # already the notification and the author is already looking at it; a cron
@@ -146,6 +224,7 @@ jobs:
       - name: Record scanner outcome
         if: always()
         env:
-          SCAN_OUTCOME: ${{ steps.security_gate.outcome }}
+          APP_OUTCOME: ${{ steps.security_gate_app.outcome }}
+          CLAMAV_OUTCOME: ${{ steps.security_gate_clamav.outcome }}
         run: |
-          echo "Scanner gate: $SCAN_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"

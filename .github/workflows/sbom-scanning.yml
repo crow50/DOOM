@@ -8,6 +8,15 @@ name: SBOM Generation and Vulnerability Scan
 # nothing in the diff to explain it (see PIPELINE-NOTES.md). Without a cron,
 # that is only discovered when somebody happens to touch app/**, which on a
 # finished image can be never.
+#
+# 'clamav/**' was missing here for as long as that image has existed: it built
+# nothing, scanned nothing, and every push or PR that only touched clamav/ ran
+# neither this workflow nor Trivy's, so its Alpine base and clamav-daemon
+# package had zero CI coverage outside the Monday cron - and the cron only
+# ever built app/'s image anyway, never clamav's. Both are fixed together:
+# the path is listed below, and the job now builds and scans both images
+# under one job name, so the 'sbom-scan' required check still means what its
+# name promises rather than passing on an image it never looked at.
 on:
   workflow_dispatch: {}
   schedule:
@@ -16,12 +25,14 @@ on:
     paths:
       - 'app/**'
       - 'caddy/**'
+      - 'clamav/**'
       - 'db/**'
       - '.github/workflows/sbom-scanning.yml'
   pull_request:
     paths:
       - 'app/**'
       - 'caddy/**'
+      - 'clamav/**'
       - 'db/**'
       - '.github/workflows/sbom-scanning.yml'
 
@@ -46,64 +57,131 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
 
-        # Building the image the SBOM describes
+        # Building the images the SBOMs describe
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
-      - name: Build Docker image
-        run: docker build -f app/Dockerfile --target runtime -t doom-organizer:${{ github.sha }} ./app
+      - name: Build app image
+        run: docker build -f app/Dockerfile --target runtime -t doom-organizer-app:${{ github.sha }} ./app
+
+      - name: Build clamav image
+        run: docker build -f clamav/Dockerfile -t doom-organizer-clamav:${{ github.sha }} ./clamav
 
       # Keep the exact candidate config digest and platform with the SBOM and
       # Grype result; a commit tag alone is not an artifact identity.
-      - name: Record candidate image identity
-        run: docker image inspect doom-organizer:${{ github.sha }} > candidate-image-inspect.json
+      - name: Record candidate image identities
+        run: |
+          docker image inspect doom-organizer-app:${{ github.sha }} > candidate-image-inspect-app.json
+          docker image inspect doom-organizer-clamav:${{ github.sha }} > candidate-image-inspect-clamav.json
 
-      - name: Upload candidate image identity
+      - name: Upload candidate app image identity
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: doom-organizer-image-${{ github.sha }}
-          path: candidate-image-inspect.json
+          name: doom-organizer-app-image-${{ github.sha }}
+          path: candidate-image-inspect-app.json
+          if-no-files-found: error
+
+      - name: Upload candidate clamav image identity
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: doom-organizer-clamav-image-${{ github.sha }}
+          path: candidate-image-inspect-clamav.json
           if-no-files-found: error
 
         # ASVS 14.2.5: generate a CycloneDX inventory of every third-party
-        # library in the runtime image, and keep it as a retrievable artifact.
-      - name: Generate SBOM with syft
+        # library in each image, and keep it as a retrievable artifact.
+      - name: Generate SBOM for app image with syft
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
         with:
-          image: doom-organizer:${{ github.sha }}
+          image: doom-organizer-app:${{ github.sha }}
           format: cyclonedx-json
-          output-file: sbom.cyclonedx.json
-          artifact-name: doom-organizer-sbom.cyclonedx.json
+          output-file: sbom-app.cyclonedx.json
+          artifact-name: doom-organizer-app-sbom.cyclonedx.json
+
+      - name: Generate SBOM for clamav image with syft
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
+        with:
+          image: doom-organizer-clamav:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom-clamav.cyclonedx.json
+          artifact-name: doom-organizer-clamav-sbom.cyclonedx.json
 
       # Alpine's package inventory remains accurate at zlib 1.3.2-r0, while
-      # the runtime image replaces its library with an upstream-patched build.
+      # the app image replaces its library with an upstream-patched build.
       # Bind the VEX status to the exact PURL in this image's SBOM; unexpected
-      # distro/package changes fail closed in the generator.
-      - name: Generate exact-PURL VEX for patched runtime zlib
-        run: python3 tools/generate_runtime_vex.py sbom.cyclonedx.json --output runtime-zlib.vex.json
+      # distro/package changes fail closed in the generator. clamav's image
+      # carries no such patch, so it gets no VEX - grype sees its zlib finding
+      # as-is, same as any other unpatched package.
+      - name: Generate exact-PURL VEX for patched app-image zlib
+        run: python3 tools/generate_runtime_vex.py sbom-app.cyclonedx.json --output runtime-zlib.vex.json
 
         # No fix-availability filter: an unavailable patch is still a risk.
         # Keep every severity visible in SARIF; HIGH+ fails until reviewed.
         # Bump this together with sbom-action above: a newer syft writes a newer
         # CycloneDX spec (1.7 from syft 1.51), and an older grype rejects it as
         # "sbom format not recognized", leaving an empty SARIF behind.
-      - name: Scan SBOM with grype
-        id: grype
+        #
+        # continue-on-error on both scan steps below is deliberate: without it,
+        # a HIGH+ finding in the app image would stop the job before the
+        # clamav image was ever built, let alone scanned - the opposite of
+        # what adding clamav here is for. The "Fail if either scan gated" step
+        # is what actually fails the job (and this required check) on either
+        # image's finding; nothing here silently ignores one.
+      - name: Scan app SBOM with grype
+        id: grype_app
+        continue-on-error: true
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
-          sbom: sbom.cyclonedx.json
+          sbom: sbom-app.cyclonedx.json
           vex: runtime-zlib.vex.json
           fail-build: true
           severity-cutoff: high
           only-fixed: false
           output-format: sarif
 
-      - name: Upload grype scan results to GitHub Security tab
+        # clamav/clamav-vex.json is static and hand-authored, not generated
+        # per build like the app image's zlib statement: both findings it
+        # covers are source-verified dead ends (a version-unbounded NVD CPE
+        # match, and a zlib code path this image's call graph never reaches),
+        # not a patch tied to one exact build. See D-43 for the full trace.
+      - name: Scan clamav SBOM with grype
+        id: grype_clamav
+        continue-on-error: true
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
+        with:
+          sbom: sbom-clamav.cyclonedx.json
+          vex: clamav/clamav-vex.json
+          fail-build: true
+          severity-cutoff: high
+          only-fixed: false
+          output-format: sarif
+
+      - name: Upload app grype scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
         if: always()
         with:
-          sarif_file: ${{ steps.grype.outputs.sarif }}
-          category: 'grype-sbom-scan'
+          sarif_file: ${{ steps.grype_app.outputs.sarif }}
+          category: 'grype-sbom-scan-app'
+
+      - name: Upload clamav grype scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        if: always()
+        with:
+          sarif_file: ${{ steps.grype_clamav.outputs.sarif }}
+          category: 'grype-sbom-scan-clamav'
+
+      # The two scan steps above always run (continue-on-error) so both images
+      # get built, scanned and reported to the Security tab in every run. This
+      # is what actually gates the job: either image's HIGH+ finding fails it.
+      - name: Fail if either image's scan gated
+        if: always()
+        run: |
+          echo "app scan: ${{ steps.grype_app.outcome }}"
+          echo "clamav scan: ${{ steps.grype_clamav.outcome }}"
+          if [ "${{ steps.grype_app.outcome }}" != "success" ] || [ "${{ steps.grype_clamav.outcome }}" != "success" ]; then
+            echo "At least one image's scan found a HIGH+ finding (or failed to run)." >&2
+            exit 1
+          fi
 
       # Only on the scheduled run. On a push or a pull request the red check is
       # already the notification and the author is already looking at it; a cron
@@ -124,6 +202,7 @@ jobs:
       - name: Record scanner outcome
         if: always()
         env:
-          SCAN_OUTCOME: ${{ steps.grype.outcome }}
+          APP_OUTCOME: ${{ steps.grype_app.outcome }}
+          CLAMAV_OUTCOME: ${{ steps.grype_clamav.outcome }}
         run: |
-          echo "Scanner gate: $SCAN_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
