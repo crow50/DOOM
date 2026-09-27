@@ -98,9 +98,9 @@ jobs:
       # The package inventory remains at Alpine zlib 1.3.2-r0, but the app
       # image ships the verified upstream-patched library. The generated
       # statement is bound to the exact PURL from this image's SBOM and fails
-      # closed on any distro/version change. clamav's image carries no such
-      # patch, so it is scanned with no VEX at all - its own trivy-config
-      # below is omitted, not pointed at the app image's statement.
+      # closed on any distro/version change. clamav gets a separate, static
+      # VEX below (clamav/clamav-vex.json) - it isn't pointed at this one,
+      # since it covers different findings for a different reason (D-43).
       - name: Generate exact-PURL VEX for patched app-image zlib
         run: python3 tools/generate_runtime_vex.py sbom-app.cyclonedx.json --output runtime-zlib.vex.json
 
@@ -110,6 +110,17 @@ jobs:
           vulnerability:
             vex:
               - ./runtime-zlib.vex.json
+          EOF
+
+        # clamav/clamav-vex.json is committed, not generated - both findings
+        # it covers are source-verified dead ends (D-43), not a build-specific
+        # patch, so there is nothing here to compute per run.
+      - name: Configure Trivy to consume clamav's VEX
+        run: |
+          cat > trivy-vex-clamav.yaml <<'EOF'
+          vulnerability:
+            vex:
+              - clamav/clamav-vex.json
           EOF
 
         # Scanning both images with Trivy. continue-on-error on both gate
@@ -139,6 +150,7 @@ jobs:
           exit-code: '1'
           ignore-unfixed: 'false'
           severity: 'CRITICAL,HIGH'
+          trivy-config: trivy-vex-clamav.yaml
 
         # Generating SARIF reports with Trivy, every severity, for the
         # Security tab - independent of the gate steps' outcome above.
@@ -166,6 +178,7 @@ jobs:
           ignore-unfixed: 'false'
           exit-code: '0'
           skip-setup-trivy: 'true'
+          trivy-config: trivy-vex-clamav.yaml
 
         # Uploading SARIF reports to GitHub Security tab
       - name: Upload app Trivy scan results to GitHub Security tab

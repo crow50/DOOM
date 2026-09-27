@@ -1558,3 +1558,100 @@ connection; a plaintext request to web:8000 also gets no reply, and an
 HTTPS one verifying against the internal CA succeeds. Verified against a
 real stack during development, not asserted: a wrong CA was confirmed refused
 by hand for all three hops before this was written down as Met.
+
+---
+
+## D-43 — clamav's own image: never scanned until now, and two findings VEXed rather than chased
+
+Neither `sbom-scanning.yml` nor `trivy-image-scanning.yaml` had `clamav/**` in
+their trigger paths, and independent of that, neither workflow ever built
+`clamav/Dockerfile` at all - both only ever built `./app`. clamav's Alpine
+base and its own package set had zero CI vulnerability-scanning coverage
+since the container was added in 211f28d, on any trigger, including the
+weekly cron. Both workflows now build and scan both images, in the same job
+(not a matrix - a matrix renames the job to `sbom-scan (app)` / `sbom-scan
+(clamav)`, which stops matching the literal `sbom-scan` required-check
+context in the `main` branch ruleset). Each image's gate step uses
+`continue-on-error` so a finding in one doesn't skip building or scanning the
+other; a final step combines both outcomes and is what actually fails the
+job.
+
+### What turning the scanner on found
+
+Twelve HIGH-severity CVEs against the pinned `clamav=1.4.4-r0` /
+`clamav-daemon=1.4.4-r0` (Alpine 3.23's only available version - `apk policy`
+confirmed nothing newer existed in that release): CVE-2026-20213, -20214,
+-20215, -20216, -20217, -20243, -20244, -20339, -20345, -20346, -20347 and
+-20348. Cross-checked against ClamAV's own published changelogs, not assumed
+from the CVE numbers: 1.4.5 fixes the first seven, 1.4.6 the remaining five.
+Alpine's `v3.24` and `edge` branches both package `clamav-daemon 1.4.6-r0`
+already, and `alpine:3.24` publishes a multi-arch manifest including
+`arm64` - the reason this Dockerfile avoids the official `clamav/clamav`
+image in the first place, so the bump doesn't reopen that problem. The base
+image and the two package pins moved together; a rebuild and rescan (grype
+0.118.0, matching CI's pin, against both an `arm64` and a cross-built
+`amd64` image - the SBOM's package PURLs, and therefore what a VEX statement
+has to name, differ by architecture) confirmed all twelve gone.
+
+### The two that are left, and why neither got a rebuild
+
+**CVE-2016-1405 is a false positive with no version to fix.** grype's own
+match data reads `"versionConstraint": "none (unknown)"` - NVD's CPE record
+for this 2016 advisory carries no version bound at all, so it matches every
+ClamAV version that has ever existed, including current upstream 1.5.4. No
+package bump clears it. The advisory itself describes a denial of service in
+Cisco's AMP integration on ESA/WSA appliances circa 2016 ("crafted document"
+causing "AMP process restart"), an integration this image does not contain.
+
+**CVE-2026-85091 (zlib) is the same CVE `app/Dockerfile` already patches -
+but the call graph doesn't reach it here.** The published NVD description
+names the exact trigger: `gz_vacate()`, reached only through
+`gzwrite()`/`gzprintf()`/`gzvprintf()` while using a non-blocking,
+caller-managed output buffer after a write stall. Rather than assume that
+away, ClamAV 1.4.6's source was cloned and grepped for every call to that
+function family across the whole tree. There is exactly one caller anywhere:
+`tar_addfile()` in `common/tar.c`, a "minimalistic tar archiver for sigtool
+and freshclam." Its own two callers are `sigtool/sigtool.c` (a standalone
+CLI tool, not installed in this image - the Dockerfile only `apk add`s
+`clamav` and `clamav-daemon`) and `libfreshclam/libfreshclam_internal.c`,
+where freshclam tars up its **own** local database files (`COPYING`, its own
+config, its own signature files) when acting as a mirror - never
+attacker-supplied bytes, and never through clamd's scan path. That one
+caller also uses plain blocking `gzwrite()`, not the non-blocking pattern the
+CVE requires. Separately, the application's own upload allowlist
+(`app/doom/security/uploads.py`) rejects archives before the AV scan step
+ever runs, on magic-byte-sniffed content type - so even the narrower question
+of "can a user hand clamd a file that makes it write a gzip archive" doesn't
+arise. Between the two, this is a source-traced dead end, not a probabilistic
+argument: the vulnerable function is not reachable from anything this
+container does with data it did not generate itself.
+
+**Why this isn't the zlib-VEX pattern app/Dockerfile already has.** That
+pattern exists because the vulnerable code path *is* reachable there, and the
+fix is a verified upstream-patched build swapped in at the same version
+string - the VEX documents a patch, regenerated per build from that build's
+own SBOM. Here there is no patch, because there is nothing to patch around: the
+call graph itself never reaches the vulnerable function. `clamav/clamav-vex.json`
+is committed as a static file rather than generated by a script for exactly
+that reason - the judgment doesn't depend on any per-build artifact, and
+regenerating it on every build would only add ceremony around a fact that
+doesn't change between builds of the same ClamAV version.
+
+### Honest limits
+
+The call-graph trace is against ClamAV 1.4.6's source as published; a future
+release could add a caller of the `gzwrite` family that this analysis did not
+see, which is why the VEX's own `action_statement` says to re-run it before
+renewing the statement on a version bump. `clamav-vex.json` is scoped to
+exact package PURLs including the Alpine release and architecture
+qualifiers, so a future Alpine or ClamAV bump will surface as a fresh,
+unignored finding rather than silently keep matching - the same fail-closed
+property `generate_runtime_vex.py` has for the app image, achieved here by
+hand instead of by a script because nothing here needs recomputing per build.
+
+Verified: `docker build --no-cache` against both the `arm64` (native) and a
+QEMU-emulated `amd64` platform, `syft`/`grype` regenerated against each, and
+`grype --vex clamav/clamav-vex.json` confirmed to drop both findings and
+exit 0 - and, separately, confirmed to fail loudly rather than silently pass
+when pointed at a nonexistent VEX file, so a passing run here means the file
+was actually read.

@@ -161,6 +161,22 @@ too often. Hence: private by default, no upward links, nothing to enumerate.
 for `script`. Stored filenames are UUIDs at mode `0600`; the original name
 lives only in the database.
 
+**The scanner's own image is scanned too.** `clamav`'s image was outside
+CI's reach until a review found it - no workflow ever built it, so a change
+under `clamav/` triggered no vulnerability scan at all, on push, PR, or the
+weekly cron. `sbom-scanning.yml` and `trivy-image-scanning.yaml` now build
+and scan it alongside app's. Doing so found twelve HIGH findings against the
+pinned ClamAV package (CVE-2026-20213 through -20217, -20243, -20244,
+-20339, and -20345 through -20348); bumping to Alpine 3.24's
+`clamav-daemon 1.4.6-r0` - cross-checked against ClamAV's own changelogs,
+not assumed - closed all twelve. Two findings remain and are recorded as not
+applicable in `clamav/clamav-vex.json` rather than chased further: CVE-2016-1405
+carries no version constraint in NVD's own CPE record, so no version could
+ever clear it, and CVE-2026-85091 (zlib) traces to a code path - a
+non-blocking `gzwrite()`/`gzprintf()` pattern - that a full source trace of
+ClamAV 1.4.6 shows nothing in this image's call graph ever reaches. Full
+reasoning in D-43.
+
 ### Account, activity, and export
 
 | Threat | Control | Where |

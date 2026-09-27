@@ -139,12 +139,18 @@ jobs:
           only-fixed: false
           output-format: sarif
 
+        # clamav/clamav-vex.json is static and hand-authored, not generated
+        # per build like the app image's zlib statement: both findings it
+        # covers are source-verified dead ends (a version-unbounded NVD CPE
+        # match, and a zlib code path this image's call graph never reaches),
+        # not a patch tied to one exact build. See D-43 for the full trace.
       - name: Scan clamav SBOM with grype
         id: grype_clamav
         continue-on-error: true
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
         with:
           sbom: sbom-clamav.cyclonedx.json
+          vex: clamav/clamav-vex.json
           fail-build: true
           severity-cutoff: high
           only-fixed: false
