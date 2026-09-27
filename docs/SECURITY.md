@@ -343,22 +343,22 @@ Recorded rather than hidden. Full reasoning in [DECISIONS.md](DECISIONS.md).
    know. Bounded, not eliminated.
 4. **A compromised account exposes that user's whole inventory.** There is no
    inner boundary below the account.
-5. **No antivirus scanning of uploads** (ASVS 12.4.2, Level 1). Images are
-   decoded and re-encoded, which destroys an embedded payload — but PDF, text
-   and Markdown uploads are stored byte for byte. Files are never executed and
-   always served as attachments with `nosniff`. ClamAV is the answer and it is
-   not implemented.
-6. **No TLS between containers** (1.9.1, 1.9.2, 9.2.2). Three internal hops are
-   plaintext. The compensating position — an `internal: true` network with no
-   route off the host, and passwords on both services — is argued in
-   the [findings register](security/findings.json) as `CONTROL-12.3.1`, not
-   counted as a pass.
-7. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
+5. **clamd's own wire protocol is plaintext.** `web` -> `clamav:3310` carries
+   no TLS - clamd's `INSTREAM` protocol has none to offer - unlike the
+   caddy->web, web->db and web->cache hops, which now require TLS verified
+   against an internal CA. `internal: true`, no route off the host, is the
+   compensating position for this one remaining hop.
+6. **Logs are not shipped off-host** (1.7.2). Structured JSON to stdout is what a
    collector consumes, but nothing collects it here.
 
 Dependency CVE scanning is **no longer** on this list: `pip-audit`, Trivy and
-Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5):
-`sbom-scanning.yml` generates one with syft and scans it with grype on every
-push and PR. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs where,
-and the [ASVS 5.0 ledger](security/asvs-5.0.0.json) for the full picture —
-these seven are the ones worth reading in isolation, not the complete set.
+Renovate all run, and the lockfile is hash-pinned. Nor is the SBOM (14.2.5).
+Nor is antivirus scanning of uploads (12.4.2): clamd scans every upload's raw
+bytes before anything is decoded, failing closed on a match, a timeout, or a
+scanner that does not answer. Nor is TLS between containers (1.9.1, 1.9.2,
+9.2.2): caddy->web, web->db and web->cache all require it now, verified
+against an internal CA (`make verify-internal-tls`) - only clamd's own hop,
+above, remains. See [PIPELINE-NOTES.md](PIPELINE-NOTES.md) for what runs
+where, and the [ASVS 5.0 ledger](security/asvs-5.0.0.json) for the full
+picture — these six are the ones worth reading in isolation, not the complete
+set.

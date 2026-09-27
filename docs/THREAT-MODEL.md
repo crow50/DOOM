@@ -58,40 +58,41 @@ Ranked by what an attacker would want and what a loss would cost the operator.
 ## 4. Trust boundaries
 
 ```
-┌─ INTERNET ─ untrusted ──────────────────────────────────────────┐
-│  anonymous visitors · share-link holders · scanners             │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │  ① TLS · the only published port
-┌───────────────────────────▼─────────────────────────────────────┐
-│  caddy - TLS termination, body size cap, XFF normalisation      │
-└───────────────────────────┬─────────────────────────────────────┘
-                            │  ② HTTP over the docker network
-┌───────────────────────────▼─────────────────────────────────────┐
-│  web (gunicorn / flask) - non-root, read-only rootfs            │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ ③ authentication  → is this a known user?                │   │
-│  │ ④ authorisation   → do they own THIS object?             │   │
-│  │ ⑤ input validation → is this data acceptable at all?     │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└──────┬─────────────────────────┬──────────────────┬─────────────┘
-       │ ⑥ DML-only role         │ ⑦ authenticated  │ ⑧ file I/O
-┌──────▼──────────┐   ┌──────────▼────────┐   ┌─────▼───────────┐
-│ db (postgres)   │   │ cache (redis)     │   │ uploads volume  │
-│ internal net    │   │ internal net      │   │ outside webroot │
-└─────────────────┘   └───────────────────┘   └─────────────────┘
+┌─ INTERNET ─ untrusted ──────────────────────────────────────────────────────────────┐
+│  anonymous visitors · share-link holders · scanners                                 │
+└──────────────────────────────────────────┬──────────────────────────────────────────┘
+                                           │ ① TLS · the only published port
+┌──────────────────────────────────────────▼──────────────────────────────────────────┐
+│  caddy - TLS termination, body size cap, XFF normalisation                          │
+└──────────────────────────────────────────┬──────────────────────────────────────────┘
+                                           │ ② TLS over the docker network
+┌──────────────────────────────────────────▼──────────────────────────────────────────┐
+│  web (gunicorn / flask) - non-root, read-only rootfs                                │
+│  ┌──────────────────────────────────────────────────────────────────────────────┐   │
+│  │ ③ authentication  → is this a known user?                                    │   │
+│  │ ④ authorisation   → do they own THIS object?                                 │   │
+│  │ ⑤ input validation → is this data acceptable at all?                         │   │
+│  └──────────────────────────────────────────────────────────────────────────────┘   │
+└───────┬───────────────────┬─────────────────────┬────────────────────────┬──────────┘
+        │ ⑥ DML-only        │ ⑦ authenticated     │ ⑧ clamd (plain)        │ ⑨ file I/O
+┌───────▼───────┐   ┌───────▼───────┐   ┌─────────▼─────────┐   ┌──────────▼──────────┐
+│ db (postgres) │   │ cache (redis) │   │ clamav (clamd)    │   │ uploads volume      │
+│ internal net  │   │ internal net  │   │ internal + egress │   │ outside webroot     │
+└───────────────┘   └───────────────┘   └───────────────────┘   └─────────────────────┘
 ```
 
 | # | Boundary | Crossing rule |
 |---|---|---|
 | ① | Internet → Caddy | TLS only. The sole published port. Request bodies capped before reaching the app |
-| ② | Caddy → web | `X-Forwarded-For` is **overwritten**, never appended - a client-supplied value must never be believed |
+| ② | Caddy → web | TLS, verified against an internal CA. `X-Forwarded-For` is **overwritten**, never appended - a client-supplied value must never be believed |
 | ② | Caddy → web | Everything is proxied, including `/healthz`. It is the only unauthenticated application route besides login, registration and share pages: it touches no database, returns two bytes, and is exempt from the rate limiter because the container healthcheck polls it every ten seconds. Reachable on purpose; a probe learns only that something answers, and cannot make it cost anything |
 | ③ | Anonymous → authenticated | Argon2id verification, rate limited, timing-equalised |
 | ④ | Authenticated → **this** object | Ownership is a `WHERE` clause on every query. **The single most important boundary in the system** |
 | ⑤ | Request data → application | Allowlist validation; models never built from raw form data |
-| ⑥ | App → database | App role holds DML only. Cannot `ALTER`, `DROP`, or read `pg_shadow` |
-| ⑦ | App → cache | Password-protected on an internal-only network |
-| ⑧ | App → filesystem | No user-controlled string ever reaches a filesystem path |
+| ⑥ | App → database | TLS, verified against an internal CA, plus an App role that holds DML only. Cannot `ALTER`, `DROP`, or read `pg_shadow` |
+| ⑦ | App → cache | TLS, verified against an internal CA, and password-protected, on an internal-only network |
+| ⑧ | App → clamav | Every upload's raw bytes scanned before anything is decoded; fails closed on a match, a timeout, or an unrecognised reply. clamd's `INSTREAM` protocol has no TLS to offer, so this hop alone stays plaintext behind the network boundary |
+| ⑨ | App → filesystem | No user-controlled string ever reaches a filesystem path |
 
 ---
 

@@ -1024,6 +1024,10 @@ ports, and both require passwords. TLS between them would defend against an
 attacker already executing inside that network — who can read the
 application's own credentials regardless.
 
+**Closed - see D-42.** caddy->web, web->db and web->cache all run TLS now,
+verified against an internal CA. The argument above was this decision's
+position at the time; it is not the current one.
+
 **Logs are not shipped off-host** (1.7.2). They go to stdout as structured
 JSON, which is what a collector consumes. The security-relevant half — the
 audit trail — is in Postgres, hash-chained and append-only, which is a
@@ -1136,7 +1140,10 @@ antivirus scanning (12.4.2) are recorded as unmet. Each is real work with runtim
 consequences, and the argument for the current position is in `COMPLIANCE.md` §3
 where a verifier can disagree with it. The point of this decision is that an
 argument is now labelled as an argument. The SBOM (14.2.5) was in this list too,
-until `sbom-scanning.yml` (syft + grype) closed it.
+until `sbom-scanning.yml` (syft + grype) closed it - and TLS between containers
+and antivirus scanning have since closed the same way: see D-42 and clamd's own
+entry in `docs/security/POLICIES.md` §9. Off-host log shipping is the one still
+open.
 
 ### A second round, from CI
 
