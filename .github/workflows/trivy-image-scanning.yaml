@@ -5,9 +5,8 @@ name: Trivy Container Scan
 # so both filters named a file that cannot change - and the files that replaced
 # them, app/Dockerfile and app/.dockerignore, are already covered by 'app/**'.
 #
-# The pull_request branch filter is gone for the reason recorded in
-# sbom-scanning.yml: a pull request targeting anything other than main skipped
-# the image scan entirely.
+# The pull_request branch filter is gone for the reason recorded below: a pull
+# request targeting anything other than main skipped the image scan entirely.
 # The weekly run is the point of the schedule, not a belt-and-braces extra: a
 # CVE published against a package already in the image turns this red with
 # nothing in the diff to explain it (see PIPELINE-NOTES.md). Without a cron,
@@ -17,23 +16,21 @@ name: Trivy Container Scan
 # 'clamav/**' was missing here too, same gap and same fix as sbom-scanning.yml:
 # neither this workflow nor that one had ever built or scanned clamav's image,
 # so a change under clamav/ triggered no image scan at all, on any schedule.
+#
+# There is also no trigger-level 'paths:' filter any more, on push or
+# pull_request - see the matching, longer comment in sbom-scanning.yml for why:
+# a merge commit whose own net diff is docs-only can land on a branch whose
+# required checks (this workflow isn't one today, but it is built the same way
+# on purpose) then never fire again, which is worse than the wasted runs a
+# path filter was trying to save. The "Check for relevant changes" step below
+# makes the same decision as data the job can act on, by diffing full push/PR
+# content rather than per-commit paths, and still posts a status either way.
 on:
   schedule:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC
-  push:
-    paths:
-      - 'app/**'
-      - 'caddy/**'
-      - 'clamav/**'
-      - 'db/**'
-      - '.github/workflows/trivy-image-scanning.yaml'
-  pull_request:
-    paths:
-      - 'app/**'
-      - 'caddy/**'
-      - 'clamav/**'
-      - 'db/**'
-      - '.github/workflows/trivy-image-scanning.yaml'
+  workflow_dispatch: {}
+  push: {}
+  pull_request: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -55,25 +52,61 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        with:
+          # Full history: the relevance check below diffs against a base
+          # commit that has to actually be present locally to diff against.
+          fetch-depth: 0
+
+      # See sbom-scanning.yml's copy of this step for the full reasoning.
+      # Schedule and workflow_dispatch always run in full; push and
+      # pull_request diff the whole push/PR's content change, not per-commit.
+      - name: Check for relevant changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "base commit unavailable to diff against; treating as relevant"
+            exit 0
+          fi
+          if git diff --name-only "$base" "${{ github.sha }}" \
+              | grep -qE '^(app/|caddy/|clamav/|db/|\.github/workflows/trivy-image-scanning\.yaml)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
         # Building the Docker images to be scanned
       - name: Set up Docker Buildx
+        if: steps.changes.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Build app image
+        if: steps.changes.outputs.relevant == 'true'
         run: docker build -f app/Dockerfile --target runtime -t doom-organizer-app:${{ github.sha }} ./app
 
       - name: Build clamav image
+        if: steps.changes.outputs.relevant == 'true'
         run: docker build -f clamav/Dockerfile -t doom-organizer-clamav:${{ github.sha }} ./clamav
 
       # Store the exact image config digest and platform next to the scan
       # workflow run so the tag does not stand in for artifact identity.
       - name: Record candidate image identities
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           docker image inspect doom-organizer-app:${{ github.sha }} > candidate-image-inspect-app.json
           docker image inspect doom-organizer-clamav:${{ github.sha }} > candidate-image-inspect-clamav.json
 
       - name: Upload candidate app image identity
+        if: steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: doom-organizer-app-image-${{ github.sha }}
@@ -81,6 +114,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload candidate clamav image identity
+        if: steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: doom-organizer-clamav-image-${{ github.sha }}
@@ -88,6 +122,7 @@ jobs:
           if-no-files-found: error
 
       - name: Generate app-image SBOM for exact-PURL VEX
+        if: steps.changes.outputs.relevant == 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
         with:
           image: doom-organizer-app:${{ github.sha }}
@@ -102,9 +137,11 @@ jobs:
       # VEX below (clamav/clamav-vex.json) - it isn't pointed at this one,
       # since it covers different findings for a different reason (D-43).
       - name: Generate exact-PURL VEX for patched app-image zlib
+        if: steps.changes.outputs.relevant == 'true'
         run: python3 tools/generate_runtime_vex.py sbom-app.cyclonedx.json --output runtime-zlib.vex.json
 
       - name: Configure Trivy to consume the exact-PURL VEX
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           cat > trivy-vex.yaml <<'EOF'
           vulnerability:
@@ -116,6 +153,7 @@ jobs:
         # it covers are source-verified dead ends (D-43), not a build-specific
         # patch, so there is nothing here to compute per run.
       - name: Configure Trivy to consume clamav's VEX
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           cat > trivy-vex-clamav.yaml <<'EOF'
           vulnerability:
@@ -129,6 +167,7 @@ jobs:
         # the "Fail if either image's scan gated" step below is what actually
         # fails the job (and this workflow's checks) on either image's finding.
       - name: Run Trivy scan on app image
+        if: steps.changes.outputs.relevant == 'true'
         id: security_gate_app
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -141,6 +180,7 @@ jobs:
           trivy-config: trivy-vex.yaml
 
       - name: Run Trivy scan on clamav image
+        if: steps.changes.outputs.relevant == 'true'
         id: security_gate_clamav
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -155,8 +195,8 @@ jobs:
         # Generating SARIF reports with Trivy, every severity, for the
         # Security tab - independent of the gate steps' outcome above.
       - name: Run Trivy and generate SARIF report for app image
+        if: steps.changes.outputs.relevant == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        if: always()
         with:
           image-ref: doom-organizer-app:${{ github.sha }}
           format: 'sarif'
@@ -168,8 +208,8 @@ jobs:
           trivy-config: trivy-vex.yaml
 
       - name: Run Trivy and generate SARIF report for clamav image
+        if: steps.changes.outputs.relevant == 'true'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        if: always()
         with:
           image-ref: doom-organizer-clamav:${{ github.sha }}
           format: 'sarif'
@@ -182,15 +222,15 @@ jobs:
 
         # Uploading SARIF reports to GitHub Security tab
       - name: Upload app Trivy scan results to GitHub Security tab
+        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
-        if: always()
         with:
           sarif_file: 'trivy-app-results.sarif'
           category: 'trivy-container-scan-app'
 
       - name: Upload clamav Trivy scan results to GitHub Security tab
+        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
-        if: always()
         with:
           sarif_file: 'trivy-clamav-results.sarif'
           category: 'trivy-container-scan-clamav'
@@ -198,6 +238,10 @@ jobs:
       - name: Fail if either image's scan gated
         if: always()
         run: |
+          if [ "${{ steps.changes.outputs.relevant }}" != "true" ]; then
+            echo "No app/caddy/clamav/db change in this push - nothing built or scanned."
+            exit 0
+          fi
           echo "app scan: ${{ steps.security_gate_app.outcome }}"
           echo "clamav scan: ${{ steps.security_gate_clamav.outcome }}"
           if [ "${{ steps.security_gate_app.outcome }}" != "success" ] || [ "${{ steps.security_gate_clamav.outcome }}" != "success" ]; then
@@ -224,7 +268,12 @@ jobs:
       - name: Record scanner outcome
         if: always()
         env:
+          RELEVANT: ${{ steps.changes.outputs.relevant }}
           APP_OUTCOME: ${{ steps.security_gate_app.outcome }}
           CLAMAV_OUTCOME: ${{ steps.security_gate_clamav.outcome }}
         run: |
-          echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RELEVANT" != "true" ]; then
+            echo "Scanner gate - skipped: no app/caddy/clamav/db change in this push." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          fi
