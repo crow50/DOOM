@@ -14,7 +14,7 @@ from .security import headers as security_headers
 from .security import logging as structured_logging
 from .security import sessions as secure_sessions
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 logger = logging.getLogger(__name__)
 
