@@ -1,1 +1,110 @@
-[]
+[
+  {
+    "id": "EXC-CONTROL-1.3.6",
+    "finding_ids": ["CONTROL-1.3.6"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess before BARCODE_LOOKUP_PROVIDER is ever set, or if the web container's egress route is restored; either change reopens the DNS-rebinding path this acceptance assumes is unreachable."
+  },
+  {
+    "id": "EXC-CONTROL-6.4.3",
+    "finding_ids": ["CONTROL-6.4.3"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess if mail infrastructure is ever introduced; a self-service reset flow would then need to be built with the second factor enforced."
+  },
+  {
+    "id": "EXC-CONTROL-7.5.3",
+    "finding_ids": ["CONTROL-7.5.3"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess if inventory/share mutation is extended beyond the authenticated owner acting on their own data."
+  },
+  {
+    "id": "EXC-CONTROL-8.3.2",
+    "finding_ids": ["CONTROL-8.3.2"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess if concurrent writers to the same session/dataset increase, or revocation semantics change."
+  },
+  {
+    "id": "EXC-CONTROL-12.2.2",
+    "finding_ids": ["CONTROL-12.2.2"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1680"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "At the first non-local deployment, confirm route A (front with an existing TLS-terminating reverse proxy) or route B (mount an externally issued certificate) is actually configured, not merely documented as available; record in docs/security/HOSTED-READINESS.md."
+  },
+  {
+    "id": "EXC-CONTROL-13.2.1",
+    "finding_ids": ["CONTROL-13.2.1"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess once certificate-based backend authentication is built on the now-closed internal-TLS channel (D-42), or sooner if the credential file's mount/permissions change."
+  },
+  {
+    "id": "EXC-CONTROL-13.3.1",
+    "finding_ids": ["CONTROL-13.3.1"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1694"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Closes when the planned secrets-manager integration ships; otherwise revisit no later than expiry."
+  },
+  {
+    "id": "EXC-CONTROL-14.2.8",
+    "finding_ids": ["CONTROL-14.2.8"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess if PDF/document metadata stripping is implemented, or if uploaded documents start being re-shared outside their original uploader."
+  },
+  {
+    "id": "EXC-CONTROL-16.2.2",
+    "finding_ids": ["CONTROL-16.2.2"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess when host NTP/log evidence is collected for a non-local deployment; purely an operator obligation with no code path in this repository to close it."
+  },
+  {
+    "id": "EXC-CONTROL-16.4.2",
+    "finding_ids": ["CONTROL-16.4.2"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1710"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Reassess when host-level stdout log protection and retention evidence is recorded; the database half is already covered by make verify-db-roles."
+  },
+  {
+    "id": "EXC-CONTROL-16.4.3",
+    "finding_ids": ["CONTROL-16.4.3"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1703"],
+    "expires": "2026-12-26",
+    "reassessment_trigger": "Closes when the planned log-shipping/alerting feature ships; otherwise revisit no later than expiry."
+  },
+  {
+    "id": "EXC-DEP-release-0.1.0",
+    "finding_ids": ["DEP-release-0.1.0"],
+    "owner": "crow50",
+    "approved_by": "crow50",
+    "approval_evidence": ["docs/DECISIONS.md:1718"],
+    "expires": "2026-10-27",
+    "reassessment_trigger": "As soon as ghcr.io/crow50/doom-organizer:0.2.0 is confirmed published, re-run the ledger and mark this finding closed against the new image's own SBOM/scan rather than renewing the exception."
+  }
+]

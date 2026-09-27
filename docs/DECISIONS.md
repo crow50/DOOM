@@ -1662,3 +1662,94 @@ QEMU-emulated `amd64` platform, `syft`/`grype` regenerated against each, and
 exit 0 - and, separately, confirmed to fail loudly rather than silently pass
 when pointed at a nonexistent VEX file, so a passing run here means the file
 was actually read.
+
+## D-44 — Accepting twelve open findings to publish v0.2.0, including three previously refused
+
+`tools/security_assessment.py --release --publish` does not read prose - it
+requires every open finding whose residual risk is not critical/high/unknown
+to carry a matching entry in `exceptions.json`, all twelve or none. Three of
+the twelve already carried a refusal in their own `rationale`:
+`CONTROL-12.2.2` ("not accepted: no exception is approved"), `CONTROL-13.3.1`
+("no exception is approved"), and `CONTROL-16.4.3` ("no exception is
+approved"). Publishing v0.2.0 means reversing those three, not just
+paperwork for the other nine, so each is recorded here rather than folded
+into the same sentence as the rest.
+
+### The three reversed
+
+**CONTROL-12.2.2 — no public CA on the reviewed (localhost) deployment.**
+The refusal was written against a reading of "no exception is approved" as
+"this gap has no mitigation." It has one, and it already ships: Caddy
+supports two other routes to a real, publicly trusted certificate without
+any image change - front it with an existing TLS-terminating reverse proxy
+(route A), or mount a certificate this deployment did not issue (route B) -
+both documented in `caddy/conf.d/README.md`. `localhost` is the *reviewed
+deployment's own choice*, not a ceiling this image imposes. Accepted for
+this release on that basis: the capability the requirement asks for exists
+and is exercised by an operator who needs it; the reviewed deployment simply
+isn't one. Reassessment trigger: at the first non-local deployment, confirm
+route A or B is actually configured, not merely documented as available -
+`docs/security/HOSTED-READINESS.md` is where that confirmation belongs.
+
+**CONTROL-13.3.1 — no secrets vault.** Storage and access control are
+already covered (`make verify-secrets`); what a vault adds - managed
+rotation, destruction and an audit trail - has no code in this repository
+yet, and the original refusal stands on that absence alone. Accepted for
+this release because that work is planned for a future release rather than
+indefinitely deferred; the exception is a bridge to that release, not a
+verdict that the gap is fine. Reassessment trigger: closes when the
+secrets-manager integration ships; otherwise revisit no later than expiry.
+
+**CONTROL-16.4.3 — no off-host log shipping or alerting.** Same shape as
+13.3.1: the gap is real, the mitigation is a planned future release (a log
+driver or sidecar shipping to a separate system, with alerting), and the
+exception exists to cover the distance between this release and that one.
+Reassessment trigger: closes when log shipping ships; otherwise revisit no
+later than expiry.
+
+### The other nine
+
+`CONTROL-1.3.6`, `CONTROL-6.4.3`, `CONTROL-7.5.3`, `CONTROL-8.3.2`,
+`CONTROL-13.2.1`, `CONTROL-14.2.8`, `CONTROL-16.2.2`, `CONTROL-16.4.2`, and
+`DEP-release-0.1.0` never carried a refusal - each finding's own
+`rationale`/`exploitability`/`remediation` already states the gap, why it's
+bounded, and what would close it, and nothing here repeats that. Accepted as
+written, at the severity/deadline table in `docs/security/POLICIES.md` §7:
+medium residual risk gets 30 days, low gets 90. `DEP-release-0.1.0` is the
+one with a deadline that is almost certainly moot before it arrives - its
+own remediation is "the candidate that supersedes this image ... [is] Publish
+it," which is this exact release. Reassessment trigger for it: as soon as
+this v0.2.0 image is confirmed published, re-run the ledger, mark it closed
+against the new image's own SBOM/scan rather than renewing the exception.
+
+### Owner and approval
+
+Single-maintainer project: owner and approver are both `crow50` on every
+exception this decision creates. `docs/security/RELEASE-ASSESSMENT.md`
+already says what this is - "the maintainer's own assessment" - and a
+self-issued exception is that same posture applied to the release gate
+rather than a separate authority appearing from nowhere.
+
+### The reviewed candidate
+
+`docs/security/release-candidate.json` records the image this release
+promotes, rather than rebuilding one: `ghcr.io/crow50/doom-organizer` at
+manifest digest `sha256:ed1063ad8c8193a824c7e88e6fa70a6eeab042fbea038dc90ed435d4541ed775`,
+image id `sha256:734d968c462934dc211cf64dfa1d6e13ee5927197360174aeed7a1d23e858104`.
+Built by the `main`-branch run of `build-and-push-container.yml` at commit
+`e779c2b33cb7851e8d4e4c66cd30215c6c052936` (the version-bump merge), which
+already passed every scan gate (Trivy, Grype, SBOM, Bandit, Semgrep,
+gitleaks, CodeQL) before that commit reached `main`. Identity checked two
+ways after pulling by digest: the image's own
+`org.opencontainers.image.revision` label reads that same commit SHA, and
+`doom/__init__.py` inside the image reads `__version__ = "0.2.0"`. The
+`Promote reviewed release image` step in `build-and-push-container.yml`
+re-checks the image id itself before adding the release tags, so a wrong
+digest recorded here fails loudly rather than silently promoting the wrong
+image.
+
+The `v0.2.0` tag necessarily moves to a new commit to carry this decision
+and the JSON it produces - the tagged tree is what
+`tools/security_assessment.py` reads, and none of this existed at
+`e779c2b`. The image being promoted does not change; it's identified by
+digest, not by which commit the tag happens to point at.

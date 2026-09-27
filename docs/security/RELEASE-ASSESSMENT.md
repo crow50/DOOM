@@ -1,15 +1,16 @@
 # Release security assessment
 
-**Last reviewed 2026-09-26. Release recommendation: blocked. No ASVS level is
-claimed.**
+**Last reviewed 2026-09-27. Release recommendation: publish v0.2.0. No ASVS
+level is claimed.**
 
 Every ASVS 5.0 Level 1 and Level 2 requirement is now assessed — no row is left
-`Not assessed` — and that is not the same as a release. Two Level 2 rows are
-Not met, six more are Compensating, none of the twelve open findings has an
-approved risk acceptance (`exceptions.json` is empty), and the candidate
-artifact has not been rebuilt or rescanned since the changes that closed the
-ledger. `SUMMARY.md` is the scoreboard; `findings.json` is what somebody has to
-decide about.
+`Not assessed` — and that is not the same as a clean bill of health. Two Level 2
+rows are Not met, six more are Compensating, and all twelve open findings now
+carry a time-boxed, maintainer-approved exception in `exceptions.json` — see
+D-44 in [DECISIONS.md](../DECISIONS.md) for the reasoning behind each one,
+including the three whose own `findings.json` rationale originally refused an
+exception outright. `SUMMARY.md` is the scoreboard; `findings.json` is the
+record of what was accepted and why; none of this raises a status to `Met`.
 
 ## Scope
 
@@ -23,13 +24,16 @@ not exist.
 - **Published release:** `ghcr.io/crow50/doom-organizer:0.1.0`, manifest-list
   digest `sha256:99a4b7bde30e88a728bedab57e9e6d1735c1ef5ad65bfef5ad75f60e72474a2c`,
   built from commit `7076c6b24b4aa9f0395d2db1b1bb33f95c4ee152`. Debian-based,
-  AMD64, with its own open dependency findings.
-- **Candidate:** this branch. Alpine-based, with zlib built from an immutable
-  upstream commit to carry a fix Alpine had not yet shipped. Its identity is
-  whatever `git rev-parse HEAD` says — that is the source manifest, and a
-  hand-maintained list of file hashes was deleted for trying to be one.
-- The candidate is **not** the published release, and the published release's
-  findings are not the candidate's.
+  AMD64, with its own open dependency findings (`DEP-release-0.1.0`).
+- **Candidate:** `ghcr.io/crow50/doom-organizer` at manifest digest
+  `sha256:ed1063ad8c8193a824c7e88e6fa70a6eeab042fbea038dc90ed435d4541ed775`,
+  built from commit `e779c2b33cb7851e8d4e4c66cd30215c6c052936` (recorded in
+  `release-candidate.json`, which is what `--publish` promotes rather than
+  rebuilding). Alpine-based, with zlib built from an immutable upstream commit
+  to carry a fix Alpine had not yet shipped.
+- The candidate **supersedes** the published release once promoted as
+  `v0.2.0`; `DEP-release-0.1.0`'s exception exists only to bridge that gap and
+  expires 30 days out rather than 90, because it should be moot before then.
 
 Tests ran against a disposable Compose project with generated secrets and
 loopback-only ports. Neither an operator's stack nor its data was used.
@@ -103,8 +107,10 @@ nobody who was not already persuaded.
 
 ## What this does not establish
 
-- **No ASVS level.** Two Not met rows and twelve unaccepted risks. An L2 claim
-  needs them closed or formally accepted with an owner and an expiry.
+- **No ASVS level.** Two Not met rows, and twelve findings whose risk is
+  time-boxed accepted (D-44) rather than closed. An exception is not a status
+  change: an L2 claim still needs each one actually closed, and re-opens the
+  moment its exception expires without a renewal.
 - **The candidate is not verified as an artifact.** The 457-test suite passes
   in the containerised `test` service against real PostgreSQL 18.6, and the
   image scans (Trivy, Grype, Semgrep, Bandit, gitleaks, CodeQL, SBOM) are
