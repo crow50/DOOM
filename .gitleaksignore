@@ -18,3 +18,13 @@ b4de77d550281967fd7d013906867a257029c43d:app/tests/test_asvs_l2_closure.py:gener
 # scans full history, not just the current tree, so the fingerprint of the
 # now-fixed commit needs suppressing too rather than only the live line.
 7afe57899e0768b3388ee8d78819452d5762aacb:.gitleaksignore:generic-api-key:10
+
+# PR #29 squash-merged security/asvs5-review into main as one new commit.
+# A squash merge is a new commit with a new SHA, so the fingerprint above
+# (keyed to the feature branch's own commit) does not match it - the same
+# fixture line reappears under main's merge commit, shifted one line by
+# other changes folded into the same squash. Expect a fresh fingerprint
+# here after every squash merge that touches this file; the alternative is
+# scanning only the working tree instead of full history, which is a
+# larger change than this file should make on its own.
+a12c69c061d928ccb83d81fe14a587830cda4a6b:app/tests/test_asvs_l2_closure.py:generic-api-key:209
