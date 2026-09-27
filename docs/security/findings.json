@@ -14,7 +14,8 @@
       "app/doom/security/lookup.py",
       "app/tests/test_lookup.py",
       "docs/security/POLICIES.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-1.3.6"
   },
   {
     "id": "CONTROL-5.4.3",
@@ -48,7 +49,8 @@
       "docs/DECISIONS.md",
       "docs/security/POLICIES.md",
       "app/tests/test_mfa.py"
-    ]
+    ],
+    "exception": "EXC-CONTROL-6.4.3"
   },
   {
     "id": "CONTROL-7.5.3",
@@ -63,7 +65,8 @@
     "evidence": [
       "app/doom/blueprints/account.py",
       "app/doom/blueprints/labels.py"
-    ]
+    ],
+    "exception": "EXC-CONTROL-7.5.3"
   },
   {
     "id": "CONTROL-8.3.2",
@@ -79,7 +82,8 @@
       "app/doom/blueprints/auth.py",
       "app/doom/blueprints/share.py",
       "app/tests/test_security_review.py"
-    ]
+    ],
+    "exception": "EXC-CONTROL-8.3.2"
   },
   {
     "id": "CONTROL-12.2.2",
@@ -96,7 +100,8 @@
       "caddy/conf.d/README.md",
       "Makefile",
       "docs/security/HOSTED-READINESS.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-12.2.2"
   },
   {
     "id": "CONTROL-12.3.1",
@@ -160,7 +165,8 @@
       "docker-compose.yml",
       "app/doom/config.py",
       "docs/security/POLICIES.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-13.2.1"
   },
   {
     "id": "CONTROL-13.3.1",
@@ -177,7 +183,8 @@
       "app/doom/config.py",
       "Makefile",
       "docs/security/POLICIES.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-13.3.1"
   },
   {
     "id": "CONTROL-14.2.8",
@@ -191,7 +198,8 @@
     "verification": "Inspect the full quoted requirement against the referenced implementation and rerun the container suite; deployment-specific claims require the recorded proxy/role probes.",
     "evidence": [
       "app/doom/security/uploads.py"
-    ]
+    ],
+    "exception": "EXC-CONTROL-14.2.8"
   },
   {
     "id": "CONTROL-16.2.2",
@@ -207,7 +215,8 @@
       "app/doom/security/logging.py",
       "docs/security/HOSTED-READINESS.md",
       "docs/security/POLICIES.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-16.2.2"
   },
   {
     "id": "CONTROL-16.4.2",
@@ -224,7 +233,8 @@
       "app/tests/test_audit_chain.py",
       "Makefile",
       "docs/security/HOSTED-READINESS.md"
-    ]
+    ],
+    "exception": "EXC-CONTROL-16.4.2"
   },
   {
     "id": "CONTROL-16.4.3",
@@ -240,7 +250,8 @@
       "docs/security/POLICIES.md",
       "docs/security/HOSTED-READINESS.md",
       "docker-compose.yml"
-    ]
+    ],
+    "exception": "EXC-CONTROL-16.4.3"
   },
   {
     "id": "REV-001",
@@ -345,6 +356,7 @@
     "evidence": [
       "app/Dockerfile",
       "docs/security/RELEASE-ASSESSMENT.md"
-    ]
+    ],
+    "exception": "EXC-DEP-release-0.1.0"
   }
 ]

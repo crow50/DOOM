@@ -165,8 +165,10 @@ class LedgerTests(unittest.TestCase):
         self.assertComplains(self.ledger(change, release=True), "never assessed")
 
     def test_release_refuses_an_open_risk_nobody_accepted(self):
-        """This is the state the repository is in, and it should stay refused."""
-        self.assertComplains(assessment.validate(release=True), "nobody has accepted")
+        def change(exceptions):
+            exceptions.clear()
+        self.assertComplains(self.mutate("exceptions.json", change, release=True),
+                              "nobody has accepted")
 
     def test_release_refuses_an_open_high_risk(self):
         def change(f):
@@ -174,7 +176,11 @@ class LedgerTests(unittest.TestCase):
         self.assertComplains(self.findings(change, release=True), "high residual risk")
 
     def test_publication_requires_a_reviewed_immutable_artifact(self):
-        self.assertComplains(assessment.validate(publish=True), "immutable, reviewed")
+        def change(c):
+            c["registry_ref"] = None
+            c["image_id"] = None
+        errors = self.mutate("release-candidate.json", change, publish=True)
+        self.assertComplains(errors, "immutable, reviewed")
 
     def test_publication_refuses_a_mutable_tag(self):
         def change(c):
