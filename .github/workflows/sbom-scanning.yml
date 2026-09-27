@@ -14,27 +14,34 @@ name: SBOM Generation and Vulnerability Scan
 # neither this workflow nor Trivy's, so its Alpine base and clamav-daemon
 # package had zero CI coverage outside the Monday cron - and the cron only
 # ever built app/'s image anyway, never clamav's. Both are fixed together:
-# the path is listed below, and the job now builds and scans both images
-# under one job name, so the 'sbom-scan' required check still means what its
-# name promises rather than passing on an image it never looked at.
+# the job now builds and scans both images under one job name, so the
+# 'sbom-scan' required check still means what its name promises rather than
+# passing on an image it never looked at.
+#
+# There is no trigger-level 'paths:' filter any more, on push or pull_request.
+# There used to be one, and it reintroduced the exact problem this workflow
+# exists to close: 'sbom-scan' is a required check in the main branch
+# ruleset, and a required check that a given commit's trigger never fires for
+# is not "passing" to GitHub - it is permanently pending, which blocks the
+# merge outright. That is invisible on the commit that adds the required
+# check, because path-filtered triggers usually do fire on real work - until
+# a routine "update this branch from main" lands a merge commit whose own
+# net diff is docs-only, which happened here and left a stuck PR to prove it.
+# A path filter on the trigger cannot tell "this exact push touches nothing
+# relevant" from "this exact push is small," and required-status-check
+# matching only ever looks at the current head commit, never at whether an
+# ancestor once passed. So the trigger now always fires, and the "Check for
+# relevant changes" step below makes the same decision the old paths: filter
+# made, but as data the job can act on and still report a status from -
+# comparing the full content diff between the two ends of this push or PR,
+# not per-commit, which is also why the merge-commit case above is handled
+# correctly here and was not by GitHub's own path evaluation.
 on:
   workflow_dispatch: {}
   schedule:
     - cron: '30 6 * * 1'  # Mondays 06:30 UTC
-  push:
-    paths:
-      - 'app/**'
-      - 'caddy/**'
-      - 'clamav/**'
-      - 'db/**'
-      - '.github/workflows/sbom-scanning.yml'
-  pull_request:
-    paths:
-      - 'app/**'
-      - 'caddy/**'
-      - 'clamav/**'
-      - 'db/**'
-      - '.github/workflows/sbom-scanning.yml'
+  push: {}
+  pull_request: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -56,25 +63,68 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+        with:
+          # Full history, not the default single commit: the relevance check
+          # below diffs against a base commit that has to actually be present
+          # locally to diff against.
+          fetch-depth: 0
+
+      # Schedule and workflow_dispatch always run in full - there is no "diff"
+      # for a cron tick, and a manual run is presumed deliberate. For push and
+      # pull_request, diff the full content change across the whole push (not
+      # per-commit - see the top-of-file comment) and only mark it relevant
+      # if that touches something an image build would actually reflect. A
+      # base commit this checkout doesn't have (a force-push rewriting history,
+      # a brand-new branch with no prior push) is treated as relevant rather
+      # than silently skipped - a diff we can't compute is not evidence of
+      # nothing having changed.
+      - name: Check for relevant changes
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            echo "base commit unavailable to diff against; treating as relevant"
+            exit 0
+          fi
+          if git diff --name-only "$base" "${{ github.sha }}" \
+              | grep -qE '^(app/|caddy/|clamav/|db/|\.github/workflows/sbom-scanning\.yml)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
 
         # Building the images the SBOMs describe
       - name: Set up Docker Buildx
+        if: steps.changes.outputs.relevant == 'true'
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
       - name: Build app image
+        if: steps.changes.outputs.relevant == 'true'
         run: docker build -f app/Dockerfile --target runtime -t doom-organizer-app:${{ github.sha }} ./app
 
       - name: Build clamav image
+        if: steps.changes.outputs.relevant == 'true'
         run: docker build -f clamav/Dockerfile -t doom-organizer-clamav:${{ github.sha }} ./clamav
 
       # Keep the exact candidate config digest and platform with the SBOM and
       # Grype result; a commit tag alone is not an artifact identity.
       - name: Record candidate image identities
+        if: steps.changes.outputs.relevant == 'true'
         run: |
           docker image inspect doom-organizer-app:${{ github.sha }} > candidate-image-inspect-app.json
           docker image inspect doom-organizer-clamav:${{ github.sha }} > candidate-image-inspect-clamav.json
 
       - name: Upload candidate app image identity
+        if: steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: doom-organizer-app-image-${{ github.sha }}
@@ -82,6 +132,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload candidate clamav image identity
+        if: steps.changes.outputs.relevant == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: doom-organizer-clamav-image-${{ github.sha }}
@@ -91,6 +142,7 @@ jobs:
         # ASVS 14.2.5: generate a CycloneDX inventory of every third-party
         # library in each image, and keep it as a retrievable artifact.
       - name: Generate SBOM for app image with syft
+        if: steps.changes.outputs.relevant == 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
         with:
           image: doom-organizer-app:${{ github.sha }}
@@ -99,6 +151,7 @@ jobs:
           artifact-name: doom-organizer-app-sbom.cyclonedx.json
 
       - name: Generate SBOM for clamav image with syft
+        if: steps.changes.outputs.relevant == 'true'
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
         with:
           image: doom-organizer-clamav:${{ github.sha }}
@@ -113,6 +166,7 @@ jobs:
       # carries no such patch, so it gets no VEX - grype sees its zlib finding
       # as-is, same as any other unpatched package.
       - name: Generate exact-PURL VEX for patched app-image zlib
+        if: steps.changes.outputs.relevant == 'true'
         run: python3 tools/generate_runtime_vex.py sbom-app.cyclonedx.json --output runtime-zlib.vex.json
 
         # No fix-availability filter: an unavailable patch is still a risk.
@@ -128,6 +182,7 @@ jobs:
         # is what actually fails the job (and this required check) on either
         # image's finding; nothing here silently ignores one.
       - name: Scan app SBOM with grype
+        if: steps.changes.outputs.relevant == 'true'
         id: grype_app
         continue-on-error: true
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
@@ -145,6 +200,7 @@ jobs:
         # match, and a zlib code path this image's call graph never reaches),
         # not a patch tied to one exact build. See D-43 for the full trace.
       - name: Scan clamav SBOM with grype
+        if: steps.changes.outputs.relevant == 'true'
         id: grype_clamav
         continue-on-error: true
         uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439  # v7.4.2
@@ -157,25 +213,33 @@ jobs:
           output-format: sarif
 
       - name: Upload app grype scan results to GitHub Security tab
+        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
-        if: always()
         with:
           sarif_file: ${{ steps.grype_app.outputs.sarif }}
           category: 'grype-sbom-scan-app'
 
       - name: Upload clamav grype scan results to GitHub Security tab
+        if: steps.changes.outputs.relevant == 'true'
         uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
-        if: always()
         with:
           sarif_file: ${{ steps.grype_clamav.outputs.sarif }}
           category: 'grype-sbom-scan-clamav'
 
-      # The two scan steps above always run (continue-on-error) so both images
-      # get built, scanned and reported to the Security tab in every run. This
-      # is what actually gates the job: either image's HIGH+ finding fails it.
+      # The two scan steps above always run when relevant (continue-on-error)
+      # so both images get built, scanned and reported to the Security tab in
+      # every run that touches them. This is what actually gates the job:
+      # either image's HIGH+ finding fails it - or, when nothing relevant
+      # changed, this reports success without having built or scanned
+      # anything, which is the whole point: the required check always has a
+      # real status to report, on every commit, regardless of what it touches.
       - name: Fail if either image's scan gated
         if: always()
         run: |
+          if [ "${{ steps.changes.outputs.relevant }}" != "true" ]; then
+            echo "No app/caddy/clamav/db change in this push - nothing built or scanned."
+            exit 0
+          fi
           echo "app scan: ${{ steps.grype_app.outcome }}"
           echo "clamav scan: ${{ steps.grype_clamav.outcome }}"
           if [ "${{ steps.grype_app.outcome }}" != "success" ] || [ "${{ steps.grype_clamav.outcome }}" != "success" ]; then
@@ -202,7 +266,12 @@ jobs:
       - name: Record scanner outcome
         if: always()
         env:
+          RELEVANT: ${{ steps.changes.outputs.relevant }}
           APP_OUTCOME: ${{ steps.grype_app.outcome }}
           CLAMAV_OUTCOME: ${{ steps.grype_clamav.outcome }}
         run: |
-          echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$RELEVANT" != "true" ]; then
+            echo "Scanner gate - skipped: no app/caddy/clamav/db change in this push." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Scanner gate - app: $APP_OUTCOME, clamav: $CLAMAV_OUTCOME. Skipped/failure is not a clean scan. Unfixed vulnerabilities remain reportable." >> "$GITHUB_STEP_SUMMARY"
+          fi
