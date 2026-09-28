@@ -1,6 +1,6 @@
 # Release security assessment
 
-**Last reviewed 2026-09-27. Release recommendation: publish v0.2.0. No ASVS
+**Last reviewed 2026-09-27. Release recommendation: publish v0.2.1. No ASVS
 level is claimed.**
 
 Every ASVS 5.0 Level 1 and Level 2 requirement is now assessed — no row is left
@@ -26,13 +26,16 @@ not exist.
   built from commit `7076c6b24b4aa9f0395d2db1b1bb33f95c4ee152`. Debian-based,
   AMD64, with its own open dependency findings (`DEP-release-0.1.0`).
 - **Candidate:** `ghcr.io/crow50/doom-organizer` at manifest digest
-  `sha256:ed1063ad8c8193a824c7e88e6fa70a6eeab042fbea038dc90ed435d4541ed775`,
-  built from commit `e779c2b33cb7851e8d4e4c66cd30215c6c052936` (recorded in
+  `sha256:b15543cede998c170d12aec365d0538fecf5ea001f88e4893062d7dc17d0a017`,
+  built from commit `07987e7e62df27e86f22aa48bf0041fd2a46f589` (recorded in
   `release-candidate.json`, which is what `--publish` promotes rather than
   rebuilding). Alpine-based, with zlib built from an immutable upstream commit
-  to carry a fix Alpine had not yet shipped.
+  to carry a fix Alpine had not yet shipped. `v0.2.0` (`e779c2b`) predates the
+  exceptions this release accepts and its tag cannot be moved - the repo's own
+  `tags` ruleset refuses tag deletion - so it stays a source-only marker and
+  `v0.2.1` is the tag that actually publishes; see the addendum to D-44.
 - The candidate **supersedes** the published release once promoted as
-  `v0.2.0`; `DEP-release-0.1.0`'s exception exists only to bridge that gap and
+  `v0.2.1`; `DEP-release-0.1.0`'s exception exists only to bridge that gap and
   expires 30 days out rather than 90, because it should be moot before then.
 
 Tests ran against a disposable Compose project with generated secrets and

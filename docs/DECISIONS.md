@@ -1748,8 +1748,25 @@ re-checks the image id itself before adding the release tags, so a wrong
 digest recorded here fails loudly rather than silently promoting the wrong
 image.
 
-The `v0.2.0` tag necessarily moves to a new commit to carry this decision
-and the JSON it produces - the tagged tree is what
-`tools/security_assessment.py` reads, and none of this existed at
-`e779c2b`. The image being promoted does not change; it's identified by
-digest, not by which commit the tag happens to point at.
+### Addendum — `v0.2.0` turned out to be undeletable, so `v0.2.1` publishes instead
+
+The plan above assumed the `v0.2.0` tag could move to a new commit to carry
+this decision and the JSON it produces - the tagged tree is what
+`tools/security_assessment.py` reads, and none of this existed at `e779c2b`.
+It can't: the repo's own `tags` ruleset refuses tag deletion (`GH013: Cannot
+delete this tag`), discovered when the delete-and-recreate was actually
+attempted. That rule is doing exactly what a tag-immutability rule is for,
+and working around it was never on the table.
+
+`v0.2.0` stays at `e779c2b` permanently, as a source-only marker that never
+published an image - the distinction `RELEASE-ASSESSMENT.md` already draws
+between "candidate" and "published release" turned out to apply to the tag
+itself, not just the underlying image. `v0.2.1` (commit
+`07987e7e62df27e86f22aa48bf0041fd2a46f589`, a `__version__`-only bump) is the
+tag that carries this decision and actually publishes: manifest digest
+`sha256:b15543cede998c170d12aec365d0538fecf5ea001f88e4893062d7dc17d0a017`,
+image id `sha256:ec549457015749e65bd299c35e924ea0115fdc52ee7883aac90aa354f43896ce`,
+identity-checked the same two ways (revision label, `__version__` inside the
+image) and recorded in `release-candidate.json`. Every finding, exception and
+reassessment trigger above is unchanged; only the publishing tag is not the
+one first assumed.

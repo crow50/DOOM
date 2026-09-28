@@ -1,5 +1,5 @@
 {
   "note": "The artifact a release may promote without rebuilding. Publication is refused while registry_ref is null, which is the correct state until a candidate has been built, scanned and reviewed. Everything else that used to live here - which gates passed, and a SHA-256 of every source file - was either CI's answer to give or a reimplementation of the commit SHA that git already provides.",
-  "registry_ref": "ghcr.io/crow50/doom-organizer@sha256:ed1063ad8c8193a824c7e88e6fa70a6eeab042fbea038dc90ed435d4541ed775",
-  "image_id": "sha256:734d968c462934dc211cf64dfa1d6e13ee5927197360174aeed7a1d23e858104"
+  "registry_ref": "ghcr.io/crow50/doom-organizer@sha256:b15543cede998c170d12aec365d0538fecf5ea001f88e4893062d7dc17d0a017",
+  "image_id": "sha256:ec549457015749e65bd299c35e924ea0115fdc52ee7883aac90aa354f43896ce"
 }
