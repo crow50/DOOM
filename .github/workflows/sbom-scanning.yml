@@ -214,14 +214,14 @@ jobs:
 
       - name: Upload app grype scan results to GitHub Security tab
         if: steps.changes.outputs.relevant == 'true'
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           sarif_file: ${{ steps.grype_app.outputs.sarif }}
           category: 'grype-sbom-scan-app'
 
       - name: Upload clamav grype scan results to GitHub Security tab
         if: steps.changes.outputs.relevant == 'true'
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4.38.1
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           sarif_file: ${{ steps.grype_clamav.outputs.sarif }}
           category: 'grype-sbom-scan-clamav'
