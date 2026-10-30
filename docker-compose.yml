@@ -8,7 +8,7 @@ services:
   # host over a LAN IP is not one.  TLS is a functional requirement here.
   # ---------------------------------------------------------------------------
   caddy:
-    image: caddy:2.11.4-alpine
+    image: caddy:2.11.6-alpine
     restart: unless-stopped
     ports:
       - "${HTTP_PORT:-80}:80"
