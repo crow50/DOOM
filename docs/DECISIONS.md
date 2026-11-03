@@ -1787,3 +1787,9 @@ the finding recorded - it is superseded, not fixed. This closure rests on the
 publish run and the gates that ran on the tagged commit; the finding's own
 verification step (scanning the published `0.2.1` tag directly) is recorded in
 `findings.json` and has not been re-run as part of this change.
+
+Separately, a lapsed exception now fails only the release and publish gates
+(`--release`, `--publish`). On an ordinary branch it is a warning, and a weekly
+`exception-expiry` workflow opens an issue 30 days ahead, so an expiry reaches
+the maintainer without turning every unrelated pull request red. The eleven
+remaining exceptions all expire on 2026-12-26.

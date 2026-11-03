@@ -21,12 +21,17 @@ import csv
 import datetime as dt
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = Path("docs/security")
 VERSION = "5.0.0"
+
+# How far ahead an expiring exception is reported. Long enough to close the
+# finding or renew the acceptance deliberately, rather than on the day it lapses.
+EXPIRY_NOTICE_DAYS = 30
 
 STATUSES = ("Met", "Partial", "Compensating", "Not met", "N/A", "Not assessed")
 FINDING_STATUSES = ("open", "closed")
@@ -50,8 +55,42 @@ def universe(root=ROOT):
     return result
 
 
-def validate(root=ROOT, release=False, deployment="local", publish=False):
+def today_utc():
+    return dt.datetime.now(dt.timezone.utc).date()
+
+
+def days_left(exception, today):
+    """Days until an exception lapses; it counts as lapsed from its expiry date.
+
+    Raises ValueError or KeyError if the date is missing or unusable.
+    """
+    return (dt.date.fromisoformat(exception["expires"]) - today).days
+
+
+def expiry_notices(root=ROOT, today=None, within=EXPIRY_NOTICE_DAYS):
+    """Exceptions that have lapsed or lapse within `within` days, soonest first."""
+    today = today or today_utc()
+    found = []
+    for exception in read(BASE / "exceptions.json", root):
+        try:
+            remaining = days_left(exception, today)
+        except (ValueError, KeyError):
+            continue  # validate() reports an unusable date as an error
+        if remaining > within:
+            continue
+        if remaining < 0:
+            what = f"expired {-remaining} day(s) ago"
+        elif remaining == 0:
+            what = "expires today and counts as expired from now"
+        else:
+            what = f"expires in {remaining} day(s)"
+        found.append((remaining, f"{exception['id']}: {what} ({exception['expires']})"))
+    return [message for _, message in sorted(found)]
+
+
+def validate(root=ROOT, release=False, deployment="local", publish=False, today=None):
     release = release or publish
+    today = today or today_utc()
     errors = []
 
     def require(condition, message):
@@ -157,10 +196,20 @@ def validate(root=ROOT, release=False, deployment="local", publish=False):
                 f"{eid}: acceptance without an approver is not acceptance")
         evidence(exception.get("approval_evidence", []), eid)
         try:
-            require(dt.date.fromisoformat(exception["expires"])
-                    > dt.datetime.now(dt.timezone.utc).date(), f"{eid}: expired")
+            remaining = days_left(exception, today)
         except (ValueError, KeyError):
             require(False, f"{eid}: invalid or missing expiry")
+        else:
+            # The clock is an input here, which makes this the one check whose
+            # answer changes with no commit. As an error on every branch it took
+            # `lint-and-compile` red on every unrelated pull request at once the
+            # day an exception lapsed (2026-10-27). A lapsed acceptance must still
+            # stop a release - that is what the gate is for - so it is an error
+            # only when releasing. Everywhere else it is a notice (expiry_notices),
+            # which `--expiring-within` and the weekly exception-expiry workflow
+            # turn into an issue ahead of the date.
+            if release:
+                require(remaining > 0, f"{eid}: expired")
         for fid in exception.get("finding_ids", []):
             require(fid in by_id and by_id[fid].get("exception") == eid,
                     f"{eid}: inconsistent with finding {fid}")
@@ -228,9 +277,26 @@ def main():
     parser.add_argument("--deployment", choices=("local", "non-local"), default="local")
     parser.add_argument("--publish", action="store_true",
                         help="also require a reviewed, immutable registry artifact")
+    parser.add_argument("--expiring-within", type=int, metavar="DAYS",
+                        help="only check expiry: fail if any exception has lapsed or "
+                             "lapses within DAYS days (the weekly exception-expiry workflow)")
     args = parser.parse_args()
 
+    if args.expiring_within is not None:
+        notices = expiry_notices(within=args.expiring_within)
+        for notice in notices:
+            print(f"FAIL: {notice}")
+        if not notices:
+            print(f"No exception has lapsed or lapses within {args.expiring_within} days")
+        return bool(notices)
+
     errors = validate(release=args.release, deployment=args.deployment, publish=args.publish)
+    # Not errors outside a release (see validate), but not silent either: shown
+    # on every run, and as an annotation on the check when running in Actions.
+    for notice in expiry_notices():
+        print(f"WARN: {notice}")
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            print(f"::warning title=Security exception::{notice}")
     summary = render()
     path = ROOT / BASE / "SUMMARY.md"
     if args.write and not errors:

@@ -8,7 +8,10 @@ the tree, that no file in an evidence directory went uncited. All three
 compared self-attested records against each other, and D-40 records why they
 went with the records.
 """
+import contextlib
 import copy
+import datetime as dt
+import io
 import json
 from pathlib import Path
 import sys
@@ -204,6 +207,124 @@ class LedgerTests(unittest.TestCase):
         official = assessment.universe()
         self.assertTrue(all(row["level"] in (1, 2, 3) for row in official.values()))
         self.assertGreater(len([r for r in official.values() if r["level"] <= 2]), 250)
+
+
+class ExpiryTests(unittest.TestCase):
+    """An exception's expiry is checked against the clock, so hold the clock still.
+
+    The clock is the one input to the validator that changes with no commit. As
+    an error on every branch, a lapsed exception took `lint-and-compile` red on
+    every unrelated pull request on 2026-10-27, and no test noticed because none
+    covered expiry at all. Every test here passes `today`, so none of them can
+    start failing on its own as the real date moves.
+    """
+
+    TODAY = dt.date(2026, 11, 3)
+
+    def patched_exceptions(self, change):
+        """Pass exceptions.json through `change`, a function that edits a copy."""
+        original = assessment.read
+
+        def changed(path, root=assessment.ROOT):
+            value = original(path, root)
+            if Path(path).name == "exceptions.json":
+                value = copy.deepcopy(value)
+                change(value)
+            return value
+
+        return patch.object(assessment, "read", side_effect=changed)
+
+    def errors(self, expires, **kwargs):
+        """Validate the real repository with its first exception expiring on `expires`."""
+        def change(rows):
+            rows[0]["expires"] = expires
+        with self.patched_exceptions(change):
+            return assessment.validate(today=self.TODAY, **kwargs)
+
+    def expired(self, errors):
+        return [e for e in errors if e.endswith(": expired")]
+
+    def test_a_lapsed_exception_does_not_fail_an_ordinary_branch(self):
+        self.assertEqual([], self.errors("2026-10-27"))
+
+    def test_a_lapsed_exception_still_blocks_a_release(self):
+        self.assertEqual(1, len(self.expired(self.errors("2026-10-27", release=True))))
+
+    def test_a_lapsed_exception_still_blocks_publishing(self):
+        self.assertEqual(1, len(self.expired(self.errors("2026-10-27", publish=True))))
+
+    def test_the_expiry_date_itself_counts_as_expired(self):
+        self.assertEqual(1, len(self.expired(self.errors("2026-11-03", release=True))))
+        self.assertEqual([], self.expired(self.errors("2026-11-04", release=True)))
+
+    def test_an_unusable_expiry_is_an_error_everywhere(self):
+        """A garbled or missing date is bookkeeping, not the clock: it never passes."""
+        for bad in ("next tuesday", ""):
+            with self.subTest(expires=bad):
+                errors = self.errors(bad)
+                self.assertEqual(1, len([e for e in errors if "invalid or missing expiry" in e]))
+
+        def drop(rows):
+            del rows[0]["expires"]
+        with self.patched_exceptions(drop):
+            errors = assessment.validate(today=self.TODAY)
+        self.assertEqual(1, len([e for e in errors if "invalid or missing expiry" in e]))
+
+    # --- the notices that replace the error outside a release --------------
+    def notices(self, expiries, **kwargs):
+        def change(rows):
+            rows[:] = [{"id": f"EXC-{n}", "expires": expires}
+                       for n, expires in enumerate(expiries)]
+        with self.patched_exceptions(change):
+            return assessment.expiry_notices(today=self.TODAY, **kwargs)
+
+    def test_a_lapsed_exception_is_reported(self):
+        (notice,) = self.notices(["2026-10-27"])
+        self.assertIn("EXC-0: expired 7 day(s) ago", notice)
+
+    def test_an_exception_lapsing_today_is_reported_as_expired(self):
+        (notice,) = self.notices(["2026-11-03"])
+        self.assertIn("counts as expired from now", notice)
+
+    def test_an_exception_lapsing_soon_is_reported_ahead_of_time(self):
+        (notice,) = self.notices(["2026-11-20"], within=30)
+        self.assertIn("expires in 17 day(s)", notice)
+
+    def test_an_exception_far_from_expiry_is_not_reported(self):
+        self.assertEqual([], self.notices(["2027-01-01"], within=30))  # 59 days out
+
+    def test_the_boundary_of_the_notice_window_is_inclusive(self):
+        self.assertEqual(1, len(self.notices(["2026-12-03"], within=30)))  # exactly 30 days
+        self.assertEqual([], self.notices(["2026-12-04"], within=30))      # 31 days
+
+    def test_the_soonest_is_listed_first(self):
+        notices = self.notices(["2026-11-20", "2026-10-27", "2026-11-10"], within=30)
+        self.assertEqual(["EXC-1", "EXC-2", "EXC-0"], [n.split(":")[0] for n in notices])
+
+    def test_an_unusable_date_is_skipped_here_and_left_to_validate(self):
+        self.assertEqual([], self.notices(["not a date", ""]))
+
+    # --- the scheduled check ------------------------------------------------
+    def run_main(self, *argv):
+        out = io.StringIO()
+        with patch.object(sys, "argv", ["security_assessment.py", *argv]), \
+                contextlib.redirect_stdout(out):
+            failed = assessment.main()
+        return failed, out.getvalue()
+
+    def test_the_scheduled_check_fails_when_something_is_expiring(self):
+        with patch.object(assessment, "expiry_notices",
+                          return_value=["EXC-X: expires in 3 day(s) (2026-11-06)"]) as notices:
+            failed, output = self.run_main("--expiring-within", "30")
+        notices.assert_called_once_with(within=30)
+        self.assertTrue(failed)
+        self.assertIn("FAIL: EXC-X", output)
+
+    def test_the_scheduled_check_passes_when_nothing_is(self):
+        with patch.object(assessment, "expiry_notices", return_value=[]):
+            failed, output = self.run_main("--expiring-within", "30")
+        self.assertFalse(failed)
+        self.assertIn("No exception has lapsed", output)
 
 
 class PaginationTests(unittest.TestCase):

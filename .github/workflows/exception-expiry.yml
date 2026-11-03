@@ -1,0 +1,57 @@
+name: Security Exception Expiry
+
+# Why this exists. Every accepted risk in docs/security/exceptions.json carries
+# an expiry date, and that date is checked against the clock - the one input to
+# the validator that changes with no commit. When a lapsed exception was an error
+# on every branch, the day one lapsed (2026-10-27) turned `lint-and-compile` red on
+# every pull request at once, none of which had touched it, and nothing had
+# warned anyone beforehand.
+#
+# A lapsed exception now fails only the release and publish gates (see
+# tools/security_assessment.py). This weekly run is how it reaches a person first:
+# it opens an issue while there is still time to close the finding or renew the
+# acceptance as a deliberate decision, rather than on the day it lapses.
+#
+# The push trigger is for this file only, so an edit to it is exercised when it
+# is made instead of waiting for the next Monday. Nothing else starts this
+# workflow on push: it is a clock check, and the clock does not care about a commit.
+on:
+  schedule:
+    - cron: '0 7 * * 1'  # Mondays 07:00 UTC
+  workflow_dispatch: {}
+  push:
+    paths:
+      - '.github/workflows/exception-expiry.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exception-expiry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6.1.0
+
+      # Reads two JSON files and the clock; no network, no dependencies. 30 days
+      # is the lead time, not a policy: long enough to decide, short enough that
+      # an issue means something.
+      - name: Fail if an exception has lapsed or lapses within 30 days
+        run: python3 tools/security_assessment.py --expiring-within 30
+
+      # Only on the scheduled run, for the reason given in trivy-image-scanning.yaml:
+      # a red check at 07:00 Monday with no pull request attached notifies nobody.
+      # update-existing keeps this to one open issue rather than a weekly pile.
+      - name: Open an issue if an exception is expiring
+        if: failure() && github.event_name == 'schedule'
+        uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5  # v2.9.2
+        with:
+          # Relative to .github/workflows/, as in the other workflows here.
+          filename: .github/workflows/ISSUE_TEMPLATE/ci-exception-expiry.md
+          update-existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
