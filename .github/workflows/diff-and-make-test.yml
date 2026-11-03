@@ -34,14 +34,21 @@ jobs:
       # which turns every upstream publish into a red build with no change here.
       # That is exactly what happened: wrapt 2.4.1 shipped between two runs.
       # Upgrades are Renovate's job; pip-audit and Trivy catch vulnerable pins.
+      #
+      # The diff ignores comment lines at any indent. pip-compile's annotations
+      # ("# via", "#   -r app/requirements.in") are indented, and they depend on
+      # the directory the compile was run from and on how each bot ran it - so
+      # with `-I '^#'`, which matches column 0 only, a Renovate lockfile whose pins
+      # and hashes were all correct failed on one extra "#   psycopg" line. A
+      # comment carries no pin and no hash; a changed pin or hash still fails.
       - run: cp app/requirements.txt /tmp/requirements-hashed.txt
       - run: pip-compile --generate-hashes app/requirements.in -o /tmp/requirements-hashed.txt
-      - run: diff -I '^#' /tmp/requirements-hashed.txt app/requirements.txt
+      - run: diff -I '^[[:space:]]*#' /tmp/requirements-hashed.txt app/requirements.txt
       # Same check for the test-only lockfile, which is constrained to the
       # runtime one so the two cannot pin a shared package differently.
       - run: cp app/requirements-dev.txt /tmp/requirements-dev-hashed.txt
       - run: pip-compile --generate-hashes app/requirements-dev.in -o /tmp/requirements-dev-hashed.txt
-      - run: diff -I '^#' /tmp/requirements-dev-hashed.txt app/requirements-dev.txt
+      - run: diff -I '^[[:space:]]*#' /tmp/requirements-dev-hashed.txt app/requirements-dev.txt
       - run: python3 -m unittest discover -s tools/tests -v
       - run: make lint
 
