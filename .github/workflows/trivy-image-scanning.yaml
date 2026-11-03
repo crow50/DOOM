@@ -245,8 +245,15 @@ jobs:
           fi
           echo "app scan: ${{ steps.security_gate_app.outcome }}"
           echo "clamav scan: ${{ steps.security_gate_clamav.outcome }}"
+          # A gate step is only ever 'skipped' because an earlier step failed
+          # (build, VEX generation...). That is the pipeline breaking, not a
+          # finding, and the two need different responses - say which this is.
+          if [ "${{ steps.security_gate_app.outcome }}" = "skipped" ] || [ "${{ steps.security_gate_clamav.outcome }}" = "skipped" ]; then
+            echo "A scan did not run because an earlier step failed. That is a pipeline failure, not a finding: read the first red step above." >&2
+            exit 1
+          fi
           if [ "${{ steps.security_gate_app.outcome }}" != "success" ] || [ "${{ steps.security_gate_clamav.outcome }}" != "success" ]; then
-            echo "At least one image has a CRITICAL/HIGH finding (or failed to scan)." >&2
+            echo "At least one image has a CRITICAL/HIGH finding (or the scanner itself failed)." >&2
             exit 1
           fi
 
@@ -254,14 +261,33 @@ jobs:
       # already the notification and the author is already looking at it; a cron
       # failure at 06:00 Monday, against code nobody touched, notifies nobody.
       # update-existing keeps this to one open issue rather than a weekly pile.
-      - name: Open an issue if the scheduled scan failed
-        if: failure() && github.event_name == 'schedule'
+      #
+      # Two different failures, two different issues. The finding template says
+      # "a new CVE has been published" - true only if a gate step actually ran
+      # and failed. When the image never built, or VEX generation failed, both
+      # gate steps are skipped and no scanner said anything; that used to open
+      # the CVE issue anyway (#161 blamed a CVE for a broken `apk add`).
+      - name: Open an issue if the scheduled scan found something
+        if: >-
+          failure() && github.event_name == 'schedule' &&
+          (steps.security_gate_app.outcome == 'failure' || steps.security_gate_clamav.outcome == 'failure')
         uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5  # v2.9.2
         with:
           # Relative to .github/workflows/, not to the repository root - this
           # action resolves the path from the workflow directory. Templates one
           # level up in .github/ISSUE_TEMPLATE/ are not found.
           filename: .github/workflows/ISSUE_TEMPLATE/ci-trivy-scan.md
+          update-existing: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open an issue if the scheduled scan could not run
+        if: >-
+          failure() && github.event_name == 'schedule' &&
+          steps.security_gate_app.outcome != 'failure' && steps.security_gate_clamav.outcome != 'failure'
+        uses: JasonEtco/create-an-issue@1b14a70e4d8dc185e5cc76d3bec9eab20257b2c5  # v2.9.2
+        with:
+          filename: .github/workflows/ISSUE_TEMPLATE/ci-scan-did-not-run.md
           update-existing: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
