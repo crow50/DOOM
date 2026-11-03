@@ -347,16 +347,16 @@
     "id": "DEP-release-0.1.0",
     "requirement": "v5.0.0-15.2.1",
     "level": 2,
-    "status": "open",
-    "residual_risk": "medium",
-    "rationale": "The published ghcr.io/crow50/doom-organizer:0.1.0 image is Debian-based and carries unpatched distribution CVEs, several rated high, mostly in packages the application never invokes (util-linux mount/cgroup operations, infocmp, Perl Archive::Tar). Debian stable had no fixes available for them at the time of review. This replaces 321 individual rows transcribed from a scanner report: they were frozen against one advisory database, 78% of them shared the same three boilerplate sentences, and anyone who needs the real answer gets a better one by scanning the image themselves - it is public and immutable.",
-    "exploitability": "The image runs as UID 10001 with no capabilities, no-new-privileges and a read-only filesystem, and none of the affected utilities is reachable from any request path. Exploiting these generally requires local privileged operations the container cannot perform.",
-    "remediation": "The candidate that supersedes this image is Alpine-based and does not contain the affected packages. Publish it. Until then, scan the published image for its current state rather than reading a stored report: `trivy image ghcr.io/crow50/doom-organizer:0.1.0`.",
-    "verification": "Re-scan the published tag and compare against the candidate. A finding that is absent from the Alpine SBOM is closed by publishing, not by suppression.",
+    "status": "closed",
+    "residual_risk": "none",
+    "rationale": "The superseding Alpine-based image was published as v0.2.1 on 2026-09-28 (publish run 36361696410 succeeded, promoting the reviewed digest recorded in release-candidate.json), which is this finding's own remediation. The Debian-based 0.1.0 image is immutable and unchanged: it still carries the unpatched distribution CVEs this finding originally recorded (several rated high, mostly in packages the application never invokes). It is superseded, not fixed. The Trivy and SBOM gates passed on the tagged commit e256d4d (runs 36361696419 and 36361696434).",
+    "exploitability": "Closed for the supported artifact: the Alpine-based 0.2.1 image does not contain the affected Debian packages. Anyone still running 0.1.0 remains exposed to what was originally recorded here, bounded as before - UID 10001, no capabilities, no-new-privileges, read-only filesystem, and no request path that reaches the affected utilities.",
+    "remediation": "Implemented: the Alpine-based image was published as v0.2.1.",
+    "verification": "Scan the published tags rather than reading a stored report: `trivy image ghcr.io/crow50/doom-organizer:0.2.1` against `trivy image ghcr.io/crow50/doom-organizer:0.1.0`. A finding that is absent from the Alpine image is closed by publishing, not by suppression.",
     "evidence": [
       "app/Dockerfile",
-      "docs/security/RELEASE-ASSESSMENT.md"
-    ],
-    "exception": "EXC-DEP-release-0.1.0"
+      "docs/security/RELEASE-ASSESSMENT.md",
+      "docs/security/release-candidate.json"
+    ]
   }
 ]

@@ -1770,3 +1770,20 @@ identity-checked the same two ways (revision label, `__version__` inside the
 image) and recorded in `release-candidate.json`. Every finding, exception and
 reassessment trigger above is unchanged; only the publishing tag is not the
 one first assumed.
+
+### Addendum — `DEP-release-0.1.0` closed rather than renewed
+
+The finding and its exception were written to bridge the gap until the
+Alpine-based image was published, and the exception said so: closed against
+the new image "rather than renewing the exception". `v0.2.1` published on
+2026-09-28 (publish run `36361696410`), with the Trivy and SBOM gates green on
+the tagged commit `e256d4d`. `EXC-DEP-release-0.1.0` lapsed on 2026-10-27 with
+the finding still open, and since the validator treated a lapsed exception as
+an error on every branch, `lint-and-compile` went red for unrelated work.
+
+The finding is now `closed` and the exception row is removed; nothing was
+renewed. The Debian-based `0.1.0` image is immutable and still carries what
+the finding recorded - it is superseded, not fixed. This closure rests on the
+publish run and the gates that ran on the tagged commit; the finding's own
+verification step (scanning the published `0.2.1` tag directly) is recorded in
+`findings.json` and has not been re-run as part of this change.

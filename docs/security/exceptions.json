@@ -97,14 +97,5 @@
     "approval_evidence": ["docs/DECISIONS.md:1703"],
     "expires": "2026-12-26",
     "reassessment_trigger": "Closes when the planned log-shipping/alerting feature ships; otherwise revisit no later than expiry."
-  },
-  {
-    "id": "EXC-DEP-release-0.1.0",
-    "finding_ids": ["DEP-release-0.1.0"],
-    "owner": "crow50",
-    "approved_by": "crow50",
-    "approval_evidence": ["docs/DECISIONS.md:1718"],
-    "expires": "2026-10-27",
-    "reassessment_trigger": "As soon as ghcr.io/crow50/doom-organizer:0.2.0 is confirmed published, re-run the ledger and mark this finding closed against the new image's own SBOM/scan rather than renewing the exception."
   }
 ]

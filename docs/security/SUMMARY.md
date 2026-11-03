@@ -14,11 +14,11 @@ risk decision: see [findings](findings.json) for what is open and
 
 ## Findings
 
-12 open, 10 closed.
+11 open, 11 closed.
 
 | Residual risk | Open |
 |---|---:|
-| medium | 6 |
+| medium | 5 |
 | low | 6 |
 
 No ASVS level is claimed.
