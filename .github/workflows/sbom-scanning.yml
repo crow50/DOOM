@@ -159,10 +159,11 @@ jobs:
           output-file: sbom-clamav.cyclonedx.json
           artifact-name: doom-organizer-clamav-sbom.cyclonedx.json
 
-      # Alpine's package inventory remains accurate at zlib 1.3.2-r0, while
+      # Alpine's package inventory remains accurate at zlib 1.3.2-rN, while
       # the app image replaces its library with an upstream-patched build.
-      # Bind the VEX status to the exact PURL in this image's SBOM; unexpected
-      # distro/package changes fail closed in the generator. clamav's image
+      # Bind the VEX status to the exact PURL in this image's SBOM; a different
+      # distro or upstream zlib release fails closed in the generator (an Alpine
+      # -rN revision bump does not - see the note there). clamav's image
       # carries no such patch, so it gets no VEX - grype sees its zlib finding
       # as-is, same as any other unpatched package.
       - name: Generate exact-PURL VEX for patched app-image zlib

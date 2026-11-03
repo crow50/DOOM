@@ -12,12 +12,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 VULNERABILITY = "CVE-2026-85091"
-ZLIB_VERSION = "1.3.2-r0"
+
+# The condition that was reviewed is the UPSTREAM release (1.3.2): that is what
+# the replacement library below is built from and what the advisory is about.
+# Alpine's "-rN" suffix is a packaging revision of that same upstream release,
+# and the runtime stage runs `apk upgrade`, so it moves without any change in
+# this repository: zlib went 1.3.2-r0 -> 1.3.2-r1 in October 2026 and, with the
+# version pinned to "-r0" exactly, the Trivy and SBOM scans failed here on main
+# and on every branch (74 failed jobs in two weeks). A different UPSTREAM version
+# still fails closed: that changes what the statement is about.
+ZLIB_UPSTREAM_VERSION = "1.3.2"
+ZLIB_VERSION_PATTERN = re.compile(rf"{re.escape(ZLIB_UPSTREAM_VERSION)}-r\d+")
 UPSTREAM_COMMIT = "df84af25dc1942490e1d1c899a07619152a46148"
 SOURCE_SHA256 = "03a76732cfaa124c58b67600699d935d081604385c03aa282f81a101b7536161"
 
@@ -38,10 +49,11 @@ def zlib_component(sbom: dict) -> dict:
     qualifiers = parse_qs(parsed.query)
     if not purl.startswith("pkg:apk/alpine/zlib@"):
         raise ValueError(f"unexpected zlib package URL: {purl!r}")
-    if component.get("version") != ZLIB_VERSION:
+    if not ZLIB_VERSION_PATTERN.fullmatch(component.get("version") or ""):
         raise ValueError(
-            f"unexpected zlib version {component.get('version')!r}; "
-            "review the VEX statement before changing the pinned condition"
+            f"unexpected zlib version {component.get('version')!r}; only Alpine "
+            f"revisions of upstream {ZLIB_UPSTREAM_VERSION} are covered - review the "
+            "VEX statement before changing the pinned condition"
         )
     if not qualifiers.get("distro", [""])[0].startswith("alpine-3.23."):
         raise ValueError(f"unexpected Alpine release in zlib package URL: {purl!r}")
@@ -64,7 +76,7 @@ def document(sbom: dict, timestamp: str | None = None) -> dict:
                 "products": [{"@id": purl}],
                 "status": "fixed",
                 "impact_statement": (
-                    "The runtime package inventory reports Alpine zlib 1.3.2-r0, "
+                    f"The runtime package inventory reports Alpine zlib {component['version']}, "
                     "but /usr/local/lib/libz.so.1.3.2.1-motley is built from upstream "
                     f"zlib commit {UPSTREAM_COMMIT}, whose source archive SHA-256 "
                     f"is {SOURCE_SHA256}. The Dockerfile runs the upstream test "

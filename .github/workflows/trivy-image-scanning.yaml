@@ -130,10 +130,11 @@ jobs:
           output-file: sbom-app.cyclonedx.json
           upload-artifact: false
 
-      # The package inventory remains at Alpine zlib 1.3.2-r0, but the app
+      # The package inventory remains at Alpine zlib 1.3.2-rN, but the app
       # image ships the verified upstream-patched library. The generated
       # statement is bound to the exact PURL from this image's SBOM and fails
-      # closed on any distro/version change. clamav gets a separate, static
+      # closed on a different distro or upstream zlib release (an Alpine -rN
+      # revision bump is accepted - see the generator). clamav gets a separate, static
       # VEX below (clamav/clamav-vex.json) - it isn't pointed at this one,
       # since it covers different findings for a different reason (D-43).
       - name: Generate exact-PURL VEX for patched app-image zlib
