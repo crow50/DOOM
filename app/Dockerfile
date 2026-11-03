@@ -14,10 +14,17 @@ WORKDIR /build
 
 SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
 
-RUN apk add --no-cache \
-    build-base=0.5-r3 \
-    ca-certificates=20260909-r0 \
-    curl=8.22.0-r0
+# Deliberately not version-pinned (hadolint DL3018 is ignored below). Alpine's
+# repositories keep only the CURRENT build of each package on a release branch,
+# so an exact pin stops resolving the day the branch ships its next one. That is
+# how `curl=8.22.0-r0` took every workflow that builds this image red at once,
+# with nothing in the diff to explain it: "unable to select packages: curl-8.23.0-r0
+# breaks: world[curl=8.22.0-r0]". Nothing from this stage is shipped - the
+# runtime image receives the venv (hash-pinned in requirements.txt) and the zlib
+# built below from a commit pinned by SHA-256 - so these are build tools, and
+# the integrity-critical inputs stay pinned. See docs/PIPELINE-NOTES.md.
+# hadolint ignore=DL3018
+RUN apk add --no-cache build-base ca-certificates curl
 
 # Alpine 3.23 currently ships zlib 1.3.2-r0, which contains the
 # CVE-2026-85091 non-blocking gzwrite overflow. Build the upstream fix at an
@@ -72,8 +79,13 @@ ENV PYTHONUNBUFFERED=1 \
 # Upgrade the pinned Alpine branch before installing libmagic. Renovate keeps
 # the language and distro tag current while the package manager takes security
 # updates from that same stable branch.
+#
+# `file` is unpinned for the same reason as the builder's packages above: the
+# upgrade on this line already takes whatever the branch currently ships, and an
+# exact pin on the next line only adds a way for the build to stop resolving.
+# hadolint ignore=DL3018
 RUN apk upgrade --no-cache \
- && apk add --no-cache file=5.46-r2 \
+ && apk add --no-cache file \
  && addgroup -S -g 10001 doom \
  && adduser -S -u 10001 -G doom -H -D -s /sbin/nologin doom
 
