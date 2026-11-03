@@ -227,6 +227,33 @@ jobs:
           sarif_file: ${{ steps.grype_clamav.outputs.sarif }}
           category: 'grype-sbom-scan-clamav'
 
+      # The findings otherwise exist only as SARIF in the Security tab; the log of
+      # a red run says nothing but "Failed minimum severity level". Print them
+      # where the failure is, so it can be read - and acted on - from the run.
+      - name: List grype's HIGH and CRITICAL findings in the log
+        if: always() && steps.changes.outputs.relevant == 'true'
+        env:
+          APP_SARIF: ${{ steps.grype_app.outputs.sarif }}
+          CLAMAV_SARIF: ${{ steps.grype_clamav.outputs.sarif }}
+        run: |
+          python3 - <<'PY'
+          import collections, json, os
+          for label, var in (("app", "APP_SARIF"), ("clamav", "CLAMAV_SARIF")):
+              path = os.environ.get(var)
+              if not path or not os.path.isfile(path):
+                  print(f"{label}: no SARIF report - the scan did not run")
+                  continue
+              results = [r for run in json.load(open(path)).get("runs", [])
+                         for r in run.get("results", [])]
+              levels = dict(collections.Counter(r.get("level", "?") for r in results))
+              high = [r for r in results if r.get("level") == "error"]
+              print(f"::group::{label}: {len(high)} HIGH/CRITICAL of {len(results)} findings {levels}")
+              for r in sorted(high, key=lambda r: r.get("ruleId", "")):
+                  text = " ".join(r.get("message", {}).get("text", "").split())
+                  print(f"{r.get('ruleId')}: {text[:400]}")
+              print("::endgroup::")
+          PY
+
       # The two scan steps above always run when relevant (continue-on-error)
       # so both images get built, scanned and reported to the Security tab in
       # every run that touches them. This is what actually gates the job:
