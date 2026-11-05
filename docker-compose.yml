@@ -278,7 +278,7 @@ services:
   # defence in depth costs one flag here.
   # ---------------------------------------------------------------------------
   cache:
-    image: redis:8.10.1-alpine
+    image: redis:8.10.2-alpine
     restart: unless-stopped
     # requirepass lives in a mounted config file, not on the command line.
     # A command-line password is visible to anything that can read `ps` inside
