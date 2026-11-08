@@ -48,3 +48,13 @@ _Avoid_: Loose item, inbox item
 **Filing**:
 Giving one or more Unfiled Items a Location. Always optional and always deferrable.
 _Avoid_: Sorting, organizing
+
+**Put-away**:
+Filing by choosing the destination Location first, then Capturing or scanning Items into it. The main way Items get filed.
+_Avoid_: Drop, stocking
+
+### History
+
+**Movement**:
+One recorded change of an Item's Location or count. Filing and Put-away both produce Movements.
+_Avoid_: Transfer, transaction
