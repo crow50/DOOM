@@ -45,6 +45,10 @@ _Avoid_: Add, create, entry
 An Item that has been captured but has no Location yet. The in-app form of a Doom pile.
 _Avoid_: Loose item, inbox item
 
+**Bundle**:
+An Unfiled Item that stands for many things captured together, typically one photograph of a Doom pile, and is split into separate Items during Put-away.
+_Avoid_: Pile (reserved for the real-world Doom pile), batch, lot
+
 **Filing**:
 Giving one or more Unfiled Items a Location. Always optional and always deferrable.
 _Avoid_: Sorting, organizing
