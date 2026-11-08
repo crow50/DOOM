@@ -2,6 +2,8 @@
 
 A self-hosted inventory system for people with more sites, shelves and bins than memory. Capture is one action; deciding where things belong can wait.
 
+The name is deliberate irony. "Didn't Organize, Only Moved" is the dysfunction; D.O.O.M. turns moving things into organizing them, so the person organizes without it feeling like organizing.
+
 ## Language
 
 ### Places
