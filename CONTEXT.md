@@ -28,3 +28,21 @@ _Avoid_: Tote, crate (as separate terms)
 **Doom pile**:
 A heap of things left unfiled because deciding where each belongs is expensive, which migrates from table to chair to floor. The problem the product exists to remove.
 _Avoid_: Clutter, backlog
+
+### Items
+
+**Item**:
+A thing recorded in the system, kept in a Location or Unfiled. It needs a name or a photo, and nothing else.
+_Avoid_: Asset, product
+
+**Capture**:
+Recording an Item in a single action, typically one photograph, with naming, counting and Filing all deferred.
+_Avoid_: Add, create, entry
+
+**Unfiled Item**:
+An Item that has been captured but has no Location yet. The in-app form of a Doom pile.
+_Avoid_: Loose item, inbox item
+
+**Filing**:
+Giving one or more Unfiled Items a Location. Always optional and always deferrable.
+_Avoid_: Sorting, organizing
