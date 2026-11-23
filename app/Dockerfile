@@ -2,7 +2,7 @@
 # Build stage - compilers and headers live here and never reach the runtime
 # image, so the shipped container has a much smaller attack surface.
 # ---------------------------------------------------------------------------
-FROM python:3.14.7-alpine3.23@sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d AS builder
+FROM python:3.15.2-alpine3.23@sha256:32f06114a111c2467804d06194c5584f16804a78cfaf427fb1fcbb0b3391d0f1 AS builder
 
 ARG ZLIB_COMMIT=df84af25dc1942490e1d1c899a07619152a46148
 ARG ZLIB_SOURCE_SHA256=03a76732cfaa124c58b67600699d935d081604385c03aa282f81a101b7536161
@@ -60,7 +60,7 @@ RUN cp -a /opt/venv /opt/venv-test \
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-FROM python:3.14.7-alpine3.23@sha256:218761489de417a6eb0808e264cbdd7043ec6659fe5a61898815e9848536541d AS runtime
+FROM python:3.15.2-alpine3.23@sha256:32f06114a111c2467804d06194c5584f16804a78cfaf427fb1fcbb0b3391d0f1 AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
